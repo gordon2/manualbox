@@ -88,6 +88,19 @@ var (
 		VersionArgs: []string{"-v"},
 		Install:     popplerInstall,
 	}
+	// PDFToHTML is listed separately from pdftotext because it answers a question
+	// pdftotext cannot. Only its XML output carries font size, family and weight,
+	// and those are what separate a heading from a paragraph. Measured on the
+	// fixture's English section: body text is 11pt regular at 58% of characters,
+	// while 17pt *regular* is safety body copy at another 15% — so a
+	// "larger than body means heading" rule promotes prose. Weight is the
+	// discriminator, and pdftotext does not report it.
+	PDFToHTML = Tool{
+		Name:        "pdftohtml",
+		Purpose:     "read font size and weight, which is how headings are found",
+		VersionArgs: []string{"-v"},
+		Install:     popplerInstall,
+	}
 	Tesseract = Tool{
 		Name:        "tesseract",
 		Purpose:     "OCR scanned manuals and phone photos",
@@ -108,7 +121,7 @@ var popplerInstall = map[string]string{
 
 // All is every tool manualbox may use, in doctor-report order.
 func All() []Tool {
-	return []Tool{PDFToText, PDFToPPM, PDFImages, PDFInfo, Tesseract}
+	return []Tool{PDFToText, PDFToHTML, PDFToPPM, PDFImages, PDFInfo, Tesseract}
 }
 
 // ErrNotFound is returned by [Require] when a tool is not installed.
