@@ -70,12 +70,19 @@ jobs:
         run: go test -race -shuffle=on -timeout 10m ./...
 
       - name: Verify generated code is current
+        env:
+          # setup-go pins GOTOOLCHAIN=local for reproducibility, but the tools
+          # module needs a newer Go than the main one — sqlc requires 1.26 while
+          # manualbox itself targets 1.25. Allowing an automatic toolchain fetch
+          # for this step only keeps the tested toolchain aligned with local
+          # development and confines the download to the codegen check.
+          GOTOOLCHAIN: auto
         run: |
           go -C tools build -o ../bin/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc
           ./bin/sqlc generate
           # sqlc output is committed, so a schema change without regenerating is a
-          # drift bug waiting to happen. Fail loudly instead.
-          if ! git diff --exit-code --stat internal/db/gen; then
+          # drift bug waiting to happen. Fail loudly, and show what drifted.
+          if ! git diff --exit-code internal/db/gen; then
             echo "::error::internal/db/gen is out of date — run 'make sqlc' and commit the result"
             exit 1
           fi
