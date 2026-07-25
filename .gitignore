@@ -37,3 +37,8 @@ coverage.html
 # scratch
 /tmp/
 /scratch/
+
+# Vite builds the SPA into internal/frontend/dist so it can be go:embed-ed.
+# The .gitkeep is committed so a fresh clone compiles before the UI is built.
+/internal/frontend/dist/*
+!/internal/frontend/dist/.gitkeep

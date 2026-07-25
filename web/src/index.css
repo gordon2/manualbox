@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/*
+ * A warm paper palette rather than the default cool grey: manualbox is a calm
+ * household tool that people open when something needs fixing, not an analytics
+ * dashboard. One muted accent keeps state colours (running, failed) legible
+ * without competing with it.
+ *
+ * @theme declares the light values and generates the utility classes. It must
+ * NOT be nested inside a media query — Tailwind hoists every @theme block to
+ * :root regardless of nesting, so a dark @theme silently overwrites the light
+ * one and the whole UI renders with dark tokens on a light background. Dark mode
+ * is therefore a plain CSS custom-property override below.
+ */
+@theme {
+  --color-paper: #faf8f4;
+  --color-paper-raised: #ffffff;
+  --color-ink: #1c1a17;
+  --color-ink-soft: #55504a;
+  --color-ink-faint: #8a837a;
+  --color-rule: #e6e1d8;
+  --color-accent: #2f6f5e;
+  --color-accent-soft: #e8f0ed;
+  --color-danger: #a8412c;
+  --color-danger-soft: #f8ebe7;
+  --color-warn: #8a6209;
+
+  --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Plain custom-property overrides, so the same utilities resolve to dark values. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #161513;
+    --color-paper-raised: #201e1b;
+    --color-ink: #f0ece5;
+    --color-ink-soft: #b8b1a7;
+    --color-ink-faint: #857e74;
+    --color-rule: #322e29;
+    --color-accent: #7fc0ab;
+    --color-accent-soft: #1e2f2a;
+    --color-danger: #e08a72;
+    --color-danger-soft: #2e1f1b;
+    --color-warn: #d9ab53;
+  }
+}
+
+/* The accent is dark enough for white text in light mode, but the dark-mode
+   accent is a light mint — white on it would be unreadable, so primary buttons
+   take dark ink there instead. */
+@media (prefers-color-scheme: dark) {
+  .bg-accent {
+    color: #161513;
+  }
+}
+
+/* Visible focus for keyboard users, since the default ring is lost on the
+   warm background. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

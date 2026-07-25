@@ -4,7 +4,20 @@
 
 Self-hosted. Free. MIT. Single binary, SQLite, no external services required, and **no API key needed** to get real value out of it.
 
-> ⚠️ Early development. M0 (skeleton) is in progress — see [Roadmap](#roadmap).
+> ⚠️ Early development. The server runs, you can create an account and sign in, and background
+> jobs report live progress — but **you cannot add devices or manuals yet**. That is M1. See the
+> [Roadmap](#roadmap).
+
+## Try it
+
+```sh
+git clone https://github.com/gordon2/manualbox.git && cd manualbox
+make web-install && make build
+./bin/manualbox doctor      # what is configured, and which optional tools are present
+./bin/manualbox serve       # then open http://localhost:7745 and create your account
+```
+
+No configuration, no API key, and no network access required.
 
 ---
 
@@ -48,7 +61,7 @@ Then it gets out of the way: notifications where you already look, and a calenda
 
 | | |
 |---|---|
-| **M0** | Skeleton: config, SQLite + migrations, blob store, job queue, auth, API, frontend shell, Docker, CI |
+| **M0** | Skeleton: config, SQLite + migrations, blob store, job queue, auth, API, frontend shell, Docker, CI — *in progress: Docker and CI remain* |
 | **M1** | Registry, document pipeline (convert → language-segment → index), reader, full-text search, **export** |
 | **M2** | Maintenance: schedules, battery charge cycles, service log, notifications, ICS calendar feed |
 | **M3** | Translation: per-block, glossary, translation memory, side-by-side, post-editing |

@@ -1,0 +1,445 @@
+openapi: 3.1.0
+
+info:
+  title: manualbox API
+  version: "0.1.0-m0"
+  description: |
+    The manualbox HTTP API.
+
+    This document is the written contract for the API. The TypeScript client types
+    in `web/src/api/types.ts` are maintained by hand against it — with ten
+    endpoints, a generator cost more than it saved (and pulled in a dependency
+    subtree with its own advisories). Revisit generation when M1 multiplies the
+    surface.
+
+    **Authentication.** Every endpoint except `/health`, `/setup`, and
+    `/auth/login` requires a session. The session cookie is `manualbox_session`
+    (HttpOnly, SameSite=Lax, Secure behind TLS). Scripts and the CLI may instead
+    send `Authorization: Bearer <token>`.
+
+    **CSRF.** State-changing requests carrying an `Origin` header that matches
+    neither the request host nor the configured base URL are rejected with 403
+    `cross_origin_blocked`. Requests with no `Origin` (curl, native clients) are
+    allowed, since there is no ambient cookie to abuse.
+
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: http://localhost:7745/api/v1
+    description: Local instance
+
+tags:
+  - name: system
+  - name: setup
+  - name: auth
+  - name: jobs
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness and readiness
+      description: Touches the database, so it fails when the database is unreachable.
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, schemaVersion]
+                properties:
+                  status: { type: string, examples: [ok] }
+                  version: { type: string }
+                  schemaVersion: { type: integer, description: Applied migration version }
+        "503":
+          description: The database is not reachable
+          $ref: "#/components/responses/Error"
+
+  /setup:
+    get:
+      tags: [setup]
+      summary: Whether first-run setup is still needed
+      security: []
+      responses:
+        "200":
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [needsSetup]
+                properties:
+                  needsSetup: { type: boolean }
+    post:
+      tags: [setup]
+      summary: Create the first administrator
+      description: |
+        Only succeeds while the instance has no users; afterwards it returns 409.
+        On success the new administrator is signed in and a session cookie is set,
+        so the first-run flow does not ask for the password twice.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10 }
+                displayName: { type: string, description: Defaults to the email address }
+      responses:
+        "201":
+          description: Administrator created and signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Setup already completed (`setup_complete`)
+          $ref: "#/components/responses/Error"
+        "422":
+          description: Weak password (`weak_password`) or invalid email (`invalid_email`)
+          $ref: "#/components/responses/Error"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in
+      description: |
+        Returns an identical error whether the address is unknown or the password
+        is wrong, and takes the same time in both cases, so registered addresses
+        cannot be enumerated.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Signed in; sets the session cookie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Wrong credentials (`invalid_credentials`)
+          $ref: "#/components/responses/Error"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Sign out, invalidating this session only
+      responses:
+        "204": { description: Signed out }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: The current user and session
+      responses:
+        "200":
+          description: Current identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  session: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/password:
+    post:
+      tags: [auth]
+      summary: Change the password
+      description: Revokes every session, including the caller's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 10 }
+      responses:
+        "204": { description: Changed; all sessions revoked }
+        "401":
+          description: Current password is wrong (`invalid_credentials`)
+          $ref: "#/components/responses/Error"
+        "422":
+          description: New password too weak (`weak_password`)
+          $ref: "#/components/responses/Error"
+
+  /instance:
+    get:
+      tags: [system]
+      summary: What this deployment can currently do
+      description: |
+        Lets the UI hide features with no configured provider rather than offering
+        a button that always fails. Never includes provider API keys — only
+        whether one is set.
+      responses:
+        "200":
+          description: Instance capabilities
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instance" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /jobs:
+    get:
+      tags: [jobs]
+      summary: Recent background jobs, newest first
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/JobState" }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: Bad `state` (`invalid_state`) or `limit` (`invalid_limit`)
+          $ref: "#/components/responses/Error"
+        "401": { $ref: "#/components/responses/Error" }
+
+  /jobs/events:
+    get:
+      tags: [jobs]
+      summary: Live job progress (Server-Sent Events)
+      description: |
+        Opens an SSE stream of `job` events. On connect the current queued and
+        running jobs are replayed, so a client joining mid-conversion sees state
+        immediately and a reconnect re-synchronises without bookkeeping.
+
+        Comment-only keepalives are sent every 25 seconds so idle proxies do not
+        close a quiet stream.
+      responses:
+        "200":
+          description: An event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+              example: |
+                event: job
+                data: {"jobId":"job_01JQ…","kind":"translate","state":"running","progress":0.67,"note":"translating section 2 of 3","at":"2026-07-25T11:32:19.699Z"}
+        "401": { $ref: "#/components/responses/Error" }
+
+  /jobs/{jobID}:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema: { type: string, examples: [job_01JQ8ZK3M4N5P6R7S8T9V0W1X2] }
+    get:
+      tags: [jobs]
+      summary: One job
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /jobs/{jobID}/cancel:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [jobs]
+      summary: Cancel a queued or running job
+      description: |
+        A running handler is not killed; it observes cancellation at its next
+        progress report. Interrupting a handler mid-write could leave a document
+        half-converted, so cancellation is cooperative.
+      responses:
+        "204": { description: Cancelled }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Already finished (`not_cancellable`)
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: manualbox_session
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: The same session token, for scripts and the CLI.
+
+  responses:
+    Error:
+      description: A failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      description: The single error shape every failing endpoint returns.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable, machine-readable; safe to branch on.
+              examples: [invalid_credentials, not_found, weak_password]
+            message:
+              type: string
+              description: Human-readable; not stable, do not branch on it.
+
+    User:
+      type: object
+      required: [id, email, displayName, role, createdAt]
+      properties:
+        id: { type: string, examples: [usr_01JQ8ZK3M4N5P6R7S8T9V0W1X2] }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { type: string, enum: [admin, member, viewer] }
+        createdAt: { type: string, format: date-time }
+        lastLoginAt: { type: string, format: date-time }
+
+    Session:
+      type: object
+      required: [id, userId, createdAt, lastSeenAt, expiresAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        expiresAt:
+          type: string
+          format: date-time
+          description: Slides forward on use, so day-to-day use never forces a re-login.
+
+    JobState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+
+    Job:
+      type: object
+      required: [id, kind, state, progress, attempts, maxAttempts, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          description: What the job does.
+          examples: [convert, ocr, translate, extract]
+        state: { $ref: "#/components/schemas/JobState" }
+        priority: { type: integer, description: Higher runs first. }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        progressNote: { type: string, examples: ["translating section 2 of 3"] }
+        attempts: { type: integer }
+        maxAttempts: { type: integer }
+        lastError: { type: string }
+        tokensIn: { type: integer, description: Provider input tokens consumed. }
+        tokensOut: { type: integer }
+        costMicros:
+          type: integer
+          description: Provider cost in millionths of a currency unit, to keep money out of floats.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+
+    JobEvent:
+      type: object
+      description: One frame of the SSE job stream.
+      required: [jobId, kind, state, progress, at]
+      properties:
+        jobId: { type: string }
+        kind: { type: string }
+        state: { $ref: "#/components/schemas/JobState" }
+        progress: { type: number }
+        note: { type: string }
+        error: { type: string }
+        at: { type: string, format: date-time }
+
+    ProviderInfo:
+      type: object
+      description: A configured adapter. Never carries the API key itself.
+      required: [kind, model, enabled, hasAPIKey]
+      properties:
+        kind: { type: string, examples: [poppler, tesseract, claude, ollama, deepl] }
+        model: { type: string }
+        enabled: { type: boolean, description: False means the feature is switched off. }
+        hasAPIKey: { type: boolean }
+
+    ExternalTool:
+      type: object
+      required: [available, version, purpose, install]
+      properties:
+        available: { type: boolean }
+        version: { type: string }
+        purpose: { type: string }
+        install: { type: string, description: Platform-specific install hint. }
+
+    Instance:
+      type: object
+      required: [version, languages, primaryLanguage, capabilities, providers, externalTools]
+      properties:
+        version: { type: string }
+        languages:
+          type: array
+          items: { type: string }
+          description: BCP-47 reading languages, most preferred first.
+        primaryLanguage: { type: string }
+        capabilities:
+          type: object
+          properties:
+            convert: { type: boolean }
+            ocr: { type: boolean }
+            translate: { type: boolean }
+            extract: { type: boolean }
+        providers:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ProviderInfo" }
+        externalTools:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ExternalTool" }
+
+security:
+  - sessionCookie: []
+  - bearerToken: []

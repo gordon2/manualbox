@@ -7,15 +7,25 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
+	"golang.org/x/sync/errgroup"
+
+	"github.com/gordon2/manualbox/internal/api"
+	"github.com/gordon2/manualbox/internal/auth"
 	"github.com/gordon2/manualbox/internal/config"
+	"github.com/gordon2/manualbox/internal/db"
 	"github.com/gordon2/manualbox/internal/extern"
+	"github.com/gordon2/manualbox/internal/jobs"
 	"github.com/gordon2/manualbox/internal/logging"
+	"github.com/gordon2/manualbox/internal/store"
 )
 
 // Set via -ldflags at build time.
@@ -105,7 +115,6 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-
 	if err := ensureDataDir(cfg); err != nil {
 		return err
 	}
@@ -119,10 +128,117 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		"languages", cfg.Content.Languages,
 	)
 
-	// TODO(M0): open the database, run migrations, start the job workers, and
-	// serve the API. Wired up in the "HTTP API skeleton" step.
-	_ = ctx
-	return errors.New("serve is not wired up yet — the HTTP server lands in the next M0 step")
+	database, err := db.Open(ctx, db.Options{
+		Path:        cfg.DBPath(),
+		Logger:      log,
+		BusyTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = database.Close() }()
+
+	blobs, err := store.New(cfg.BlobDir())
+	if err != nil {
+		return err
+	}
+	// Reclaim any upload interrupted by a previous crash.
+	if err := blobs.CleanTemp(); err != nil {
+		log.Warn("cleaning leftover uploads failed", "error", err)
+	}
+
+	authService := auth.New(database, auth.Options{Logger: log})
+	queue := jobs.NewQueue(database, log)
+	defer queue.Broker().Close()
+
+	pool := jobs.NewPool(queue, cfg.Jobs, log)
+	// M1 registers the real conversion, OCR, translation, and extraction
+	// handlers here. Until then the pool runs with none, and a job of an unknown
+	// kind fails with a clear message rather than hanging.
+
+	server := api.New(api.Deps{
+		Config:  cfg,
+		DB:      database,
+		Store:   blobs,
+		Auth:    authService,
+		Jobs:    queue,
+		Logger:  log,
+		Version: version,
+	})
+
+	httpServer := &http.Server{
+		Addr:         cfg.Server.Addr,
+		Handler:      server.Handler(),
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		// A long header timeout is pointless; a slow-header client is a slowloris.
+		ReadHeaderTimeout: 20 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
+
+	// Workers, the session sweeper, and the HTTP server all stop when ctx is
+	// cancelled; errgroup propagates whichever fails first.
+	group, groupCtx := errgroup.WithContext(ctx)
+
+	group.Go(func() error {
+		return pool.Run(groupCtx)
+	})
+
+	group.Go(func() error {
+		sweepSessions(groupCtx, authService, log)
+		return nil
+	})
+
+	group.Go(func() error {
+		if needs, err := authService.NeedsSetup(groupCtx); err == nil && needs {
+			log.Info("no users yet — open the base URL to create the first account", "url", cfg.Server.BaseURL)
+		}
+		log.Info("listening", "addr", cfg.Server.Addr, "url", cfg.Server.BaseURL)
+
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("http server: %w", err)
+		}
+		return nil
+	})
+
+	group.Go(func() error {
+		<-groupCtx.Done()
+		log.Info("shutting down")
+		// Give in-flight requests a moment to finish. WithoutCancel is required:
+		// groupCtx is already cancelled, so a derived context would expire at once
+		// and turn a graceful shutdown into an immediate close.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(shutdownCtx)
+	})
+
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	log.Info("stopped cleanly")
+	return nil
+}
+
+// sweepSessions deletes expired sessions periodically.
+func sweepSessions(ctx context.Context, a *auth.Service, log *slog.Logger) {
+	// Run once at startup so a long downtime does not leave stale rows around.
+	if _, err := a.SweepExpiredSessions(ctx); err != nil && ctx.Err() == nil {
+		log.Warn("sweeping expired sessions failed", "error", err)
+	}
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := a.SweepExpiredSessions(ctx); err != nil && ctx.Err() == nil {
+				log.Warn("sweeping expired sessions failed", "error", err)
+			}
+		}
+	}
 }
 
 func cmdDoctor(ctx context.Context, args []string, stdout io.Writer) error {
