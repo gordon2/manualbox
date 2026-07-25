@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -94,6 +95,9 @@ Commands:
 Flags (serve, doctor):
   -config <path>   Path to a YAML config file (default: ./config.yaml if present)
 
+Flags (doctor):
+  -redact          Replace your home directory with ~, for pasting into a bug report
+
 Configuration comes from defaults, then the config file, then MANUALBOX_*
 environment variables. Run "manualbox doctor" to see what was resolved.
 `)
@@ -101,13 +105,55 @@ environment variables. Run "manualbox doctor" to see what was resolved.
 
 // loadConfig applies the -config flag shared by serve and doctor.
 func loadConfig(args []string, stderr io.Writer, name string) (config.Config, error) {
+	return loadConfigWithFlags(args, stderr, name, nil)
+}
+
+// loadConfigWithFlags parses the shared -config flag plus any command-specific
+// flags registered by extra, which captures its own flag values by closure.
+func loadConfigWithFlags(args []string, stderr io.Writer, name string, extra func(*flag.FlagSet)) (config.Config, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "path to a YAML config file")
+	if extra != nil {
+		extra(fs)
+	}
 	if err := fs.Parse(args); err != nil {
 		return config.Config{}, err
 	}
 	return config.Load(*path)
+}
+
+// redactor rewrites paths that would identify the person running manualbox.
+//
+// doctor output is the natural thing to paste into a bug report, and absolute
+// paths carry the operating-system username. Replacing the home directory with ~
+// keeps the output useful for diagnosis while removing the part that identifies
+// whose machine it came from.
+type redactor struct{ home string }
+
+func newRedactor(enabled bool) redactor {
+	if !enabled {
+		return redactor{}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return redactor{}
+	}
+	return redactor{home: home}
+}
+
+func (r redactor) path(p string) string {
+	if r.home == "" {
+		return p
+	}
+	if after, ok := strings.CutPrefix(p, r.home); ok {
+		return "~" + after
+	}
+	// Temporary directories leak the username on some platforms too.
+	if i := strings.Index(p, "/var/folders/"); i >= 0 {
+		return "«tmp»" + p[strings.LastIndex(p, "/"):]
+	}
+	return p
 }
 
 func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -242,10 +288,14 @@ func sweepSessions(ctx context.Context, a *auth.Service, log *slog.Logger) {
 }
 
 func cmdDoctor(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, err := loadConfig(args, stdout, "doctor")
+	var redact *bool
+	cfg, err := loadConfigWithFlags(args, stdout, "doctor", func(fs *flag.FlagSet) {
+		redact = fs.Bool("redact", false, "replace your home directory with ~ so the output is safe to paste into a bug report")
+	})
 	if err != nil {
 		return err
 	}
+	r := newRedactor(redact != nil && *redact)
 
 	fmt.Fprintf(stdout, "manualbox %s (%s)\n\n", version, commit)
 
@@ -265,9 +315,9 @@ func cmdDoctor(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	section("Configuration", func(w io.Writer) {
-		fmt.Fprintf(w, "  data dir\t%s\t%s\n", cfg.Server.DataDir, dataDirNote)
-		fmt.Fprintf(w, "  database\t%s\t\n", cfg.DBPath())
-		fmt.Fprintf(w, "  blobs\t%s\t\n", cfg.BlobDir())
+		fmt.Fprintf(w, "  data dir\t%s\t%s\n", r.path(cfg.Server.DataDir), dataDirNote)
+		fmt.Fprintf(w, "  database\t%s\t\n", r.path(cfg.DBPath()))
+		fmt.Fprintf(w, "  blobs\t%s\t\n", r.path(cfg.BlobDir()))
 		fmt.Fprintf(w, "  listen\t%s\t\n", cfg.Server.Addr)
 		fmt.Fprintf(w, "  base url\t%s\t\n", cfg.Server.BaseURL)
 		fmt.Fprintf(w, "  languages\t%s\t\n", join(cfg.Content.Languages))

@@ -130,7 +130,7 @@ func decode(t *testing.T, resp *http.Response) map[string]any {
 func (h *harness) completeSetup(t *testing.T) {
 	t.Helper()
 	resp := h.do(t, http.MethodPost, "/api/v1/setup", map[string]string{
-		"email": "dmytro@example.com", "password": testPassword, "displayName": "Dmytro",
+		"email": "owner@example.com", "password": testPassword, "displayName": "Test Owner",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("setup returned %d, want 201", resp.StatusCode)
@@ -178,7 +178,7 @@ func TestSetupFlow(t *testing.T) {
 	}
 	body := decode(t, resp)
 	user, _ := body["user"].(map[string]any)
-	if user["email"] != "dmytro@example.com" {
+	if user["email"] != "owner@example.com" {
 		t.Errorf("user = %v", user)
 	}
 	if user["role"] != "admin" {
@@ -254,7 +254,7 @@ func TestLogin(t *testing.T) {
 	h.client.Jar = &cookieJar{}
 
 	resp := h.do(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"email": "dmytro@example.com", "password": testPassword,
+		"email": "owner@example.com", "password": testPassword,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("login returned %d, want 200", resp.StatusCode)
@@ -276,7 +276,7 @@ func TestLoginFailureIsIndistinguishable(t *testing.T) {
 		"email": "nobody@example.com", "password": testPassword,
 	})
 	wrong := h.do(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"email": "dmytro@example.com", "password": "definitely wrong",
+		"email": "owner@example.com", "password": "definitely wrong",
 	})
 
 	if unknown.StatusCode != http.StatusUnauthorized || wrong.StatusCode != http.StatusUnauthorized {
@@ -308,7 +308,7 @@ func TestSessionCookieIsHardened(t *testing.T) {
 	h := newHarness(t)
 
 	resp := h.do(t, http.MethodPost, "/api/v1/setup", map[string]string{
-		"email": "dmytro@example.com", "password": testPassword,
+		"email": "owner@example.com", "password": testPassword,
 	})
 	defer resp.Body.Close()
 
@@ -339,7 +339,7 @@ func TestBearerTokenAuthWorks(t *testing.T) {
 	h.completeSetup(t)
 
 	// A script or the CLI should be able to authenticate without cookie handling.
-	token, _, err := h.auth.Login(context.Background(), "dmytro@example.com", testPassword, "cli", "")
+	token, _, err := h.auth.Login(context.Background(), "owner@example.com", testPassword, "cli", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}

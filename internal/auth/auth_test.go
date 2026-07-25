@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func newService(t *testing.T) *Service {
 // setup creates the first admin and returns it.
 func setup(t *testing.T, s *Service) *User {
 	t.Helper()
-	u, err := s.Setup(context.Background(), "dmytro@example.com", goodPassword, "Dmytro")
+	u, err := s.Setup(context.Background(), "owner@example.com", goodPassword, "Test Owner")
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -162,7 +163,7 @@ func TestNeedsSetupAndSetup(t *testing.T) {
 	if !user.IsAdmin() {
 		t.Error("IsAdmin should be true for the first user")
 	}
-	if user.DisplayName != "Dmytro" {
+	if user.DisplayName != "Test Owner" {
 		t.Errorf("DisplayName = %q", user.DisplayName)
 	}
 
@@ -232,7 +233,7 @@ func TestLoginSuccess(t *testing.T) {
 	ctx := context.Background()
 	created := setup(t, s)
 
-	token, user, err := s.Login(ctx, "dmytro@example.com", goodPassword, "test-agent", "192.0.2.1")
+	token, user, err := s.Login(ctx, "owner@example.com", goodPassword, "test-agent", "192.0.2.1")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -260,7 +261,7 @@ func TestLoginIsCaseInsensitiveOnEmail(t *testing.T) {
 	setup(t, s)
 
 	// Someone typing their address with different capitalisation should get in.
-	if _, _, err := s.Login(context.Background(), "DMYTRO@Example.COM", goodPassword, "", ""); err != nil {
+	if _, _, err := s.Login(context.Background(), "OWNER@Example.COM", goodPassword, "", ""); err != nil {
 		t.Errorf("login with differently-cased email failed: %v", err)
 	}
 }
@@ -273,7 +274,7 @@ func TestLoginDoesNotRevealAccountExistence(t *testing.T) {
 	setup(t, s)
 
 	_, _, unknownErr := s.Login(ctx, "nobody@example.com", goodPassword, "", "")
-	_, _, wrongErr := s.Login(ctx, "dmytro@example.com", "wrong-password-entirely", "", "")
+	_, _, wrongErr := s.Login(ctx, "owner@example.com", "wrong-password-entirely", "", "")
 
 	if !errors.Is(unknownErr, ErrInvalidCredentials) {
 		t.Errorf("unknown account error = %v, want ErrInvalidCredentials", unknownErr)
@@ -291,7 +292,7 @@ func TestLoginFailureIssuesNoSession(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	token, user, err := s.Login(ctx, "dmytro@example.com", "wrong", "", "")
+	token, user, err := s.Login(ctx, "owner@example.com", "wrong", "", "")
 	if err == nil {
 		t.Fatal("login with a wrong password should fail")
 	}
@@ -324,7 +325,7 @@ func TestRawTokenIsNotStored(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	token, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", "")
+	token, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestExpiredSessionDoesNotAuthenticate(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	token, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", "")
+	token, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestSessionExpirySlidesForward(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	token, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", "")
+	token, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -407,7 +408,7 @@ func TestLogout(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	token, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", "")
+	token, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -432,11 +433,11 @@ func TestSessionsAreIndependent(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	phone, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "phone", "")
+	phone, _, err := s.Login(ctx, "owner@example.com", goodPassword, "phone", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	laptop, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "laptop", "")
+	laptop, _, err := s.Login(ctx, "owner@example.com", goodPassword, "laptop", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -458,7 +459,7 @@ func TestSweepExpiredSessions(t *testing.T) {
 	ctx := context.Background()
 	setup(t, s)
 
-	if _, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", ""); err != nil {
+	if _, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", ""); err != nil {
 		t.Fatalf("Login: %v", err)
 	}
 
@@ -480,7 +481,7 @@ func TestChangePasswordRevokesOtherSessions(t *testing.T) {
 	ctx := context.Background()
 	user := setup(t, s)
 
-	stolen, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "attacker", "")
+	stolen, _, err := s.Login(ctx, "owner@example.com", goodPassword, "attacker", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -496,10 +497,10 @@ func TestChangePasswordRevokesOtherSessions(t *testing.T) {
 		t.Errorf("a pre-existing session survived a password change; error = %v", err)
 	}
 
-	if _, _, err := s.Login(ctx, "dmytro@example.com", newPassword, "", ""); err != nil {
+	if _, _, err := s.Login(ctx, "owner@example.com", newPassword, "", ""); err != nil {
 		t.Errorf("login with the new password failed: %v", err)
 	}
-	if _, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", ""); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", ""); !errors.Is(err, ErrInvalidCredentials) {
 		t.Error("the old password still works after a change")
 	}
 }
@@ -514,7 +515,7 @@ func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
 		t.Errorf("error = %v, want ErrInvalidCredentials", err)
 	}
 	// The original password must still work.
-	if _, _, err := s.Login(ctx, "dmytro@example.com", goodPassword, "", ""); err != nil {
+	if _, _, err := s.Login(ctx, "owner@example.com", goodPassword, "", ""); err != nil {
 		t.Errorf("original password stopped working after a rejected change: %v", err)
 	}
 }
@@ -550,4 +551,40 @@ func mustHashWithParams(t *testing.T, password string, memory, iterations uint32
 	digest := argon2.IDKey([]byte(password), salt, iterations, memory, lanes, argonKeyLen)
 	enc := base64.RawStdEncoding
 	return enc.EncodeToString(salt) + "$" + enc.EncodeToString(digest)
+}
+
+// TestFailedLoginDoesNotLogTheAddress guards a leak path that is easy to
+// reintroduce: logs get pasted into bug reports and shipped to log services, so a
+// failed login must not record who was being attacked in plaintext.
+func TestFailedLoginDoesNotLogTheAddress(t *testing.T) {
+	var buf strings.Builder
+	d, err := db.Open(context.Background(), db.Options{Path: filepath.Join(t.TempDir(), "auth.db")})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+
+	s := New(d, Options{Logger: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))})
+	setup(t, s)
+
+	if _, _, err := s.Login(context.Background(), "owner@example.com", "wrong password entirely", "", "203.0.113.7"); err == nil {
+		t.Fatal("expected the login to fail")
+	}
+
+	logged := buf.String()
+	if logged == "" {
+		t.Fatal("nothing was logged; the test cannot verify anything")
+	}
+	for _, secret := range []string{"owner@example.com", "owner", "example.com"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("the log contains %q:\n%s", secret, logged)
+		}
+	}
+	// It must still be diagnosable: same account, same fingerprint.
+	if !strings.Contains(logged, fingerprint("owner@example.com")) {
+		t.Errorf("the log should carry a stable account fingerprint:\n%s", logged)
+	}
+	if !strings.Contains(logged, "203.0.113.7") {
+		t.Errorf("the log should keep the source IP for diagnosis:\n%s", logged)
+	}
 }

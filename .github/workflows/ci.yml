@@ -49,6 +49,47 @@ jobs:
           /tmp/manualbox version
           /tmp/manualbox doctor
 
+  # This repository is public and meant to be picked up by other people. Personal
+  # data must never land in it — not just for privacy, but so it reads as a clean
+  # project rather than someone's private inventory. Cheap grep, catches the ways
+  # it actually happens.
+  hygiene:
+    name: No personal data in the repo
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Absolute home paths (they carry an OS username)
+        run: |
+          if git grep -nIE '/Users/[a-z]+|/home/[a-z]+/|C:\\\\Users' -- . ':!deploy/Dockerfile' ':!docs/**'; then
+            echo "::error::an absolute home directory path is committed; it identifies whose machine it came from"
+            exit 1
+          fi
+
+      - name: Email addresses outside the reserved example domains
+        run: |
+          if git grep -hIoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' -- . \
+             | grep -viE 'example\.(com|org|net)|@users\.noreply\.github\.com|noreply@|anthropic\.com|githubcopilot\.com|@v[0-9]' \
+             | sort -u | grep .; then
+            echo "::error::a real-looking email address is committed; use an example.com address (RFC 2606)"
+            exit 1
+          fi
+
+      - name: Committed database or archive files
+        run: |
+          if git ls-files | grep -iE '\.(db|db-wal|db-shm|sqlite3?)$|^data/'; then
+            echo "::error::a database or data directory is committed"
+            exit 1
+          fi
+
+      - name: Committed PDFs or images that could be someone's documents
+        run: |
+          if git ls-files | grep -iE '\.(pdf|jpg|jpeg|heic)$'; then
+            echo "::error::a document or photo is committed; fixtures must be manifests (see docs/design/privacy.md)"
+            exit 1
+          fi
+
   go:
     name: Go tests and lint
     runs-on: ubuntu-latest

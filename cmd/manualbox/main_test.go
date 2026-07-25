@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,5 +111,40 @@ func TestRunDoctorBadConfigPathFails(t *testing.T) {
 	err := run(context.Background(), []string{"doctor", "-config", filepath.Join(t.TempDir(), "missing.yaml")}, &out, &errOut)
 	if err == nil {
 		t.Fatal("an explicit missing config path should fail")
+	}
+}
+
+// TestDoctorRedactsTheHomeDirectory covers a leak path that is easy to forget:
+// doctor output is the natural thing to paste into a public bug report, and an
+// absolute path carries the operating-system username.
+func TestDoctorRedactsTheHomeDirectory(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory on this platform")
+	}
+	dataDir := filepath.Join(home, ".manualbox-redaction-test", "data")
+	t.Cleanup(func() { os.RemoveAll(filepath.Join(home, ".manualbox-redaction-test")) })
+
+	t.Chdir(t.TempDir())
+	t.Setenv("MANUALBOX_DATA_DIR", dataDir)
+
+	var plain, redacted strings.Builder
+	if err := run(context.Background(), []string{"doctor"}, &plain, &plain); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if err := run(context.Background(), []string{"doctor", "-redact"}, &redacted, &redacted); err != nil {
+		t.Fatalf("doctor -redact: %v", err)
+	}
+
+	// Without the flag the real path is shown, which is what an operator wants.
+	if !strings.Contains(plain.String(), home) {
+		t.Errorf("plain doctor output should show the real path")
+	}
+	// With it, the identifying part is gone but the output stays useful.
+	if strings.Contains(redacted.String(), home) {
+		t.Errorf("redacted output still contains the home directory %q:\n%s", home, redacted.String())
+	}
+	if !strings.Contains(redacted.String(), "~/.manualbox-redaction-test") {
+		t.Errorf("redacted output should keep the path shape under ~:\n%s", redacted.String())
 	}
 }

@@ -37,9 +37,9 @@ func TestUserQueries(t *testing.T) {
 	now := Now()
 	created, err := q.CreateUser(ctx, gen.CreateUserParams{
 		ID:           id.New(id.User),
-		Email:        "Dmytro@Example.com",
-		EmailFolded:  "dmytro@example.com",
-		DisplayName:  "Dmytro",
+		Email:        "Owner@Example.com",
+		EmailFolded:  "owner@example.com",
+		DisplayName:  "Test Owner",
 		PasswordHash: "argon2id$fake",
 		Role:         "admin",
 		CreatedAt:    now,
@@ -48,7 +48,7 @@ func TestUserQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if created.Email != "Dmytro@Example.com" {
+	if created.Email != "Owner@Example.com" {
 		t.Errorf("Email = %q, want the original casing preserved for display", created.Email)
 	}
 	if created.LastLoginAt != nil {
@@ -56,7 +56,7 @@ func TestUserQueries(t *testing.T) {
 	}
 
 	// Lookup is by folded address, so case differences resolve to one account.
-	got, err := q.GetUserByEmail(ctx, "dmytro@example.com")
+	got, err := q.GetUserByEmail(ctx, "owner@example.com")
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
 	}
@@ -67,8 +67,8 @@ func TestUserQueries(t *testing.T) {
 	// The unique index must reject a second account for the same folded address.
 	_, err = q.CreateUser(ctx, gen.CreateUserParams{
 		ID:           id.New(id.User),
-		Email:        "DMYTRO@EXAMPLE.COM",
-		EmailFolded:  "dmytro@example.com",
+		Email:        "OWNER@EXAMPLE.COM",
+		EmailFolded:  "owner@example.com",
 		PasswordHash: "x",
 		Role:         "member",
 		CreatedAt:    now,

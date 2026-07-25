@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -166,7 +167,7 @@ func (s *Service) Setup(ctx context.Context, email, password, displayName string
 		return nil, fmt.Errorf("auth: create first user: %w", err)
 	}
 
-	s.log.Info("first-run setup completed", "user", row.ID, "email", row.Email)
+	s.log.Info("first-run setup completed", "user", row.ID, "account", fingerprint(strings.ToLower(row.Email)))
 	return userFromRow(row), nil
 }
 
@@ -202,7 +203,11 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		return "", nil, ErrInvalidCredentials
 	}
 	if !ok {
-		s.log.Warn("failed login attempt", "email", folded, "ip", ip)
+		// The account is identified by a fingerprint rather than its address.
+		// Repeated attempts on one account still correlate, but logs — which get
+		// pasted into bug reports and shipped to log services — carry no email
+		// address.
+		s.log.Warn("failed login attempt", "account", fingerprint(folded), "ip", ip)
 		return "", nil, ErrInvalidCredentials
 	}
 
@@ -370,6 +375,15 @@ func (s *Service) SweepExpiredSessions(ctx context.Context) (int64, error) {
 		s.log.Debug("swept expired sessions", "count", n)
 	}
 	return n, nil
+}
+
+// fingerprint returns a short, stable, non-reversible label for an email address,
+// for use in logs. It is deliberately truncated: enough to tell two accounts
+// apart and to spot repeated attempts against one, far too short to confirm a
+// guess against.
+func fingerprint(folded string) string {
+	sum := sha256.Sum256([]byte("manualbox-account-fingerprint:" + folded))
+	return hex.EncodeToString(sum[:4])
 }
 
 // ValidatePassword checks a password against the minimum policy.
