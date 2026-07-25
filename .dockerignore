@@ -1,0 +1,35 @@
+# Keep the build context small and prevent host artefacts leaking into the image.
+
+.git
+.github
+
+# Built output — the image builds its own.
+bin/
+dist/
+web/dist/
+web/node_modules/
+internal/frontend/dist/app/
+
+# Instance state. Copying a host database into an image would be a data leak.
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Local config and secrets.
+.env
+.env.local
+config.local.yaml
+config.yaml
+
+# Build tooling is not needed inside the image.
+tools/
+
+# Editors and scratch.
+.DS_Store
+.idea/
+.vscode/
+tmp/
+scratch/
+coverage.out
+coverage.html

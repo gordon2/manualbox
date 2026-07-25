@@ -150,6 +150,44 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 }
 
+// TestEnvVariableNames pins the exact environment variable each field reads.
+//
+// This exists because a wrong name fails silently: MANUALBOX_LOG_FORMAT=json was
+// documented in the Dockerfile and compose file while the code actually read
+// MANUALBOX_FORMAT, so JSON logging simply never happened and nothing complained.
+// Any rename now shows up here rather than in someone's log aggregator.
+func TestEnvVariableNames(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	for _, tc := range []struct {
+		env, value string
+		check      func(Config) string
+	}{
+		{"MANUALBOX_ADDR", ":1234", func(c Config) string { return c.Server.Addr }},
+		{"MANUALBOX_BASE_URL", "https://manuals.example.com", func(c Config) string { return c.Server.BaseURL }},
+		{"MANUALBOX_LANGUAGES", "de", func(c Config) string { return c.Content.Languages[0] }},
+		{"MANUALBOX_LOG_LEVEL", "debug", func(c Config) string { return c.Log.Level }},
+		{"MANUALBOX_LOG_FORMAT", "json", func(c Config) string { return c.Log.Format }},
+		{"MANUALBOX_TRANSLATE_KIND", "claude", func(c Config) string { return c.Providers.Translate.Kind }},
+		{"MANUALBOX_TRANSLATE_MODEL", "claude-sonnet-5", func(c Config) string { return c.Providers.Translate.Model }},
+		{"MANUALBOX_TRANSLATE_API_KEY", "sk-test", func(c Config) string { return c.Providers.Translate.APIKey.Reveal() }},
+		{"MANUALBOX_EXTRACT_KIND", "claude", func(c Config) string { return c.Providers.Extract.Kind }},
+		{"MANUALBOX_CONVERT_KIND", "vision", func(c Config) string { return c.Providers.Convert.Kind }},
+		{"MANUALBOX_OCR_KIND", "vision", func(c Config) string { return c.Providers.OCR.Kind }},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			t.Setenv(tc.env, tc.value)
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := tc.check(cfg); got != tc.value {
+				t.Errorf("%s=%q had no effect; field reads %q", tc.env, tc.value, got)
+			}
+		})
+	}
+}
+
 func TestNormalizeDedupesAndAbsolutizes(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("MANUALBOX_LANGUAGES", "de,de,en, uk ")

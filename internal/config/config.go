@@ -30,7 +30,9 @@ type Config struct {
 	Content   Content   `yaml:"content"`
 	Providers Providers `yaml:"providers"`
 	Jobs      Jobs      `yaml:"jobs"`
-	Log       Log       `yaml:"log"`
+	// LOG_ prefix: bare MANUALBOX_LEVEL and MANUALBOX_FORMAT would be ambiguous
+	// (level of what?), and MANUALBOX_LOG_LEVEL is what anyone would guess.
+	Log Log `yaml:"log" envPrefix:"LOG_"`
 }
 
 // Server holds HTTP and filesystem settings.

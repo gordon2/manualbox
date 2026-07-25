@@ -1,5 +1,8 @@
 # manualbox
 
+[![CI](https://github.com/gordon2/manualbox/actions/workflows/ci.yml/badge.svg)](https://github.com/gordon2/manualbox/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Your household's manuals — searchable, in your language, with the maintenance schedule already extracted.**
 
 Self-hosted. Free. MIT. Single binary, SQLite, no external services required, and **no API key needed** to get real value out of it.
@@ -10,14 +13,24 @@ Self-hosted. Free. MIT. Single binary, SQLite, no external services required, an
 
 ## Try it
 
+With Docker — nothing to install, poppler and tesseract included:
+
 ```sh
 git clone https://github.com/gordon2/manualbox.git && cd manualbox
-make web-install && make build
-./bin/manualbox doctor      # what is configured, and which optional tools are present
-./bin/manualbox serve       # then open http://localhost:7745 and create your account
+docker compose -f deploy/docker-compose.yml up -d
+# open http://localhost:7745 and create your account
 ```
 
-No configuration, no API key, and no network access required.
+Or from source (Go 1.25+, Node 22+):
+
+```sh
+make web-install && make build
+./bin/manualbox doctor      # what is configured, and which optional tools are present
+./bin/manualbox serve       # then open http://localhost:7745
+```
+
+No configuration, no API key, and no network access required. Everything lives in
+one directory (`/data` in the container) — that is the whole backup.
 
 ---
 

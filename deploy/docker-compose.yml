@@ -1,0 +1,67 @@
+# Minimal manualbox deployment: one container, one volume, no other services.
+#
+#   cp deploy/.env.example deploy/.env   # optional; sensible defaults apply
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Then open the port below and create your account.
+
+name: manualbox
+
+services:
+  manualbox:
+    build:
+      # The build context is the repository root so the Dockerfile can reach both
+      # the Go module and web/.
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        # Add OCR languages here, e.g. "eng deu ukr". Each adds a few megabytes.
+        TESSERACT_LANGS: ${MANUALBOX_TESSERACT_LANGS:-eng}
+    image: manualbox:local
+
+    # Published on 7745 by default. Bind to 127.0.0.1 if you are fronting this
+    # with a reverse proxy on the same host and do not want it reachable directly.
+    ports:
+      - "${MANUALBOX_PORT:-7745}:7745"
+
+    volumes:
+      # The SQLite database and the blob store — the whole state of the instance,
+      # and the only thing to back up. A named volume avoids host UID/permission
+      # friction; swap in a bind mount if you would rather see the files, and
+      # chown it to 10001:10001 to match the container user.
+      - manualbox-data:/data
+
+    environment:
+      # Reading languages, most preferred first. The first is the default for
+      # generated cheat sheets.
+      MANUALBOX_LANGUAGES: ${MANUALBOX_LANGUAGES:-en}
+      # Must match how you actually reach the instance: it is embedded in
+      # notifications and in the calendar feed, which are fetched from outside
+      # the container.
+      MANUALBOX_BASE_URL: ${MANUALBOX_BASE_URL:-http://localhost:7745}
+      # Enable only when a reverse proxy in front of this overwrites
+      # X-Forwarded-For; otherwise clients could forge their own address.
+      MANUALBOX_TRUST_PROXY: ${MANUALBOX_TRUST_PROXY:-false}
+      MANUALBOX_LOG_LEVEL: ${MANUALBOX_LOG_LEVEL:-info}
+
+      # AI providers are entirely optional — everything except translation and
+      # maintenance extraction works without them. Uncomment in deploy/.env.
+      MANUALBOX_TRANSLATE_KIND: ${MANUALBOX_TRANSLATE_KIND:-}
+      MANUALBOX_TRANSLATE_MODEL: ${MANUALBOX_TRANSLATE_MODEL:-}
+      MANUALBOX_TRANSLATE_API_KEY: ${MANUALBOX_TRANSLATE_API_KEY:-}
+      MANUALBOX_TRANSLATE_BASE_URL: ${MANUALBOX_TRANSLATE_BASE_URL:-}
+      MANUALBOX_EXTRACT_KIND: ${MANUALBOX_EXTRACT_KIND:-}
+      MANUALBOX_EXTRACT_MODEL: ${MANUALBOX_EXTRACT_MODEL:-}
+      MANUALBOX_EXTRACT_API_KEY: ${MANUALBOX_EXTRACT_API_KEY:-}
+      MANUALBOX_EXTRACT_BASE_URL: ${MANUALBOX_EXTRACT_BASE_URL:-}
+
+    restart: unless-stopped
+
+    # Nothing in the container needs to write outside /data, and it never needs
+    # new privileges.
+    read_only: false # SQLite needs a writable /data; the rest could be read-only later
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  manualbox-data:
