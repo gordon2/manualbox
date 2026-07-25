@@ -18,6 +18,8 @@ permissions:
 env:
   GO_VERSION: "1.25"
   NODE_VERSION: "22"
+  # Keep in step with the version pinned in tools/go.mod.
+  SQLC_VERSION: "1.31.1"
 
 jobs:
   # The single most valuable check in this workflow: build with no npm involved.
@@ -30,6 +32,7 @@ jobs:
   clean-build:
     name: Build without the frontend toolchain
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -49,6 +52,7 @@ jobs:
   go:
     name: Go tests and lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -69,19 +73,18 @@ jobs:
       - name: Tests with the race detector
         run: go test -race -shuffle=on -timeout 10m ./...
 
+      # sqlc output is committed, so a schema change without regenerating is a
+      # drift bug waiting to happen.
+      #
+      # Uses the published sqlc image rather than building from source. Compiling
+      # sqlc pulls in ClickHouse, the TiDB parser, and YDB drivers and takes
+      # minutes — the whole reason the tools module is separate is to keep that
+      # tree out of the build. It also needs a newer Go than manualbox targets,
+      # which fought setup-go's GOTOOLCHAIN=local. The image is pinned to the same
+      # version as tools/go.mod and produces byte-identical output.
       - name: Verify generated code is current
-        env:
-          # setup-go pins GOTOOLCHAIN=local for reproducibility, but the tools
-          # module needs a newer Go than the main one — sqlc requires 1.26 while
-          # manualbox itself targets 1.25. Allowing an automatic toolchain fetch
-          # for this step only keeps the tested toolchain aligned with local
-          # development and confines the download to the codegen check.
-          GOTOOLCHAIN: auto
         run: |
-          go -C tools build -o ../bin/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc
-          ./bin/sqlc generate
-          # sqlc output is committed, so a schema change without regenerating is a
-          # drift bug waiting to happen. Fail loudly, and show what drifted.
+          docker run --rm -v "$PWD":/src -w /src sqlc/sqlc:${{ env.SQLC_VERSION }} generate
           if ! git diff --exit-code internal/db/gen; then
             echo "::error::internal/db/gen is out of date — run 'make sqlc' and commit the result"
             exit 1
@@ -96,6 +99,7 @@ jobs:
   web:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -124,6 +128,7 @@ jobs:
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -144,7 +149,7 @@ jobs:
       - name: The image must serve the API and the embedded UI
         run: |
           docker run -d --name mb -p 7745:7745 manualbox:ci
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             curl -sf http://localhost:7745/api/v1/health >/dev/null && break
             sleep 1
           done
