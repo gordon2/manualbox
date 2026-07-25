@@ -101,8 +101,9 @@ Optional external binaries, used when present and degraded gracefully when not (
 | `tesseract` | OCR for scans and photos | `brew install tesseract tesseract-lang` |
 
 Design decisions, with the measurements behind them, are in `docs/design/`:
-[ingest](docs/design/ingest.md) · [providers](docs/design/providers.md) ·
-[privacy](docs/design/privacy.md) · [keys](docs/design/keys.md).
+[ingest](docs/design/ingest.md) · [language detection](docs/design/language-detection.md) ·
+[providers](docs/design/providers.md) · [privacy](docs/design/privacy.md) ·
+[keys](docs/design/keys.md).
 
 Conventions and the things that have already caused bugs here:
 [CONTRIBUTING.md](CONTRIBUTING.md).

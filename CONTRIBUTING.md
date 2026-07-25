@@ -86,6 +86,7 @@ measurements:
 | | |
 |---|---|
 | [ingest.md](docs/design/ingest.md) | How a 560-page, 34-language manual is reduced to the 16 pages you actually read, before any model is called |
+| [language-detection.md](docs/design/language-detection.md) | The four signals that say what language a page is in, what each one costs, and why the detector choice is deliberately still open |
 | [providers.md](docs/design/providers.md) | Why a subscription CLI or a local model comes before a metered API key, and why a CLI adapter must batch a whole document |
 | [privacy.md](docs/design/privacy.md) | What manualbox holds, ranked by how it actually leaks |
 | [keys.md](docs/design/keys.md) | Encryption keys: choosing, storing, and recovering them |
