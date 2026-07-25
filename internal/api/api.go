@@ -15,7 +15,9 @@ import (
 	"github.com/gordon2/manualbox/internal/config"
 	"github.com/gordon2/manualbox/internal/db"
 	"github.com/gordon2/manualbox/internal/frontend"
+	"github.com/gordon2/manualbox/internal/ingest"
 	"github.com/gordon2/manualbox/internal/jobs"
+	"github.com/gordon2/manualbox/internal/registry"
 	"github.com/gordon2/manualbox/internal/store"
 )
 
@@ -24,13 +26,15 @@ const sessionCookie = "manualbox_session"
 
 // Deps are the collaborators the API needs.
 type Deps struct {
-	Config  config.Config
-	DB      *db.DB
-	Store   *store.Store
-	Auth    *auth.Service
-	Jobs    *jobs.Queue
-	Logger  *slog.Logger
-	Version string
+	Config   config.Config
+	DB       *db.DB
+	Store    *store.Store
+	Auth     *auth.Service
+	Jobs     *jobs.Queue
+	Registry *registry.Service
+	Ingest   *ingest.Service
+	Logger   *slog.Logger
+	Version  string
 }
 
 // Server serves the API and the embedded frontend.
@@ -67,6 +71,16 @@ func (s *Server) routes() {
 	r.Use(s.recoverPanics)
 	r.Use(middleware.Compress(5))
 	r.Use(middleware.Timeout(60 * time.Second))
+	// Defence in depth against content sniffing. The document route sets this
+	// itself and serves anything unrecognised as an attachment, but a browser that
+	// second-guesses a Content-Type anywhere on this origin can turn stored bytes
+	// into script running beside the session cookie.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Reject cross-site state changes before anything else looks at the body.
@@ -107,6 +121,26 @@ func (s *Server) routes() {
 			r.Get("/jobs/events", s.handleJobEvents)
 			r.Get("/jobs/{jobID}", s.handleGetJob)
 			r.Post("/jobs/{jobID}/cancel", s.handleCancelJob)
+
+			r.Get("/locations", s.handleListLocations)
+			r.Post("/locations", s.handleCreateLocation)
+
+			r.Get("/devices", s.handleListDevices)
+			r.Post("/devices", s.handleCreateDevice)
+			r.Get("/devices/{deviceID}", s.handleGetDevice)
+			r.Patch("/devices/{deviceID}", s.handleUpdateDevice)
+			r.Delete("/devices/{deviceID}", s.handleDeleteDevice)
+
+			r.Get("/devices/{deviceID}/documents", s.handleListDocuments)
+			r.Post("/devices/{deviceID}/documents", s.handleUploadDocument)
+
+			r.Get("/documents/{documentID}", s.handleGetDocument)
+			// The gate is the decision point: what is in the document, what would
+			// be processed, and what that would cost.
+			r.Get("/documents/{documentID}/gate", s.handleDocumentGate)
+			r.Get("/documents/{documentID}/languages", s.handleDocumentLanguages)
+			r.Get("/documents/{documentID}/content", s.handleDocumentContent)
+			r.Post("/documents/{documentID}/decline", s.handleDeclineDocument)
 		})
 	})
 

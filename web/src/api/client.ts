@@ -1,9 +1,16 @@
 import type {
+  Device,
+  Doc,
+  DocumentKind,
+  Gate,
   Health,
   Instance,
   Job,
   JobEvent,
   JobState,
+  LanguageRun,
+  LanguageSource,
+  Location,
   Session,
   SetupStatus,
   User,
@@ -39,7 +46,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(BASE + path, {
       ...init,
       headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        // FormData sets its own Content-Type with a multipart boundary; adding
+        // application/json here produces a body the server cannot parse.
+        ...(init?.body && !(init.body instanceof FormData)
+          ? { "Content-Type": "application/json" }
+          : {}),
         ...init?.headers,
       },
       // Session auth is cookie-based, so the cookie must ride along.
@@ -108,6 +119,54 @@ export const api = {
   },
 
   cancelJob: (id: string) => request<void>(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+
+  locations: () => request<{ locations: Location[] }>("/locations"),
+
+  createLocation: (name: string) =>
+    request<Location>("/locations", { method: "POST", body: JSON.stringify({ name }) }),
+
+  devices: () => request<{ devices: Device[] }>("/devices"),
+
+  device: (id: string) => request<Device>(`/devices/${encodeURIComponent(id)}`),
+
+  createDevice: (input: Partial<Device>) =>
+    request<Device>("/devices", { method: "POST", body: JSON.stringify(input) }),
+
+  deleteDevice: (id: string) =>
+    request<void>(`/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  documents: (deviceId: string) =>
+    request<{ documents: Doc[] }>(`/devices/${encodeURIComponent(deviceId)}/documents`),
+
+  /**
+   * Uploads a file and returns the document plus the id of the queued probe.
+   *
+   * No Content-Type is set: the browser must add its own multipart boundary, and
+   * overriding it produces a body the server cannot parse.
+   */
+  uploadDocument: (deviceId: string, file: File, kind: DocumentKind = "manual") => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("kind", kind);
+    return request<{ document: Doc; duplicate: boolean; jobId?: string }>(
+      `/devices/${encodeURIComponent(deviceId)}/documents`,
+      { method: "POST", body: form },
+    );
+  },
+
+  documentGate: (id: string) => request<Gate>(`/documents/${encodeURIComponent(id)}/gate`),
+
+  documentLanguages: (id: string, source?: LanguageSource) => {
+    const query = source ? `?source=${encodeURIComponent(source)}` : "";
+    return request<{ source: LanguageSource; runs: LanguageRun[] }>(
+      `/documents/${encodeURIComponent(id)}/languages${query}`,
+    );
+  },
+
+  declineDocument: (id: string) =>
+    request<void>(`/documents/${encodeURIComponent(id)}/decline`, { method: "POST" }),
+
+  documentContentURL: (id: string) => `${BASE}/documents/${encodeURIComponent(id)}/content`,
 };
 
 /**

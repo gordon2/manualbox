@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, subscribeToJobs } from "../api/client";
-import type { Instance, Job, JobState, User } from "../api/types";
+import type { Device, Instance, Job, JobState, User } from "../api/types";
 import { Button, Card, Wordmark } from "../ui";
+import { DeviceDetail } from "./DeviceDetail";
+import { Devices } from "./Devices";
 
 export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => void }) {
   const [instance, setInstance] = useState<Instance | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [streamLive, setStreamLive] = useState(false);
+  // Navigation is a single piece of state rather than a router: there are two
+  // screens, and a dependency to move between them would not earn its place yet.
+  const [openDevice, setOpenDevice] = useState<Device | null>(null);
 
   const reloadJobs = useCallback(async () => {
     try {
@@ -66,16 +71,14 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
       </header>
 
       <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
-        <section>
-          <h1 className="font-display text-2xl text-ink">Milestone 0</h1>
-          <p className="mt-2 max-w-prose text-[15px] leading-relaxed text-ink-soft">
-            Authentication, the database, the blob store, and the background job queue are working.
-            Adding devices and manuals arrives with the next milestone — this page exists to prove
-            the stack end to end, including live job progress over a server-sent event stream.
-          </p>
-        </section>
-
-        {instance ? <Capabilities instance={instance} /> : null}
+        {openDevice ? (
+          <DeviceDetail device={openDevice} onBack={() => setOpenDevice(null)} />
+        ) : (
+          <>
+            <Devices onOpen={setOpenDevice} />
+            {instance ? <Capabilities instance={instance} /> : null}
+          </>
+        )}
 
         <section>
           <div className="flex items-baseline justify-between">

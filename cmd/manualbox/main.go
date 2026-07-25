@@ -24,8 +24,10 @@ import (
 	"github.com/gordon2/manualbox/internal/config"
 	"github.com/gordon2/manualbox/internal/db"
 	"github.com/gordon2/manualbox/internal/extern"
+	"github.com/gordon2/manualbox/internal/ingest"
 	"github.com/gordon2/manualbox/internal/jobs"
 	"github.com/gordon2/manualbox/internal/logging"
+	"github.com/gordon2/manualbox/internal/registry"
 	"github.com/gordon2/manualbox/internal/store"
 )
 
@@ -197,19 +199,31 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	queue := jobs.NewQueue(database, log)
 	defer queue.Broker().Close()
 
+	registryService := registry.New(database, registry.Options{Logger: log})
+	ingestService := ingest.New(ingest.Deps{
+		Config:   cfg,
+		Registry: registryService,
+		Store:    blobs,
+		Jobs:     queue,
+		Logger:   log,
+	})
+
 	pool := jobs.NewPool(queue, cfg.Jobs, log)
-	// M1 registers the real conversion, OCR, translation, and extraction
-	// handlers here. Until then the pool runs with none, and a job of an unknown
-	// kind fails with a clear message rather than hanging.
+	// The document pipeline's handlers. Conversion, OCR, translation, and
+	// extraction register here as they land; a job of an unknown kind fails with a
+	// clear message rather than hanging.
+	ingestService.Register(pool)
 
 	server := api.New(api.Deps{
-		Config:  cfg,
-		DB:      database,
-		Store:   blobs,
-		Auth:    authService,
-		Jobs:    queue,
-		Logger:  log,
-		Version: version,
+		Config:   cfg,
+		DB:       database,
+		Store:    blobs,
+		Auth:     authService,
+		Jobs:     queue,
+		Registry: registryService,
+		Ingest:   ingestService,
+		Logger:   log,
+		Version:  version,
 	})
 
 	httpServer := &http.Server{

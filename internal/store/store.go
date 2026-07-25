@@ -273,6 +273,29 @@ func Digest(b []byte) string {
 // Root returns the store's root directory.
 func (s *Store) Root() string { return s.root }
 
+// Path returns the filesystem path of a stored blob.
+//
+// Handing out a path rather than a reader exists for one reason: the document
+// pipeline shells out to poppler, and an external process needs a real file. It
+// is safe because blobs are immutable and stored mode 0400 — the callee can read
+// the bytes but cannot alter them, so the digest the filename asserts stays true.
+//
+// Prefer [Store.Open] for anything in-process. The digest is validated, so a
+// caller-supplied value cannot escape the store root.
+func (s *Store) Path(digest string) (string, error) {
+	path, err := s.pathFor(digest)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: %s", ErrNotFound, digest)
+		}
+		return "", fmt.Errorf("store: stat blob %s: %w", digest, err)
+	}
+	return path, nil
+}
+
 // CleanTemp removes leftover temporary uploads, which is how a crash mid-upload
 // is reclaimed. Safe to call at startup.
 func (s *Store) CleanTemp() error {

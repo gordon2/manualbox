@@ -99,3 +99,114 @@ export interface ApiErrorBody {
     message: string;
   };
 }
+
+// --- M1: the registry and the document pipeline ---
+
+export interface Location {
+  id: string;
+  name: string;
+  parentId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Device {
+  id: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  category?: string;
+  locationId?: string;
+  notes?: string;
+  /** Date only, as YYYY-MM-DD. */
+  purchasedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DocumentKind = "manual" | "receipt" | "warranty" | "photo" | "other";
+
+/**
+ * Where a document is in the pipeline. `awaiting_scope` is the gate: the document
+ * has been read for free and nothing further happens until the user decides.
+ */
+export type DocumentState =
+  | "uploaded"
+  | "probing"
+  | "awaiting_scope"
+  | "declined"
+  | "converting"
+  | "ready"
+  | "failed";
+
+export interface Doc {
+  id: string;
+  deviceId: string;
+  blobSha256: string;
+  filename?: string;
+  mediaType?: string;
+  kind: DocumentKind;
+  state: DocumentState;
+  lastError?: string;
+  pageCount?: number;
+  encrypted?: boolean;
+  tagged?: boolean;
+  hasTextLayer?: boolean;
+  medianCharsPerPage?: number;
+  contentStartPage?: number;
+  contentEndPage?: number;
+  createdAt: string;
+  updatedAt: string;
+  probedAt?: string;
+}
+
+/** Which signal established a language run. */
+export type LanguageSource = "page-tag" | "index" | "script" | "detector" | "reconciled";
+
+export interface LanguageRun {
+  source: LanguageSource;
+  /** The label the document itself prints, which may not be a valid tag: UA, CZ. */
+  code: string;
+  /** The BCP-47 tag. */
+  lang: string;
+  /** The English display name. */
+  name: string;
+  title?: string;
+  start: number;
+  end: number;
+  pages: number;
+  printedPage?: number;
+  confidence: number;
+  /** The signals disagreed about this run. Shown, never silently resolved. */
+  conflict: boolean;
+  note?: string;
+}
+
+/**
+ * The pre-flight question, answered before anything is spent. `cost.available`
+ * is false when there is no honest number to show rather than a guessed one.
+ */
+export interface Gate {
+  documentId: string;
+  deviceId: string;
+  filename?: string;
+  kind: DocumentKind;
+  state: DocumentState;
+  probed: boolean;
+  pages: number;
+  encrypted: boolean;
+  hasTextLayer: boolean;
+  medianChars: number;
+  household: string[];
+  inScope: LanguageRun[];
+  other: LanguageRun[];
+  scopePages: number;
+  scopeFraction: number;
+  conflicts: number;
+  unlabelledPages: number;
+  requiresApproval: boolean;
+  maxPagesAuto: number;
+  cost: { available: boolean; chars: number; reason?: string };
+  summary: string;
+}

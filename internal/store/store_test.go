@@ -168,6 +168,49 @@ func TestPathTraversalRejected(t *testing.T) {
 		if s.Exists(bad) {
 			t.Errorf("Exists(%q) should be false", truncate(bad))
 		}
+		// Path is the one method that hands a real filesystem path to an external
+		// process, so it matters most here — and it was the one this test did not
+		// cover, while the #nosec justification in store.go named this test.
+		if _, err := s.Path(bad); !errors.Is(err, ErrBadDigest) {
+			t.Errorf("Path(%q) should fail with ErrBadDigest, got %v", truncate(bad), err)
+		}
+	}
+}
+
+// TestPathIsInsideRootAndReadOnly checks the two properties the document
+// pipeline relies on when it hands a blob to poppler: the path is inside the
+// store, and the file cannot be modified through it, so the digest its name
+// asserts stays true.
+func TestPathIsInsideRootAndReadOnly(t *testing.T) {
+	s := newStore(t)
+
+	ref, err := s.Put(context.Background(), strings.NewReader("a manual"))
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	path, err := s.Path(ref.SHA256)
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	if !strings.HasPrefix(path, s.Root()+string(filepath.Separator)) {
+		t.Errorf("path %q escapes the store root %q", path, s.Root())
+	}
+	// Absolute, so an external tool can never read it as a command-line flag.
+	if !filepath.IsAbs(path) {
+		t.Errorf("path %q is not absolute", path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o222 != 0 {
+		t.Errorf("permissions are %04o — a blob handed to another process must not be writable", perm)
+	}
+
+	if _, err := s.Path(strings.Repeat("a", 64)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Path on an absent blob should report ErrNotFound, got %v", err)
 	}
 }
 

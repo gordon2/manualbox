@@ -16,18 +16,21 @@ import (
 	"github.com/gordon2/manualbox/internal/auth"
 	"github.com/gordon2/manualbox/internal/config"
 	"github.com/gordon2/manualbox/internal/db"
+	"github.com/gordon2/manualbox/internal/ingest"
 	"github.com/gordon2/manualbox/internal/jobs"
 	"github.com/gordon2/manualbox/internal/logging"
+	"github.com/gordon2/manualbox/internal/registry"
 	"github.com/gordon2/manualbox/internal/store"
 )
 
 const testPassword = "a perfectly fine passphrase"
 
 type harness struct {
-	server *httptest.Server
-	queue  *jobs.Queue
-	auth   *auth.Service
-	client *http.Client
+	server   *httptest.Server
+	queue    *jobs.Queue
+	auth     *auth.Service
+	registry *registry.Service
+	client   *http.Client
 }
 
 // newHarness starts a real server over a real database, so these tests exercise
@@ -55,9 +58,15 @@ func newHarness(t *testing.T) *harness {
 	cfg := config.Default()
 	cfg.Content.Languages = []string{"de", "en"}
 
+	registryService := registry.New(database, registry.Options{})
+	ingestService := ingest.New(ingest.Deps{
+		Config: cfg, Registry: registryService, Store: blobs, Jobs: queue,
+	})
+
 	srv := New(Deps{
 		Config: cfg, DB: database, Store: blobs, Auth: authService,
-		Jobs: queue, Logger: logging.Discard(), Version: "test",
+		Jobs: queue, Registry: registryService, Ingest: ingestService,
+		Logger: logging.Discard(), Version: "test",
 	})
 
 	ts := httptest.NewServer(srv.Handler())
@@ -66,10 +75,11 @@ func newHarness(t *testing.T) *harness {
 	// A cookie jar so the session behaves as it would in a browser.
 	jar := &cookieJar{}
 	return &harness{
-		server: ts,
-		queue:  queue,
-		auth:   authService,
-		client: &http.Client{Jar: jar, Timeout: 10 * time.Second},
+		server:   ts,
+		queue:    queue,
+		auth:     authService,
+		registry: registryService,
+		client:   &http.Client{Jar: jar, Timeout: 10 * time.Second},
 	}
 }
 
@@ -239,6 +249,17 @@ func TestProtectedRoutesRequireASession(t *testing.T) {
 		"/api/v1/jobs",
 		"/api/v1/jobs/job_123",
 		"/api/v1/jobs/events",
+		// The registry and document routes. This list went stale once already —
+		// eleven routes were added without being added here — so the guarantee in
+		// the comment above was not actually being enforced for any of them.
+		"/api/v1/locations",
+		"/api/v1/devices",
+		"/api/v1/devices/dev_123",
+		"/api/v1/devices/dev_123/documents",
+		"/api/v1/documents/doc_123",
+		"/api/v1/documents/doc_123/gate",
+		"/api/v1/documents/doc_123/languages",
+		"/api/v1/documents/doc_123/content",
 	} {
 		resp := h.do(t, http.MethodGet, path, nil)
 		if resp.StatusCode != http.StatusUnauthorized {
