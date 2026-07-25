@@ -7,7 +7,7 @@ export default defineConfig({
   build: {
     // Build straight into the Go package that embeds it, so `make build`
     // produces one binary containing the UI.
-    outDir: "../internal/frontend/dist",
+    outDir: "../internal/frontend/dist/app",
     emptyOutDir: true,
   },
   server: {

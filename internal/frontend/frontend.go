@@ -4,9 +4,14 @@
 // embedded into the binary — that is what makes manualbox a single file to
 // deploy, with no separate web server or static-asset volume to configure.
 //
-// dist/ contains only a committed .gitkeep until the SPA is built. The embed
-// directive uses the all: prefix so that placeholder counts, which keeps
-// `go build ./...` working on a fresh clone before anyone has run npm.
+// Vite writes into dist/app rather than dist itself, and a committed
+// dist/.gitkeep keeps the embed pattern satisfied before the SPA has ever been
+// built — so `go build ./...` works on a fresh clone with no npm involved. The
+// nesting is deliberate: Vite's emptyOutDir wipes its output directory on every
+// build, so a placeholder inside it would be deleted the first time anyone ran
+// the frontend build, and the breakage would only show up in a clean checkout.
+//
+// The all: prefix on the embed directive is required for the dotfile to count.
 package frontend
 
 import (
@@ -38,11 +43,11 @@ const notBuiltPage = `<!doctype html>
   <p class="hint">The API itself is available under <code>/api/v1</code>.</p>
 </body></html>`
 
-// FS returns the embedded SPA filesystem rooted at dist, and whether a real
-// build is present.
+// FS returns the embedded SPA filesystem, and whether a real build is present.
 func FS() (fs.FS, bool) {
-	sub, err := fs.Sub(embedded, "dist")
+	sub, err := fs.Sub(embedded, "dist/app")
 	if err != nil {
+		// dist/app is absent, which is exactly the unbuilt case.
 		return nil, false
 	}
 	if _, err := fs.Stat(sub, "index.html"); err != nil {
