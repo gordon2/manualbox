@@ -83,12 +83,22 @@ is someone copying that directory. Options, in order of preference:
    stolen backup, but the instance cannot restart unattended, which is wrong for a
    household server that should come back after a power cut.
 
-Option 1 is the default. And the trade must be stated plainly in the setup flow:
-**lose the key and the encrypted fields are unrecoverable.** A household tool that
+Option 1 is the default, but it is not the whole story: a key that only exists in
+one deployment's configuration is a key you cannot restore a backup with. So the
+data key is wrapped by *both* an operational key and a passphrase the user chooses,
+and either opens it — the operational key for unattended boots, the passphrase for
+recovering onto a machine that has neither the key nor the config.
+
+The full design, including where each piece is stored, how to back it up, and how
+to test that backup, is in **[keys.md](keys.md)**. Implemented in
+`internal/keyring`.
+
+The trade still has to be stated before anyone opts in: **lose both the passphrase
+and the operational key and those fields are unrecoverable.** A household tool that
 silently destroys someone's warranty records because they rebuilt a container
-without the secret would be worse than not encrypting at all. So encryption of the
-high-harm class is opt-in, with a clear warning, and everything else stays
-readable regardless.
+without the secret would be worse than not encrypting at all. So it is opt-in, the
+recovery kit is printed up front, declining is a permanent and respected choice,
+and everything outside the high-harm class stays readable regardless.
 
 ## Two rules for the AI providers
 
@@ -108,8 +118,10 @@ say no. This is another reason the local-model path ranks first in
 
 Implemented today: repository hygiene and the CI guard, `doctor --redact`, no
 addresses in logs (with a test that fails if one reappears), the `Secret` type,
-argon2id password hashing, and session tokens stored only as hashes.
+argon2id password hashing, session tokens stored only as hashes, and the keyring
+itself — envelope encryption, the searchable index for serial numbers, and the
+refusal to remove the last unlock method.
 
-Deferred with the schema designed around it: field-level encryption for the
-high-harm class, redacted exports, and the local-only rule for receipts. These
-land with M1 and M2, when there is actually a receipt or a serial number to hold.
+Deferred until there is actually a receipt or a serial number to hold: wiring the
+keyring into the schema, the `manualbox keys` commands, redacted exports, and the
+local-only rule for receipts. Those land with M1 and M2.
