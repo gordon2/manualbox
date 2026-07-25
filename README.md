@@ -100,6 +100,13 @@ Optional external binaries, used when present and degraded gracefully when not (
 | `pdftotext`, `pdftoppm`, `pdfimages` (poppler) | PDF text/structure/image extraction, page rendering | `brew install poppler` |
 | `tesseract` | OCR for scans and photos | `brew install tesseract tesseract-lang` |
 
+Design decisions, with the measurements behind them, are in `docs/design/`:
+[ingest](docs/design/ingest.md) · [providers](docs/design/providers.md) ·
+[privacy](docs/design/privacy.md) · [keys](docs/design/keys.md).
+
+Conventions and the things that have already caused bugs here:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
