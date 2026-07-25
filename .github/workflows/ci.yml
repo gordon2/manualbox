@@ -150,7 +150,11 @@ jobs:
           curl -sf http://localhost:7745/ | grep -q 'id="root"'
 
           echo "--- external tools are present in the image ---"
-          docker exec mb doctor | grep -q "5 of 5 optional external tools available"
+          # The binary must be named explicitly: docker exec does not go through
+          # the image ENTRYPOINT, so `docker exec mb doctor` looks for a binary
+          # literally called "doctor" and fails.
+          docker exec mb manualbox doctor | tee /tmp/doctor.txt
+          grep -q "5 of 5 optional external tools available" /tmp/doctor.txt
 
           echo "--- it does not run as root ---"
           test "$(docker exec mb id -u)" = "10001"
