@@ -3,7 +3,14 @@
     "Test fixture manifest for a real 34-language appliance manual.",
     "The PDF is NOT committed: 15 MB, and it is a third-party copyrighted",
     "manual — committing it would break manualbox's own rule against",
-    "redistributing manuals. Tests fetch it on demand and skip if absent."
+    "redistributing manuals. Tests fetch it on demand and skip if absent.",
+    "",
+    "printed_page is what the PRINTED INDEX claims for each section, which is",
+    "not always the folio actually printed on that page — that unreliability is",
+    "part of what this fixture exists to test. pdf_start/pdf_end are measured",
+    "truth, established from the per-page language tag (see page_language_tag).",
+    "printed_to_pdf_offset is constant at +6 for every section: pdf page =",
+    "printed folio + 6, because six pages of front matter precede the content."
   ],
   "name": "dreame-l40-ultra",
   "url": "https://cdn.shopify.com/s/files/1/0302/5276/1220/files/User_Manual-L40_Ultra_AE-EN_DE_FR_IT_ES_PL_NL_NO_SV_EL_PT_HE_AR_MS_FI_DA_KK_UZ_UA_CZ_HU_SL_SR_LT_LV_SK_RO_TR_VI_TH_ID_ZH-HK_RU_JA.pdf",
@@ -11,18 +18,28 @@
   "bytes": 15285327,
   "pages": 560,
   "has_text_layer": true,
-  "median_chars_per_page": 2241,
+  "median_chars_per_page": 1693,
   "content_starts_on_pdf_page": 7,
   "index_pages": [
     2,
-    3
+    3,
+    4
   ],
   "why_this_fixture": [
     "34 language sections in one document — the normal appliance-manual shape",
-    "the printed index contains a typo (CZ listed at 207; content is at 305)",
-    "printed-to-pdf offset drifts (+6 early, +8 later) as sections vary 16 vs 17 pages",
+    "every content page prints its own language code, which is exact and free",
+    "  (see page_language_tag) — but contents pages 2-4 mimic it and must be excluded",
+    "the printed index contains a typo (CZ listed at 207; content is at printed 307)",
+    "the index's claimed printed pages drift 0-2 from the real folio, because IT",
+    "  and PL run 17 pages rather than 16 — the printed-to-pdf offset itself is a",
+    "  constant +6 and never drifts",
     "right-to-left (HE, AR) and CJK (ZH-HK, JA) scripts alongside Latin",
-    "sibling languages the detector alone cannot separate (ID/MS, DA/NO, SK/CZ)"
+    "HE and AR pages print no numeric folio at all",
+    "sibling languages a detector alone cannot separate: ID/MS, DA/NO(nb), SK/CZ,",
+    "  and SR/HR/BS — Latin-script Serbian is misread on all 16 of its pages",
+    "UZ is not supported by lingua-go at all, so no detector can ever label it —",
+    "  the printed tag and the printed index are the only sources for that section",
+    "page 560 is a back cover: English colophon, no tag, not part of the JA section"
   ],
   "sections": [
     {
@@ -32,7 +49,7 @@
       "pdf_start": 7,
       "pdf_end": 22,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "DE",
@@ -41,7 +58,7 @@
       "pdf_start": 23,
       "pdf_end": 38,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "FR",
@@ -50,7 +67,7 @@
       "pdf_start": 39,
       "pdf_end": 54,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "IT",
@@ -59,7 +76,7 @@
       "pdf_start": 55,
       "pdf_end": 71,
       "pages": 17,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "ES",
@@ -68,7 +85,7 @@
       "pdf_start": 72,
       "pdf_end": 87,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "PL",
@@ -77,7 +94,7 @@
       "pdf_start": 88,
       "pdf_end": 104,
       "pages": 17,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "NL",
@@ -86,7 +103,7 @@
       "pdf_start": 105,
       "pdf_end": 120,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "NO",
@@ -95,7 +112,7 @@
       "pdf_start": 121,
       "pdf_end": 136,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "SV",
@@ -104,7 +121,7 @@
       "pdf_start": 137,
       "pdf_end": 152,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "EL",
@@ -113,7 +130,7 @@
       "pdf_start": 153,
       "pdf_end": 168,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "PT",
@@ -122,7 +139,7 @@
       "pdf_start": 169,
       "pdf_end": 184,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "HE",
@@ -131,7 +148,7 @@
       "pdf_start": 185,
       "pdf_end": 200,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "AR",
@@ -140,7 +157,7 @@
       "pdf_start": 201,
       "pdf_end": 216,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "MS",
@@ -149,25 +166,27 @@
       "pdf_start": 217,
       "pdf_end": 232,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "FI",
       "title": "Käyttöohjeet",
       "printed_page": 227,
       "pdf_start": 233,
-      "pdf_end": 256,
-      "pages": 24,
-      "boundary_source": "detected"
+      "pdf_end": 248,
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously ended this section at 256 (24 pages). The printed page tag reads FI through p248 and DA from p249; orthography agrees (pp233-248 carry 1252 ae/oe-umlauts and zero aesc/oslash/aring, pp249-264 the reverse)."
     },
     {
       "code": "DA",
       "title": "Brugermanual",
       "printed_page": 243,
-      "pdf_start": 257,
+      "pdf_start": 249,
       "pdf_end": 264,
-      "pages": 8,
-      "boundary_source": "detected"
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously started this section at 257 (8 pages), contradicting its own printed_page of 243 - printed folio 243 is on pdf p249. Corrected to 16 pages, this manual's standard section length."
     },
     {
       "code": "KK",
@@ -176,7 +195,7 @@
       "pdf_start": 265,
       "pdf_end": 280,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "UZ",
@@ -185,7 +204,7 @@
       "pdf_start": 281,
       "pdf_end": 296,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "UA",
@@ -194,7 +213,7 @@
       "pdf_start": 297,
       "pdf_end": 312,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "CZ",
@@ -205,7 +224,7 @@
       "pdf_start": 313,
       "pdf_end": 328,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "HU",
@@ -214,7 +233,7 @@
       "pdf_start": 329,
       "pdf_end": 344,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "SL",
@@ -223,43 +242,47 @@
       "pdf_start": 345,
       "pdf_end": 360,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "SR",
       "title": "Uputstvo za upotrebu",
       "printed_page": 355,
       "pdf_start": 361,
-      "pdf_end": 380,
-      "pages": 20,
-      "boundary_source": "detected"
+      "pdf_end": 376,
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously ended this section at 380 (20 pages). Serbian here is Latin script, so a statistical detector reads it as Croatian or Bosnian on all 16 pages; the printed page tag is the only reliable label."
     },
     {
       "code": "LT",
       "title": "Naudotojo vadovas",
       "printed_page": 371,
-      "pdf_start": 381,
+      "pdf_start": 377,
       "pdf_end": 392,
-      "pages": 12,
-      "boundary_source": "detected"
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously started this section at 381 (12 pages), contradicting its own printed_page of 371 - printed folio 371 is on pdf p377."
     },
     {
       "code": "LV",
       "title": "Lietotāja rokasgrāmata",
       "printed_page": 387,
       "pdf_start": 393,
-      "pdf_end": 412,
-      "pages": 20,
-      "boundary_source": "detected"
+      "pdf_end": 408,
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously ended this section at 412 (20 pages). Latvian macrons (aa/ee/ii/uu, g/k/l/n cedilla) appear on pp393-408 and never after; Slovak ae/o-circumflex/d/l-caron appear from p409."
     },
     {
       "code": "SK",
       "title": "Príručka používateľa",
       "printed_page": 403,
-      "pdf_start": 413,
+      "pdf_start": 409,
       "pdf_end": 424,
-      "pages": 12,
-      "boundary_source": "detected"
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously started this section at 413 (12 pages), contradicting its own printed_page of 403 - printed folio 403 is on pdf p409."
     },
     {
       "code": "RO",
@@ -268,25 +291,27 @@
       "pdf_start": 425,
       "pdf_end": 440,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "TR",
       "title": "Kullanıcı Kılavuzu",
       "printed_page": 435,
       "pdf_start": 441,
-      "pdf_end": 461,
-      "pages": 21,
-      "boundary_source": "detected"
+      "pdf_end": 456,
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously ended this section at 461 (21 pages). Turkish dotless-i and g-breve appear on pp441-456 and never after."
     },
     {
       "code": "VI",
       "title": "Hướng dẫn sử dụng",
       "printed_page": 451,
-      "pdf_start": 462,
+      "pdf_start": 457,
       "pdf_end": 472,
-      "pages": 11,
-      "boundary_source": "detected"
+      "pages": 16,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously started this section at 462 (11 pages), contradicting its own printed_page of 451 - printed folio 451 is on pdf p457."
     },
     {
       "code": "TH",
@@ -295,7 +320,7 @@
       "pdf_start": 473,
       "pdf_end": 488,
       "pages": 16,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "ID",
@@ -304,7 +329,7 @@
       "pdf_start": 489,
       "pdf_end": 504,
       "pages": 16,
-      "boundary_source": "inferred (detector cannot distinguish from a sibling language)"
+      "boundary_source": "page-tag"
     },
     {
       "code": "ZH-HK",
@@ -313,7 +338,7 @@
       "pdf_start": 505,
       "pdf_end": 516,
       "pages": 12,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "RU",
@@ -322,16 +347,65 @@
       "pdf_start": 517,
       "pdf_end": 538,
       "pages": 22,
-      "boundary_source": "detected"
+      "boundary_source": "page-tag"
     },
     {
       "code": "JA",
       "title": "取扱説明書",
       "printed_page": 533,
       "pdf_start": 539,
-      "pdf_end": 560,
-      "pages": 22,
-      "boundary_source": "detected"
+      "pdf_end": 559,
+      "pages": 21,
+      "boundary_source": "page-tag",
+      "note": "Fixture previously ended this section at 560 (22 pages). Page 560 is the back cover - an English colophon and manufacturing address, carrying no page tag - so content ends at p559."
     }
-  ]
+  ],
+  "content_ends_on_pdf_page": 559,
+  "median_bytes_per_page": 2240,
+  "printed_to_pdf_offset": 6,
+  "page_language_tag": {
+    "$comment": [
+      "Every content page in this manual prints its own ISO language code in a",
+      "small tab in the top-left corner. This is the cheapest and most accurate",
+      "language signal available, and it is already present in the plain",
+      "pdftotext output that the text probe runs anyway — it is the FIRST",
+      "non-blank line of each page. It costs nothing extra to read.",
+      "",
+      "Measured on this document: 553 of 553 content pages carry a tag and all",
+      "553 agree with the boundaries recorded here. It labels correctly the two",
+      "sections a statistical detector cannot: UZ (unsupported by lingua-go at",
+      "all) and Latin-script SR (read as Croatian or Bosnian on every page).",
+      "",
+      "It is not universal across manuals, so it is a high-confidence signal",
+      "when present rather than a replacement for detection. Two guards are",
+      "required, both measured here:",
+      "  1. Contents pages produce FALSE POSITIVES. Pages 2-4 list language",
+      "     codes in the same corner, yielding spurious single-page runs for",
+      "     EN, MS and RO. Requiring a run of >= 2 consecutive pages removes",
+      "     all three and leaves exactly the 34 real sections.",
+      "  2. A bare two-letter uppercase token is not necessarily a language",
+      "     code (ON, OK, NO, TV all match). Cross-check the tag against the",
+      "     page's dominant Unicode script before trusting it."
+    ],
+    "present": true,
+    "position": "top-left",
+    "appears_as": "first non-blank line of plain pdftotext output",
+    "color": "#ffffff",
+    "pages_with_tag": 553,
+    "pages_without_tag": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      560
+    ],
+    "min_run_pages_to_trust": 2,
+    "false_positive_pages": [
+      2,
+      3,
+      4
+    ]
+  }
 }

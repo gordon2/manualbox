@@ -45,15 +45,30 @@ upload should never silently become a bill.
 `pdftotext` over all 560 pages took **1.7 s** and produced 1.3 MB of text.
 
 The output answers the question that determines everything downstream: **is there
-a text layer?** Median extracted characters per page here was 2,241; a scan yields
+a text layer?** Median extracted characters per page here is 1,691; a scan yields
 ~0. That single number selects between a free extraction path and one that costs a
 vision call per page — a difference of two orders of magnitude.
 
+Count runes, not bytes. The same document measures 2,240 median *bytes* per page,
+a third higher, because most of it is Cyrillic, Greek, Hebrew, Arabic or CJK. A
+byte-based threshold would judge a Russian page as carrying more text than an
+English one containing the same amount of writing.
+
 ### Stage 2 — the language map. Free.
 
-Two independent methods, because **each one is wrong in a way the other catches.**
+Several independent signals, because **each one is wrong in a way the others
+catch.** The signals, what each costs, and the measurements behind choosing
+between them are in **[language-detection.md](language-detection.md)**. The two
+that matter most on this document:
 
-**The printed index.** Pages 2–3 carry a machine-readable contents table. A regex
+**The printed page tag.** Every content page of this manual prints its own language
+code in a corner tab, and it arrives as the first line of the `pdftotext` output
+stage 1 already produced — so reading it costs nothing at all. On this document it
+labels 553 of 553 content pages correctly, including the two sections a statistical
+detector cannot get right. Not every manual prints one, which is why it is the
+cheapest signal rather than the only one.
+
+**The printed index.** Pages 2–4 carry a machine-readable contents table. A regex
 recovered all 34 sections — ISO code, localised title, start page:
 
 ```
@@ -70,8 +85,13 @@ Neither is sufficient alone, and this was measured, not assumed:
 
 | The index gets wrong | The detector gets wrong |
 |---|---|
-| **`CZ p.207` is a typo.** Page 207 is Arabic; Czech actually starts at printed 305. | **Indonesian never detected.** Its function words are identical to Malay, so `ID` pages classify as `MS`. |
-| **The printed→PDF offset drifts**: +6 at the front, +8 later, because some sections run 17 pages rather than 16. A single global offset lands in the wrong language. | **Danish/Norwegian and Slovak/Czech flip-flop** mid-section for the same reason. |
+| **`CZ p.207` is a typo.** Page 207 is Arabic; Czech actually starts at printed 307. | **Indonesian never detected.** Its function words are identical to Malay, so `ID` pages classify as `MS`. |
+| **The index's claimed printed pages drift** 1–2 pages from the folio actually printed, on 10 of 34 sections, because `IT` and `PL` run 17 pages rather than 16. Trusting a claimed start lands in the wrong language. | **Danish/Norwegian and Slovak/Czech flip-flop** mid-section for the same reason. **Latin-script Serbian** is read as Croatian or Bosnian on all 16 of its pages, and **Uzbek cannot be labelled at all** — `lingua-go` does not support it. |
+
+The printed→PDF *offset* itself does not drift: it is a constant +6 across all 34
+sections, because six pages of front matter precede the content. What drifts is
+what the index **claims**, which is a different failure and the reason a claimed
+start is a hypothesis rather than a boundary.
 
 Reconciled, 32 of 34 sections agree and each disagreement is caught:
 
@@ -84,7 +104,7 @@ its provenance.
 ### Stage 3 — scope, behind a gate.
 
 Intersect the languages found with the household's configured languages. For
-`de, uk, en`: **48 of 560 pages, 9.6%**.
+`de, uk, en`: **48 of 560 pages, 8.6%**.
 
 Then ask, before spending anything:
 
@@ -124,8 +144,8 @@ costs.
 
 ## Test fixture
 
-`testdata/fixtures/l40-ultra.json` records this document's URL, checksum, page
-count, and the full expected language map.
+`testdata/fixtures/dreame-l40-ultra.json` records this document's URL, checksum,
+page count, and the full expected language map.
 
 **The PDF itself is deliberately not committed.** It is 15 MB, and it is someone
 else's copyrighted manual — committing it would break the project's own rule
