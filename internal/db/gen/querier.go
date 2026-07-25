@@ -23,15 +23,41 @@ type Querier interface {
 	// hard still burns an attempt and a poison job cannot be retried forever.
 	ClaimNextJob(ctx context.Context, arg ClaimNextJobParams) (Job, error)
 	CompleteJob(ctx context.Context, arg CompleteJobParams) error
+	CountDevices(ctx context.Context) (int64, error)
+	CountDocLangConflicts(ctx context.Context, arg CountDocLangConflictsParams) (int64, error)
+	// How many pages the document holds in each resolved language. The CAST is
+	// required: without it sqlc infers interface{} for the aggregate.
+	CountDocPagesByLang(ctx context.Context, documentID string) ([]CountDocPagesByLangRow, error)
+	CountDocPagesWithText(ctx context.Context, documentID string) (int64, error)
+	CountDocuments(ctx context.Context) (int64, error)
+	// Used to decide whether a blob is still referenced before deleting it, since
+	// two devices can legitimately share one uploaded file.
+	CountDocumentsForBlob(ctx context.Context, blobSha256 string) (int64, error)
 	CountJobsByState(ctx context.Context) ([]CountJobsByStateRow, error)
+	CountLocations(ctx context.Context) (int64, error)
 	// CountUsers backs the first-run check: zero users means setup has not happened.
 	CountUsers(ctx context.Context) (int64, error)
+	CreateDevice(ctx context.Context, arg CreateDeviceParams) (Device, error)
+	// Uploading the same bytes against the same device twice is the same document,
+	// enforced by documents_device_blob_idx. DO NOTHING plus a follow-up lookup makes
+	// the upload handler idempotent without the caller having to check first.
+	CreateDocument(ctx context.Context, arg CreateDocumentParams) (int64, error)
+	CreateLocation(ctx context.Context, arg CreateLocationParams) (Location, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteBlob(ctx context.Context, sha256 string) error
+	DeleteDevice(ctx context.Context, id string) error
+	DeleteDocLangs(ctx context.Context, documentID string) error
+	// Replacing one signal's view wholesale is how a re-probe stays honest: a run
+	// that no longer exists must disappear rather than linger from the previous
+	// attempt. Scoped to one source so the other signals' rows survive.
+	DeleteDocLangsBySource(ctx context.Context, arg DeleteDocLangsBySourceParams) error
+	DeleteDocPages(ctx context.Context, documentID string) error
+	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) (int64, error)
 	// DeleteFinishedJobsBefore keeps the activity history from growing without bound.
 	DeleteFinishedJobsBefore(ctx context.Context, finishedAt *int64) (int64, error)
+	DeleteLocation(ctx context.Context, id string) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionByToken(ctx context.Context, tokenHash []byte) error
 	DeleteSetting(ctx context.Context, key string) error
@@ -46,7 +72,12 @@ type Querier interface {
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
 	FailJob(ctx context.Context, arg FailJobParams) error
 	GetBlob(ctx context.Context, sha256 string) (Blob, error)
+	GetDevice(ctx context.Context, id string) (Device, error)
+	GetDocPage(ctx context.Context, arg GetDocPageParams) (DocPage, error)
+	GetDocument(ctx context.Context, id string) (Document, error)
+	GetDocumentByDeviceAndBlob(ctx context.Context, arg GetDocumentByDeviceAndBlobParams) (Document, error)
 	GetJob(ctx context.Context, id string) (Job, error)
+	GetLocation(ctx context.Context, id string) (Location, error)
 	// GetPendingJobByDedupeKey finds the job currently holding a dedupe key, so a
 	// rejected duplicate insert can return the existing job instead of an error.
 	GetPendingJobByDedupeKey(ctx context.Context, dedupeKey *string) (Job, error)
@@ -60,11 +91,22 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, emailFolded string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	ListActiveJobs(ctx context.Context) ([]Job, error)
+	ListDevices(ctx context.Context) ([]Device, error)
+	// Filtering by location is a separate query rather than a nullable parameter on
+	// ListDevices. CONTRIBUTING.md: an "IS NULL OR =" filter defeats sqlc's type
+	// inference and reads worse than two explicit queries.
+	ListDevicesByLocation(ctx context.Context, locationID *string) ([]Device, error)
+	ListDocLangs(ctx context.Context, documentID string) ([]DocLang, error)
+	ListDocLangsBySource(ctx context.Context, arg ListDocLangsBySourceParams) ([]DocLang, error)
+	ListDocPages(ctx context.Context, documentID string) ([]DocPage, error)
+	ListDocumentsByState(ctx context.Context, state string) ([]Document, error)
+	ListDocumentsForDevice(ctx context.Context, deviceID string) ([]Document, error)
 	// Two separate queries rather than one with an optional filter: sqlc cannot infer
 	// the type of a nullable parameter in an "IS NULL OR =" clause and degrades the
 	// parameter to interface{}, pushing a type assertion onto the caller.
 	ListJobs(ctx context.Context, limit int64) ([]Job, error)
 	ListJobsByState(ctx context.Context, arg ListJobsByStateParams) ([]Job, error)
+	ListLocations(ctx context.Context) ([]Location, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -72,6 +114,10 @@ type Querier interface {
 	// makes the queue crash-safe: a killed process loses no work, it is simply
 	// picked up again once the lease lapses.
 	ReclaimExpiredLeases(ctx context.Context, arg ReclaimExpiredLeasesParams) (int64, error)
+	// Records everything stages 0 and 1 discovered, in one statement. Writing the
+	// probe result and the new state together keeps a crash from leaving a document
+	// that claims to be probed but has no page count.
+	RecordDocumentProbe(ctx context.Context, arg RecordDocumentProbeParams) error
 	RecordJobUsage(ctx context.Context, arg RecordJobUsageParams) error
 	// ReleaseJob returns a job to the queue without counting the attempt, used when a
 	// worker is shutting down rather than failing. Without the decrement, every
@@ -80,18 +126,32 @@ type Querier interface {
 	ReleaseJob(ctx context.Context, arg ReleaseJobParams) error
 	// RetryJob returns a failed attempt to the queue with a backoff delay.
 	RetryJob(ctx context.Context, arg RetryJobParams) error
+	SetDocumentState(ctx context.Context, arg SetDocumentStateParams) error
 	SetSetting(ctx context.Context, arg SetSettingParams) error
+	// The language map as shown to the user: one row per language in the reconciled
+	// view, with its page total and whether any of its runs are disputed.
+	//
+	// A run with pdf_start = 0 named a language it could not place, so it covers no
+	// pages at all. Counting its span reported a language the printed index merely
+	// mentioned as a one-page section.
+	SummarizeDocLangs(ctx context.Context, arg SummarizeDocLangsParams) ([]SummarizeDocLangsRow, error)
 	// The CAST is load-bearing: without it sqlc cannot infer the type of an
 	// aggregate in SQLite and generates interface{}, pushing a type assertion onto
 	// every caller. Wrap aggregates in CAST(... AS INTEGER) throughout.
 	TotalBlobBytes(ctx context.Context) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	TouchUserLogin(ctx context.Context, arg TouchUserLoginParams) error
+	UpdateDevice(ctx context.Context, arg UpdateDeviceParams) (Device, error)
 	UpdateJobProgress(ctx context.Context, arg UpdateJobProgressParams) error
+	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (Location, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	// Blobs are content-addressed, so re-adding identical bytes is a no-op rather
 	// than a conflict. That is what makes uploading the same manual twice cheap.
 	UpsertBlob(ctx context.Context, arg UpsertBlobParams) error
+	UpsertDocLang(ctx context.Context, arg UpsertDocLangParams) error
+	// Upsert on the natural key, because a probe job may run twice and must converge
+	// on the same rows rather than duplicating them.
+	UpsertDocPage(ctx context.Context, arg UpsertDocPageParams) error
 }
 
 var _ Querier = (*Queries)(nil)
