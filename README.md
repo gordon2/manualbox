@@ -66,7 +66,7 @@ Then it gets out of the way: notifications where you already look, and a calenda
 
 **Works with nothing configured.** Text extraction, OCR, search, schedules, notifications, and the calendar feed all run locally with zero keys and zero network. AI features light up when *you* choose a provider.
 
-**Your choice of provider, cloud or local.** Translation and extraction sit behind interfaces with adapters for Claude, OpenAI, Ollama, DeepL and LibreTranslate. Run everything local, everything cloud, or mix — local conversion with cloud translation is a normal setup. There is no default provider and no vendor lock.
+**Prefer what you already pay for.** Translation and extraction sit behind interfaces, and the setup flow offers the free options first: a local model on your own hardware, or a CLI you have already logged into so the work counts against your existing Claude or ChatGPT plan rather than a card. A metered API key is supported and works well — it is simply not the default, because most people already pay for this once. There is no default provider and no vendor lock. See [docs/design/providers.md](docs/design/providers.md).
 
 **Manuals are yours, not ours.** manualbox never redistributes manuals. It stores your copies for your household and links out to manufacturer pages for discovery. There is no shared manual repository, by design.
 
@@ -75,7 +75,7 @@ Then it gets out of the way: notifications where you already look, and a calenda
 | | |
 |---|---|
 | **M0** ✅ | Skeleton: config, SQLite + migrations, blob store, job queue, auth, API, frontend shell, Docker, CI |
-| **M1** | Registry, document pipeline (convert → language-segment → index), reader, full-text search, **export** |
+| **M1** | Registry, document pipeline (convert → language-segment → index), reader, full-text search, **export** — see [ingest design](docs/design/ingest.md) |
 | **M2** | Maintenance: schedules, battery charge cycles, service log, notifications, ICS calendar feed |
 | **M3** | Translation: per-block, glossary, translation memory, side-by-side, post-editing |
 | **M4** | Extraction: maintenance plans with citations, printable per-device cheat sheets, error-code lookup |

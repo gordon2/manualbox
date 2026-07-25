@@ -1,0 +1,337 @@
+{
+  "$comment": [
+    "Test fixture manifest for a real 34-language appliance manual.",
+    "The PDF is NOT committed: 15 MB, and it is a third-party copyrighted",
+    "manual — committing it would break manualbox's own rule against",
+    "redistributing manuals. Tests fetch it on demand and skip if absent."
+  ],
+  "name": "dreame-l40-ultra",
+  "url": "https://cdn.shopify.com/s/files/1/0302/5276/1220/files/User_Manual-L40_Ultra_AE-EN_DE_FR_IT_ES_PL_NL_NO_SV_EL_PT_HE_AR_MS_FI_DA_KK_UZ_UA_CZ_HU_SL_SR_LT_LV_SK_RO_TR_VI_TH_ID_ZH-HK_RU_JA.pdf",
+  "sha256": "dd7a20e218c9bb2b9364cfc7fbae7166e2c7ce5bf5a57d9b5ae2aaa6a5238cf1",
+  "bytes": 15285327,
+  "pages": 560,
+  "has_text_layer": true,
+  "median_chars_per_page": 2241,
+  "content_starts_on_pdf_page": 7,
+  "index_pages": [
+    2,
+    3
+  ],
+  "why_this_fixture": [
+    "34 language sections in one document — the normal appliance-manual shape",
+    "the printed index contains a typo (CZ listed at 207; content is at 305)",
+    "printed-to-pdf offset drifts (+6 early, +8 later) as sections vary 16 vs 17 pages",
+    "right-to-left (HE, AR) and CJK (ZH-HK, JA) scripts alongside Latin",
+    "sibling languages the detector alone cannot separate (ID/MS, DA/NO, SK/CZ)"
+  ],
+  "sections": [
+    {
+      "code": "EN",
+      "title": "User Manual",
+      "printed_page": 1,
+      "pdf_start": 7,
+      "pdf_end": 22,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "DE",
+      "title": "Benutzerhandbuch",
+      "printed_page": 17,
+      "pdf_start": 23,
+      "pdf_end": 38,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "FR",
+      "title": "Manuel d'utilisation",
+      "printed_page": 33,
+      "pdf_start": 39,
+      "pdf_end": 54,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "IT",
+      "title": "Manuale utente",
+      "printed_page": 49,
+      "pdf_start": 55,
+      "pdf_end": 71,
+      "pages": 17,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "ES",
+      "title": "Manual de usuario",
+      "printed_page": 65,
+      "pdf_start": 72,
+      "pdf_end": 87,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "PL",
+      "title": "Instrukcja obsługi",
+      "printed_page": 81,
+      "pdf_start": 88,
+      "pdf_end": 104,
+      "pages": 17,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "NL",
+      "title": "Gebruikershandleiding",
+      "printed_page": 97,
+      "pdf_start": 105,
+      "pdf_end": 120,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "NO",
+      "title": "Brukerhåndbok",
+      "printed_page": 114,
+      "pdf_start": 121,
+      "pdf_end": 136,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "SV",
+      "title": "Användarmanual",
+      "printed_page": 130,
+      "pdf_start": 137,
+      "pdf_end": 152,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "EL",
+      "title": "Εγχειρίδιο χρήστη",
+      "printed_page": 146,
+      "pdf_start": 153,
+      "pdf_end": 168,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "PT",
+      "title": "Manual do utilizador",
+      "printed_page": 162,
+      "pdf_start": 169,
+      "pdf_end": 184,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "HE",
+      "title": "‫שמתשמל ךירדמ‬",
+      "printed_page": 178,
+      "pdf_start": 185,
+      "pdf_end": 200,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "AR",
+      "title": "‫دليل المستخدم‬",
+      "printed_page": 194,
+      "pdf_start": 201,
+      "pdf_end": 216,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "MS",
+      "title": "Manual Pengguna",
+      "printed_page": 211,
+      "pdf_start": 217,
+      "pdf_end": 232,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "FI",
+      "title": "Käyttöohjeet",
+      "printed_page": 227,
+      "pdf_start": 233,
+      "pdf_end": 256,
+      "pages": 24,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "DA",
+      "title": "Brugermanual",
+      "printed_page": 243,
+      "pdf_start": 257,
+      "pdf_end": 264,
+      "pages": 8,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "KK",
+      "title": "Пайдаланушы нұсқаулығы",
+      "printed_page": 259,
+      "pdf_start": 265,
+      "pdf_end": 280,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "UZ",
+      "title": "Foydalanuvchi uchun qo'llanma",
+      "printed_page": 275,
+      "pdf_start": 281,
+      "pdf_end": 296,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "UA",
+      "title": "Посібник користувача",
+      "printed_page": 291,
+      "pdf_start": 297,
+      "pdf_end": 312,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "CZ",
+      "title": "Uživatelská příručka",
+      "printed_page": 305,
+      "printed_page_as_printed": 207,
+      "note": "printed index has a typo; corrected from content",
+      "pdf_start": 313,
+      "pdf_end": 328,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "HU",
+      "title": "Használati útmutató",
+      "printed_page": 323,
+      "pdf_start": 329,
+      "pdf_end": 344,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "SL",
+      "title": "Uporabniški priročnik",
+      "printed_page": 339,
+      "pdf_start": 345,
+      "pdf_end": 360,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "SR",
+      "title": "Uputstvo za upotrebu",
+      "printed_page": 355,
+      "pdf_start": 361,
+      "pdf_end": 380,
+      "pages": 20,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "LT",
+      "title": "Naudotojo vadovas",
+      "printed_page": 371,
+      "pdf_start": 381,
+      "pdf_end": 392,
+      "pages": 12,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "LV",
+      "title": "Lietotāja rokasgrāmata",
+      "printed_page": 387,
+      "pdf_start": 393,
+      "pdf_end": 412,
+      "pages": 20,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "SK",
+      "title": "Príručka používateľa",
+      "printed_page": 403,
+      "pdf_start": 413,
+      "pdf_end": 424,
+      "pages": 12,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "RO",
+      "title": "Manual de utilizare",
+      "printed_page": 419,
+      "pdf_start": 425,
+      "pdf_end": 440,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "TR",
+      "title": "Kullanıcı Kılavuzu",
+      "printed_page": 435,
+      "pdf_start": 441,
+      "pdf_end": 461,
+      "pages": 21,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "VI",
+      "title": "Hướng dẫn sử dụng",
+      "printed_page": 451,
+      "pdf_start": 462,
+      "pdf_end": 472,
+      "pages": 11,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "TH",
+      "title": "คู่มือการใช้งาน",
+      "printed_page": 467,
+      "pdf_start": 473,
+      "pdf_end": 488,
+      "pages": 16,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "ID",
+      "title": "Panduan Pengguna",
+      "printed_page": 483,
+      "pdf_start": 489,
+      "pdf_end": 504,
+      "pages": 16,
+      "boundary_source": "inferred (detector cannot distinguish from a sibling language)"
+    },
+    {
+      "code": "ZH-HK",
+      "title": "用戶手冊",
+      "printed_page": 499,
+      "pdf_start": 505,
+      "pdf_end": 516,
+      "pages": 12,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "RU",
+      "title": "Руководство пользователя",
+      "printed_page": 511,
+      "pdf_start": 517,
+      "pdf_end": 538,
+      "pages": 22,
+      "boundary_source": "detected"
+    },
+    {
+      "code": "JA",
+      "title": "取扱説明書",
+      "printed_page": 533,
+      "pdf_start": 539,
+      "pdf_end": 560,
+      "pages": 22,
+      "boundary_source": "detected"
+    }
+  ]
+}
