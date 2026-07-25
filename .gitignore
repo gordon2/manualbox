@@ -1,7 +1,9 @@
 # build output
 /bin/
 /dist/
-manualbox
+# Root-anchored: an unanchored "manualbox" would also match the cmd/manualbox
+# source directory and silently exclude the entire command from the repo.
+/manualbox
 
 # runtime data (blobs, sqlite db) — never commit
 /data/
