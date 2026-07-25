@@ -1,0 +1,84 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - usetesting
+    - wastedassign
+    - whitespace
+  settings:
+    errcheck:
+      check-type-assertions: true
+      # Writes to stdout/stderr in CLI output and HTTP response writers cannot be
+      # usefully recovered from, and checking each one buries the real findings.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*text/tabwriter.Writer).Flush
+    gosec:
+      excludes:
+        # Unchecked errors are errcheck's job, with its exclusions. Having both
+        # linters report them produces two findings per line and no extra signal.
+        - G104
+    govet:
+      enable-all: true
+      disable:
+        # Reporting every `if err := f(); err != nil` inside a function that
+        # already has an err is too noisy to be useful in idiomatic Go.
+        - shadow
+        - fieldalignment
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - ifElseChain
+        # Config and Status are deliberately passed by value: they are immutable
+        # snapshots, and pointer receivers would invite mutation for no gain on
+        # structs this size.
+        - hugeParam
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    generated: lax
+    rules:
+      # Tests may ignore errors and use weak randomness freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - unparam
+      # sqlc output is machine-generated; do not style-check it.
+      - path: internal/db/gen/
+        linters:
+          - gocritic
+          - revive
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/gordon2/manualbox

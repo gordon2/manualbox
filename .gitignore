@@ -1,0 +1,37 @@
+# build output
+/bin/
+/dist/
+manualbox
+
+# runtime data (blobs, sqlite db) — never commit
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# local config & secrets
+.env
+.env.local
+config.local.yaml
+
+# frontend
+/web/node_modules/
+/web/dist/
+/web/.vite/
+*.tsbuildinfo
+
+# go
+/vendor/
+coverage.out
+coverage.html
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# scratch
+/tmp/
+/scratch/

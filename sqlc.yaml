@@ -1,0 +1,20 @@
+version: "2"
+sql:
+  - engine: sqlite
+    # The migrations are the single source of schema truth; sqlc reads them
+    # directly so generated types can never drift from what is actually applied.
+    schema: internal/db/migrations
+    queries: internal/db/queries
+    gen:
+      go:
+        package: gen
+        out: internal/db/gen
+        emit_interface: true
+        # Return [] rather than nil for empty results, so JSON responses carry
+        # an empty array instead of null.
+        emit_empty_slices: true
+        # Nullable columns become *T instead of sql.NullT, which is far easier to
+        # map onto domain types and JSON.
+        emit_pointers_for_null_types: true
+        emit_result_struct_pointers: false
+        emit_params_struct_pointers: false
