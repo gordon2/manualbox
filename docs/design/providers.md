@@ -54,16 +54,35 @@ at API rates. On a subscription that figure is not billed; it draws down the
 plan's rolling window instead. Which is exactly why it is the preferred path for
 someone who already has a plan, and the wrong path for someone who does not.
 
-## Honest caveats
+## The deployment shape decides this, not a preference
 
-These belong in the setup UI, not buried here.
+The provider question mostly answers itself once you know **who the instance
+serves** and **what hardware it runs on**. Presenting three abstract options is the
+wrong UI; asking one question about the deployment is the right one.
 
-**Terms of service.** Subscription CLIs are sold for interactive developer use.
-Driving one from an unattended server is a grey area, and it is the *user's* call
-to make about their own account — not a default manualbox should quietly impose.
-The setup flow therefore states plainly what the adapter does (shells out to a CLI
-you have already logged into) and requires an explicit choice. Nothing is enabled
-by default.
+| Deployment | Local model | Subscription CLI | Metered API |
+|---|---|---|---|
+| Your own machine, just you | ✅ if the hardware allows | ✅ **the obvious choice** — it is your account | optional |
+| Home server or NAS, your household | ⚠️ usually too little GPU | ✅ still one household, one plan | optional |
+| A VPS, just you | ❌ no GPU | ⚠️ possible but brittle: headless login, and the credential expires and needs re-authenticating by hand | ✅ **the practical choice** |
+| Hosted for other people | ❌ | ❌ **no** — that is one person's plan serving strangers | ✅ the only option |
+
+So: on a machine you sit in front of, the CLI is the natural default and there is
+nothing to agonise over — it is your subscription and your account. The moment the
+instance serves people who are not you, a subscription stops being viable both
+practically (one credential, one usage window) and in terms of what the plan is
+for, and a metered key is the answer.
+
+The middle row is the only genuinely awkward one: a single-user VPS *can* drive the
+CLI — the login flow works without a browser — but refresh tokens eventually
+expire, and re-authenticating means shelling into the box. That is a real
+maintenance burden rather than a prohibition, and it is worth telling the user
+before they choose it rather than after it breaks at 2am.
+
+**What this means for setup.** First run asks who the instance is for, then offers
+only the providers that make sense, with the trade-off stated. Nothing is enabled
+by default, and the answer is recorded so `doctor` can explain why an option is
+absent instead of silently omitting it.
 
 **Rate limits, not bills, are the constraint.** A subscription has a rolling usage
 window. Translating a large manual can consume a meaningful slice of it, and the
