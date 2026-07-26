@@ -29,9 +29,12 @@ func TestPageTagVariants(t *testing.T) {
 		{"after a heading", "Safety Information\nAR\nbody text\n", "AR"},
 		{"blank lines skipped", "\n\n\nDE\nBenutzerhandbuch\n", "DE"},
 		{"no tag at all", "Just prose with no code on its own line.\n", ""},
-		{"too far down the page", "one\ntwo\nthree\nEN\n", ""},
+		{"too far down the page", "aaa\nbbb\nccc\nEN\n", ""},
+		{"a single letter needs corroboration", "F\nZH-HK\nbody\n", "ZH-HK"},
 		{"word is not a code", "Contents\nOverview\n", ""},
-		{"three letters is not a code", "ENG\nbody\n", ""},
+		{"a real three-letter code is accepted", "ENG\nbody\n", "ENG"},
+		{"a three-letter word is not", "ONE\nbody\n", ""},
+		{"an ordinary word is not", "Fig\nbody\n", ""},
 		{"digits are not a code", "01\nbody\n", ""},
 	}
 	for _, tc := range tests {

@@ -35,6 +35,56 @@ var codeAliases = map[string]string{
 	"BR": "pt-BR",
 	"TW": "zh-TW",
 	"HK": "zh-HK",
+
+	// Three-letter codes, as manuals actually print them. Mostly ISO 639-2/B,
+	// which is the vernacular form — GER rather than DEU, and both of the
+	// measured manual's Cyrillic codes are of this kind.
+	"ENG": "en", "GER": "de", "DEU": "de", "FRA": "fr", "FRE": "fr",
+	"ITA": "it", "SPA": "es", "ESP": "es", "POR": "pt", "NLD": "nl",
+	"DUT": "nl", "POL": "pl", "CZE": "cs", "CES": "cs", "SVK": "sk",
+	"SLO": "sk", "SLV": "sl", "HUN": "hu", "ROM": "ro", "RON": "ro",
+	"BUL": "bg", "RUS": "ru", "UKR": "uk", "BLR": "be", "SRP": "sr",
+	"SRB": "sr", "HRV": "hr", "BOS": "bs", "MKD": "mk", "LIT": "lt",
+	"LAV": "lv", "EST": "et", "FIN": "fi", "SWE": "sv", "NOR": "no",
+	"DAN": "da", "ISL": "is", "GRE": "el", "ELL": "el", "TUR": "tr",
+	"KAZ": "kk", "UZB": "uz", "ARA": "ar", "HEB": "he", "THA": "th",
+	"VIE": "vi", "IND": "id", "MSA": "ms", "CHN": "zh", "ZHO": "zh",
+	"JPN": "ja", "KOR": "ko",
+
+	// Single letters. Real and common on European manuals, and the most
+	// ambiguous token a page can carry — "D" is also a list marker and a
+	// diagram label — so these are believed only with corroboration. See
+	// singleLetterNeedsSupport.
+	"D": "de", "F": "fr", "I": "it", "E": "es", "P": "pt",
+	"N": "no", "S": "sv", "H": "hu",
+}
+
+// PlausibleCodeToken reports whether a token could be a printed language label.
+//
+// Shape is not enough, and the gap is wider than it looks. golang.org/x/text
+// accepts "one", "two", "the", "and", "for" and "abc" as languages — they are
+// real ISO 639-3 codes for languages no appliance manual is printed in — so
+// letting a three-letter token fall through to the parser turns the first word of
+// any page into a language tag. That happened: "one" was read as a code.
+//
+// So the rule is by length. Two letters, with an optional region, go to the
+// parser, which knows the small closed set of ISO 639-1. One and three letters
+// must appear in codeAliases, which lists what manuals actually print.
+func PlausibleCodeToken(s string) bool {
+	base, region, hasRegion := strings.Cut(strings.TrimSpace(s), "-")
+	if hasRegion && len(region) != 2 {
+		return false
+	}
+	switch len(base) {
+	case 2:
+		_, ok := NormalizeCode(s)
+		return ok
+	case 1, 3:
+		_, ok := codeAliases[strings.ToUpper(base)]
+		return ok
+	default:
+		return false
+	}
 }
 
 // NormalizeCode turns a printed language label into a BCP-47 tag.

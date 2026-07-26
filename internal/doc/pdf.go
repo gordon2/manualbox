@@ -341,9 +341,19 @@ func pageTag(text string) string {
 		if line == "" || len([]rune(line)) > maxRunesInCodeLine {
 			continue
 		}
-		if looksLikeLanguageCode(line) {
-			return strings.ToUpper(line)
+		if !looksLikeLanguageCode(line) || !PlausibleCodeToken(line) {
+			continue
 		}
+		// A single letter cannot be trusted from position alone. On the measured
+		// 34-language manual, page 511 of the Cantonese section opens with a
+		// figure label "F" and carries its real ZH-HK tag on the next line;
+		// reading the F as French split that section in two. Keep looking — the
+		// real tag is often the line below — and let EffectiveTags adopt a single
+		// letter only where the document's own contents table lists it.
+		if singleLetterNeedsSupport(line) {
+			continue
+		}
+		return strings.ToUpper(line)
 	}
 	return ""
 }
@@ -362,7 +372,7 @@ func pageTagCandidates(text string) []string {
 		if line == "" || len([]rune(line)) > maxRunesInCodeLine {
 			continue
 		}
-		if !looksLikeLanguageCode(line) {
+		if !looksLikeLanguageCode(line) || !PlausibleCodeToken(line) {
 			continue
 		}
 		upper := strings.ToUpper(line)
@@ -376,25 +386,45 @@ func pageTagCandidates(text string) []string {
 }
 
 // looksLikeLanguageCode reports whether s has the shape of a printed language
-// code: two ASCII letters, optionally followed by a hyphen and a two-letter
-// region, as in EN, DE or ZH-HK.
+// code.
+//
+// Manuals do not agree on the shape. The measured pair uses two-letter codes
+// (EN, DE, ZH-HK) and one-and-three-letter ones (D, PL, RUS, UA, KAZ) — the
+// second manual marks five languages and an exactly-two-letter matcher reads two
+// of them.
+//
+// So one to three ASCII letters, optionally with a region. That is deliberately
+// permissive and cannot be the whole test: a lone "D" is also a list marker, a
+// size and a diagram label. Narrowing is [EffectiveTags]'s job, using the
+// document's own contents-table vocabulary, and for a single letter that
+// corroboration is required rather than preferred — see [singleLetterNeedsSupport].
 func looksLikeLanguageCode(s string) bool {
 	base, region, hasRegion := strings.Cut(s, "-")
-	if !isTwoASCIILetters(base) {
+	if !isASCIILetters(base, 1, 3) {
 		return false
 	}
-	if hasRegion && !isTwoASCIILetters(region) {
+	if hasRegion && !isASCIILetters(region, 2, 2) {
 		return false
 	}
 	return true
 }
 
-func isTwoASCIILetters(s string) bool {
-	if len(s) != 2 {
+// singleLetterNeedsSupport reports whether a code is too short to stand alone.
+//
+// "D" for German is real and common, but a single letter is the most ambiguous
+// token on a page. It is believed only where something else agrees: the printed
+// index listing it, or the column's own alphabet.
+func singleLetterNeedsSupport(code string) bool {
+	base, _, _ := strings.Cut(code, "-")
+	return len(base) == 1
+}
+
+func isASCIILetters(s string, minLen, maxLen int) bool {
+	if len(s) < minLen || len(s) > maxLen {
 		return false
 	}
 	for i := range s {
-		if !unicode.IsLetter(rune(s[i])) || s[i] > unicode.MaxASCII {
+		if s[i] > unicode.MaxASCII || !unicode.IsLetter(rune(s[i])) {
 			return false
 		}
 	}

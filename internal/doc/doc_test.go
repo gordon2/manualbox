@@ -664,14 +664,19 @@ func TestARejectedIndexClaimEndsNothing(t *testing.T) {
 	}
 }
 
-func TestIndexLookaheadStopsAtAThreeLetterLabel(t *testing.T) {
-	// Manufacturers print three-letter labels — POR, SPA, CHI, SRB — and a code line
-	// is otherwise recognised only as XX or XX-XX. Such a line was read as title text
-	// and the walk continued into the *following* entry's page number, so EN claimed
-	// the Portuguese section's start page and carried its title along with it.
+func TestThreeLetterLabelsParseAsTheirOwnEntry(t *testing.T) {
+	// Manufacturers print three-letter labels — POR, SPA, CHI, RUS, KAZ. They were
+	// once unrecognised, so such a line was read as title text and the walk
+	// continued into the FOLLOWING entry's page number: EN claimed the Portuguese
+	// section's start page and carried its title along too.
+	//
+	// This test previously asserted only that the damage did not happen, because
+	// three-letter codes could not be parsed. They can now — a real manual marks
+	// two of its five languages RUS and KAZ — so the entry belongs to POR, with its
+	// own title and page, and EN keeps its own.
 	contents := doc.Page{No: 1}
 	contents.Text = "Contents\n" +
-		"EN\nUser Manual\nPOR\nManual do utilizador\n17\n" +
+		"EN\nUser Manual\n1\nPOR\nManual do utilizador\n17\n" +
 		"FR\nManuel d'utilisation\n33\n" +
 		"DE\nBenutzerhandbuch\n49\n" +
 		"ES\nManual de usuario\n65\n"
@@ -683,18 +688,38 @@ func TestIndexLookaheadStopsAtAThreeLetterLabel(t *testing.T) {
 		page(3, "", doc.ScriptLatin, 0, "body"),
 	}
 
-	byCode := make(map[string]doc.Run, 4)
+	byCode := make(map[string]doc.Run, 5)
 	for _, r := range doc.IndexRuns(pages) {
 		byCode[r.Code] = r
-		if strings.Contains(r.Title, "utilizador") {
-			t.Errorf("%s absorbed the Portuguese title: %q", r.Code, r.Title)
-		}
 	}
-	if en, ok := byCode["EN"]; ok && en.PrintedPage != nil && *en.PrintedPage == 17 {
-		t.Error("EN claims printed page 17, which belongs to the entry listed between them")
+
+	por, ok := byCode["POR"]
+	if !ok {
+		t.Fatal("POR was not parsed as an entry")
 	}
-	// The entries after the three-letter label must still parse; breaking the walk
-	// must not cost the rest of the table.
+	if por.Lang != "pt" {
+		t.Errorf("POR resolved to %q, want pt", por.Lang)
+	}
+	if !strings.Contains(por.Title, "utilizador") {
+		t.Errorf("POR title = %q, want the Portuguese one", por.Title)
+	}
+	if por.PrintedPage == nil || *por.PrintedPage != 17 {
+		t.Errorf("POR claims %v, want printed page 17", por.PrintedPage)
+	}
+
+	// EN must keep its own page and title rather than the next entry's.
+	en, ok := byCode["EN"]
+	if !ok {
+		t.Fatal("EN was not parsed")
+	}
+	if en.PrintedPage == nil || *en.PrintedPage != 1 {
+		t.Errorf("EN claims %v, want printed page 1", en.PrintedPage)
+	}
+	if strings.Contains(en.Title, "utilizador") {
+		t.Errorf("EN absorbed the Portuguese title: %q", en.Title)
+	}
+
+	// And the rest of the table still parses.
 	for code, want := range map[string]int{"FR": 33, "DE": 49, "ES": 65} {
 		r, ok := byCode[code]
 		if !ok {

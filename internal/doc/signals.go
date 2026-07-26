@@ -67,6 +67,9 @@ func EffectiveTags(pages []Page, knownCodes map[string]bool) []string {
 			continue
 		}
 		for _, c := range p.TagCandidates {
+			// The vocabulary check is what makes a single letter usable at all:
+			// "D" is German on a manual whose contents table lists D, and a list
+			// marker everywhere else.
 			if knownCodes[c] {
 				tags[i] = c
 				break
