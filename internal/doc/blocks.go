@@ -70,10 +70,21 @@ import (
 // wider gap than prose would need a second threshold with nothing to measure it
 // against, since the only case in either document is this one.
 //
-// **A table is not a table.** Tables come from the ruled lines, which conversion.md
-// records as a different input. The sequential manual's side-by-side troubleshooting
-// tables therefore read down each cell column rather than across each row — not
-// interleaved, which is the failure that matters, but not a table either.
+// **A table's rows are not reassembled beyond the cell.** A table is now read where
+// its ruled lines say it is — see [cellRunsOfRegion] and [tableBlocks], which is the
+// fix for the limitation this list used to record — but each cell is its own block
+// and a row is only the run of blocks that share a row number in the note. Nothing
+// here emits a row as one unit, because what a reader should be shown for a table is
+// a question the reader answers and not this stage.
+//
+// **A table's prose is not split around it.** See [mergeTablesByDepth] for the case
+// and for why neither manual exercises it.
+//
+// **A vertically merged cell is still dropped**, 10 of 47 on one measured page, and a
+// header row whose top border is not drawn is still outside the table. Both are
+// omissions in the cell walk rather than in this one, recorded in conversion.md. The
+// header row is at least not lost: it falls outside every cell and so reads with the
+// prose, which is where the column manual's page 57 puts it.
 
 // BlockKind is what a block is.
 //
@@ -92,13 +103,14 @@ const (
 	// plus the lines indented under it.
 	BlockListItem BlockKind = "list-item"
 
-	// BlockTable and BlockFigure are declared and never produced here. Tables come
-	// from the ruled lines, which are a different input — pdftocairo's strokes, not
-	// the text geometry — and a figure needs the image list this pipeline does not
-	// read. They are named now so that the kind vocabulary a reader and a database
-	// column see does not have to change when that work lands, and so that nothing
-	// downstream assumes three kinds is all there will ever be.
-	BlockTable  BlockKind = "table"
+	// BlockTable is one cell of a table recovered from the ruled lines — a different
+	// input from the text geometry, pdftocairo's strokes. Its note carries the cell's
+	// place in the grid. See [tableBlocks].
+	BlockTable BlockKind = "table"
+	// BlockFigure is declared and never produced here: a figure needs the image list
+	// this pipeline does not read. It is named so that the kind vocabulary a reader
+	// and a database column see does not have to change when that work lands, and so
+	// that nothing downstream assumes the kinds above are all there will ever be.
 	BlockFigure BlockKind = "figure"
 )
 
@@ -284,9 +296,12 @@ const bulletRunes = "•·▪◦‣∙*-–—>»✓"
 // RegionBlocks turns one region of one page into ordered readable blocks.
 //
 // p is the page's positioned text and r the region to read, which must be a
-// region of that page. The result is in reading order with Index assigned from 0,
-// and is empty for a region holding no usable text — a region of a diagram's
-// callouts is a normal outcome, not a failure.
+// region of that page. tables are the page's ruled tables, and nil is a normal
+// argument: pdftocairo is optional, so it means "the ruled lines were not read"
+// and produces exactly the reading that shipped before they were. The result is
+// in reading order with Index assigned from 0, and is empty for a region holding
+// no usable text — a region of a diagram's callouts is a normal outcome, not a
+// failure.
 //
 // Only the text inside the region's box is read, through the same two filters the
 // region's own character count came from: [usableRuns] drops the sub-legible
@@ -294,7 +309,9 @@ const bulletRunes = "•·▪◦‣∙*-–—>»✓"
 // membership. Sharing those is not tidiness — a block built from runs the region
 // did not count would put text in the reader that the gate never charged for, and
 // on a parallel-columns page it would be text in a language nobody asked for.
-func RegionBlocks(p *PageRuns, r *Region) []Block {
+// The table walk draws from the same [inside] set for the same reason, so a cell
+// can never show text the region did not charge for and never the reverse.
+func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable) []Block {
 	var dropped DroppedRuns
 	kept := usableRuns(p.Runs, p.Width, p.Height, &dropped)
 	inside := runsInBox(kept, r.X0, r.X1)
@@ -305,16 +322,24 @@ func RegionBlocks(p *PageRuns, r *Region) []Block {
 	tol := baselineToleranceFraction * medianHeight(inside)
 	body := regionBody(inside)
 
+	// The table walk takes the runs that sit in a cell, and the column walk takes
+	// what is left. See [cellRunsOfRegion] for why membership is a cell and not a
+	// table's box.
+	celled, prose := cellRunsOfRegion(inside, tables)
+	groups := readingGroups(prose, p, r)
+	placeTables(groups, celled)
+
 	var out []Block
-	for _, group := range readingGroups(inside, p) {
-		lines := groupLines(group.runs, tol)
-		if len(lines) == 0 {
-			continue
+	for gi := range groups {
+		group := &groups[gi]
+		var blocks []Block
+		if lines := groupLines(group.runs, tol); len(lines) > 0 {
+			pitch := columnPitch(lines)
+			blocks = blocksOfColumn(lines, pitch, group.measure, body)
 		}
-		pitch := columnPitch(lines)
 		// Indexed rather than ranged by value: gocritic rejects copying a struct this
 		// size per iteration, and CONTRIBUTING.md records why.
-		blocks := blocksOfColumn(lines, pitch, group.measure, body)
+		blocks = mergeTablesByDepth(blocks, group.tables, tol)
 		for i := range blocks {
 			b := &blocks[i]
 			b.Page = r.Page
@@ -333,7 +358,11 @@ func RegionBlocks(p *PageRuns, r *Region) []Block {
 // for the same measured reason: a document printing CN, JA and ZH-HK counts as
 // three languages under its labels and one under its base tags. A nil map reads
 // every region, which is what a caller inspecting a whole document wants.
-func RegionsBlocks(pages []PageRuns, regions []Region, inScope map[string]bool) []Block {
+//
+// tables is keyed on page number, and a page missing from it has none — which is
+// also what a caller that could not run pdftocairo passes, for every page.
+func RegionsBlocks(pages []PageRuns, regions []Region, inScope map[string]bool,
+	tables map[int][]RuledTable) []Block {
 	byPage := make(map[int]*PageRuns, len(pages))
 	for i := range pages {
 		byPage[pages[i].No] = &pages[i]
@@ -363,7 +392,7 @@ func RegionsBlocks(pages []PageRuns, regions []Region, inScope map[string]bool) 
 		if p == nil {
 			continue
 		}
-		out = append(out, RegionBlocks(p, &regions[i])...)
+		out = append(out, RegionBlocks(p, &regions[i], tables[regions[i].Page])...)
 	}
 	return out
 }
@@ -452,6 +481,17 @@ type readingGroup struct {
 	// column holding nothing but two short headings is not judged to have a short
 	// measure and both promoted.
 	measure float64
+	// x0 and x1 bound the strip on the page. They exist so a table can be placed
+	// in the strip that holds it, and they are NOT the measure: for a region read
+	// as one strip they are the region's whole box, because that strip is the
+	// region, while the measure stays what the strip's own text reaches.
+	x0, x1 float64
+	// banner marks the strip that holds the runs spanning every column. It is the
+	// fallback owner of a table, never a candidate: it is read first, and a table
+	// belongs to the strip that contains it where one does.
+	banner bool
+	// tables are the tables placed in this strip, in page order.
+	tables []cellRuns
 }
 
 // readingGroups subdivides a region into the strips reading order runs down.
@@ -460,40 +500,263 @@ type readingGroup struct {
 // runs come first as one group of their own: a heading set across two columns is
 // above both of them on the page, and putting it after either would read wrongly
 // on the one page of the column manual that does it.
-func readingGroups(inside []TextRun, p *PageRuns) []readingGroup {
-	layout := DetectColumns(inside, p.Width, p.Height)
+//
+// The runs handed in are the region's text minus whatever sits in a table cell, so
+// the columns found here are the region's text columns and not a table's cell
+// columns. That is the fix docs/design/conversion.md asks for: on the column
+// manual's page 57 the four "columns" the detector finds over the whole page are
+// two tables' cell dividers, and reading down them is reading a troubleshooting
+// table down its question column and then down its answer column.
+func readingGroups(prose []TextRun, p *PageRuns, r *Region) []readingGroup {
+	layout := DetectColumns(prose, p.Width, p.Height)
 	if len(layout.Columns) < 2 {
 		// One column, or too little text to call one. Either way the region is a
 		// single strip and its measure is what its own text reaches.
-		lo, hi := extent(inside)
-		return []readingGroup{{runs: inside, measure: hi - lo}}
+		lo, hi := extent(prose)
+		if len(prose) == 0 {
+			lo, hi = r.X0, r.X0
+		}
+		return []readingGroup{{runs: prose, measure: hi - lo, x0: r.X0, x1: r.X1}}
 	}
 
 	cols := layout.Columns
 	groups := make([]readingGroup, len(cols)+1)
-	groups[0].measure = func() float64 { lo, hi := extent(inside); return hi - lo }()
+	groups[0].measure = func() float64 { lo, hi := extent(prose); return hi - lo }()
+	groups[0].x0, groups[0].x1, groups[0].banner = r.X0, r.X1, true
 	for i := range cols {
 		groups[i+1].measure = cols[i].Width()
+		groups[i+1].x0, groups[i+1].x1 = cols[i].Min, cols[i].Max
 	}
 
-	for i := range inside {
-		r := &inside[i]
-		k := columnOf(r, cols)
+	for i := range prose {
+		run := &prose[i]
+		k := columnOf(run, cols)
 		if k < 0 {
 			// Spanning, or in a gap the detector did not report as a column: read it
 			// with the banner band rather than dropping it. Losing text is never the
 			// right answer here — the region's own character count included it.
-			groups[0].runs = append(groups[0].runs, *r)
+			groups[0].runs = append(groups[0].runs, *run)
 			continue
 		}
-		groups[k+1].runs = append(groups[k+1].runs, *r)
+		groups[k+1].runs = append(groups[k+1].runs, *run)
 	}
 
 	out := make([]readingGroup, 0, len(groups))
 	for i := range groups {
-		if len(groups[i].runs) > 0 {
+		if len(groups[i].runs) > 0 || groups[i].banner || len(groups) == 1 {
 			out = append(out, groups[i])
 		}
+	}
+	return out
+}
+
+// cellRuns is one table's text, as it fell inside one region.
+//
+// cells is parallel to the table's own Cells, so a cell that took no run of this
+// region stays empty and produces nothing. That is what clips a table to a region
+// without any arithmetic on boxes: the runs were clipped to the region before they
+// were offered to a cell.
+type cellRuns struct {
+	table *RuledTable
+	cells [][]TextRun
+	runs  int
+}
+
+// cellRunsOfRegion divides a region's runs into the ones a table cell holds and the
+// ones it does not.
+//
+// Membership is a CELL and not the table's box, and the difference is load-bearing
+// twice over.
+//
+// A heading printed across a table straddles the rules that would enclose it, so it
+// belongs to no cell and stays with the prose — where it joins the banner group,
+// which is read first, and appears exactly once. docs/design/conversion.md names the
+// alternatives and both are wrong: putting it in a cell buries it, and suppressing
+// banner blocks wherever a table covers the region loses it altogether. The measured
+// case is the column manual's page 57, whose "Aufgetretene Störungen/Fehlfunktionen"
+// and "Grund / Abhilfe" header row is printed above the table's own top border,
+// because that border is not drawn — the same missing rule conversion.md records as
+// costing four cells.
+//
+// And a table may span regions in DIFFERENT languages. Page 57's left table runs
+// x=29.7-428.1, which before this change covered a Finnish region and a German one.
+// Assuming one table sits inside one region would have pulled that Finnish column
+// into a German conversion; here the region's own runs are all a cell can ever be
+// offered, so a block cannot reach outside its region's box.
+//
+// The margin is [cellTextMargin], the same tolerance [countCellText] used to decide
+// the same question when it counted the cell's characters. Two answers to "is this
+// run in this cell" would eventually disagree.
+func cellRunsOfRegion(inside []TextRun, tables []RuledTable) (celled []cellRuns, prose []TextRun) {
+	if len(tables) == 0 {
+		return nil, inside
+	}
+
+	celled = make([]cellRuns, len(tables))
+	for i := range tables {
+		celled[i] = cellRuns{table: &tables[i], cells: make([][]TextRun, len(tables[i].Cells))}
+	}
+
+	prose = make([]TextRun, 0, len(inside))
+	for i := range inside {
+		run := &inside[i]
+		ti, ci := cellHolding(run, tables)
+		if ti < 0 {
+			prose = append(prose, *run)
+			continue
+		}
+		celled[ti].cells[ci] = append(celled[ti].cells[ci], *run)
+		celled[ti].runs++
+	}
+
+	out := make([]cellRuns, 0, len(celled))
+	for i := range celled {
+		if celled[i].runs > 0 {
+			out = append(out, celled[i])
+		}
+	}
+	return out, prose
+}
+
+// cellHolding returns the table and cell that contain a run whole, or -1, -1.
+func cellHolding(run *TextRun, tables []RuledTable) (table, cell int) {
+	for i := range tables {
+		t := &tables[i]
+		if run.X < t.Box.X0-cellTextMargin || run.right() > t.Box.X1+cellTextMargin ||
+			run.Y < t.Box.Y0-cellTextMargin || run.bottom() > t.Box.Y1+cellTextMargin {
+			continue
+		}
+		for j := range t.Cells {
+			c := &t.Cells[j].Rect
+			if run.X >= c.X0-cellTextMargin && run.right() <= c.X1+cellTextMargin &&
+				run.Y >= c.Y0-cellTextMargin && run.bottom() <= c.Y1+cellTextMargin {
+				return i, j
+			}
+		}
+	}
+	return -1, -1
+}
+
+// placeTables gives each table to the strip that holds it.
+//
+// The strip is found by containment, the same rule [columnOf] applies to a run, and
+// for the same reason: a table reaching past a column belongs to none of them and is
+// read with the banner band. A region read as one strip holds every table in it,
+// which is why that strip's bounds are the region's box.
+func placeTables(groups []readingGroup, celled []cellRuns) {
+	if len(celled) == 0 || len(groups) == 0 {
+		return
+	}
+	for i := range celled {
+		box := &celled[i].table.Box
+		k := 0
+		for j := range groups {
+			g := &groups[j]
+			if !g.banner && box.X0 >= g.x0-cellTextMargin && box.X1 <= g.x1+cellTextMargin {
+				k = j
+				break
+			}
+		}
+		groups[k].tables = append(groups[k].tables, celled[i])
+	}
+}
+
+// mergeTablesByDepth interleaves a strip's tables with its text blocks by how far
+// down the page each starts.
+//
+// A table is one unit rather than a set of blocks to be sorted individually, since
+// its cells run past each other vertically and sorting them among paragraphs would
+// shuffle a table into the prose around it. Which side of a block a table falls on
+// is decided by the top of its box against the top of the block.
+//
+// What this does not do is split a strip's prose around a table. A paragraph printed
+// BELOW a table, in a strip that also has prose above it, still reads before the
+// table, because the strip's lines are one sequence and the tables are placed in it
+// rather than the strip being cut into bands. Neither measured manual does that on a
+// table page — the column manual's tables sit at the foot of their column or fill
+// the page, and the sequential manual's are the whole page under a heading — so the
+// band split would be built against no example.
+func mergeTablesByDepth(blocks []Block, tables []cellRuns, tol float64) []Block {
+	if len(tables) == 0 {
+		return blocks
+	}
+	sort.SliceStable(tables, func(a, b int) bool {
+		if tables[a].table.Box.Y0 != tables[b].table.Box.Y0 {
+			return tables[a].table.Box.Y0 < tables[b].table.Box.Y0
+		}
+		return tables[a].table.Box.X0 < tables[b].table.Box.X0
+	})
+
+	out := make([]Block, 0, len(blocks)+4*len(tables))
+	next := 0
+	for i := range blocks {
+		for next < len(tables) && tables[next].table.Box.Y0 <= blocks[i].Y0 {
+			out = append(out, tableBlocks(&tables[next], tol)...)
+			next++
+		}
+		out = append(out, blocks[i])
+	}
+	for ; next < len(tables); next++ {
+		out = append(out, tableBlocks(&tables[next], tol)...)
+	}
+	return out
+}
+
+// tableBlocks turns one table's cells into blocks, one per cell that holds text,
+// in row-major order.
+//
+// Row-major is the whole point of handing a table to this walk. Left to the column
+// walk, a two-column troubleshooting table reads down every question and then down
+// every answer — which blocks.go recorded as a known limitation and this is its fix.
+// Reading across each row pairs each question with its answer, which is how the page
+// is printed and how it is read.
+//
+// One block per cell rather than one per table, because a cell is the unit a later
+// stage can cite and translate: "what is the remedy for this fault" is answered by a
+// cell. The grid position travels in the note rather than in a field, for the reason
+// [Block] gives about its key — the block vocabulary is not widened here, so nothing
+// stored or served has to change to hold a table.
+func tableBlocks(t *cellRuns, tol float64) []Block {
+	order := make([]int, 0, len(t.cells))
+	for i := range t.cells {
+		if len(t.cells[i]) > 0 {
+			order = append(order, i)
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ca, cb := &t.table.Cells[order[a]], &t.table.Cells[order[b]]
+		if ca.Row != cb.Row {
+			return ca.Row < cb.Row
+		}
+		return ca.Col < cb.Col
+	})
+
+	out := make([]Block, 0, len(order))
+	for _, i := range order {
+		cell := &t.table.Cells[i]
+		lines := groupLines(t.cells[i], tol)
+		texts := make([]string, 0, len(lines))
+		b := Block{Kind: BlockTable,
+			X0: math.Inf(1), X1: math.Inf(-1), Y0: math.Inf(1), Y1: math.Inf(-1)}
+		for j := range lines {
+			texts = append(texts, lines[j].text)
+			b.X0 = math.Min(b.X0, lines[j].x0)
+			b.X1 = math.Max(b.X1, lines[j].x1)
+			b.Y0 = math.Min(b.Y0, lines[j].y)
+			b.Y1 = math.Max(b.Y1, lines[j].bottom)
+		}
+		b.Text = collapseSpaces(strings.Join(texts, " "))
+		if b.Text == "" {
+			continue
+		}
+		b.Chars = utf8.RuneCountInString(b.Text)
+		b.Lines = len(lines)
+		b.Note = fmt.Sprintf("row %d of %d, column %d of %d of a ruled table",
+			cell.Row+1, t.table.Rows, cell.Col+1, t.table.Cols)
+		if cell.ColSpan > 1 {
+			b.Note += fmt.Sprintf(", spanning %d of them", cell.ColSpan)
+		}
+		out = append(out, b)
 	}
 	return out
 }

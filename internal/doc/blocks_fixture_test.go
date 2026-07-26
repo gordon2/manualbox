@@ -34,7 +34,46 @@ import (
 // regions are what carry it into a block.
 func blocksOfFixture(t *testing.T, name string) (m *fixture.Manifest, pages []doc.PageRuns, regions []doc.Region) {
 	t.Helper()
-	var path string
+	m, pages, regions, _ = blocksAndTablesOfFixture(t, name)
+	return m, pages, regions
+}
+
+// blocksAndTablesOfFixture adds the ruled lines of the pages a scope will read.
+//
+// Only those pages, because the ruled lines cost a pdftocairo spawn each — 5.9 s
+// over the column manual's 68 pages, 42.3 s over the sequential manual's 560 — and
+// conversion.md's cost argument is precisely that they are read for the pages in
+// scope and no others. A German scope is 26 pages of the one and 16 of the other.
+func blocksAndTablesOfFixture(t *testing.T, name string) (m *fixture.Manifest,
+	pages []doc.PageRuns, regions []doc.Region, tables map[int][]doc.RuledTable) {
+	t.Helper()
+	m, pages, regions, path := regionsOfFixture(t, name)
+
+	tables = map[int][]doc.RuledTable{}
+	want := map[int]bool{}
+	for i := range regions {
+		if doc.BaseLanguage(regions[i].Lang) == "de" {
+			want[regions[i].Page] = true
+		}
+	}
+	for i := range pages {
+		if !want[pages[i].No] {
+			continue
+		}
+		got, err := doc.PageTables(context.Background(), path, &pages[i])
+		if err != nil {
+			t.Skipf("the ruled lines of page %d could not be read: %v", pages[i].No, err)
+		}
+		if len(got) > 0 {
+			tables[pages[i].No] = got
+		}
+	}
+	return m, pages, regions, tables
+}
+
+func regionsOfFixture(t *testing.T, name string) (m *fixture.Manifest, pages []doc.PageRuns,
+	regions []doc.Region, path string) {
+	t.Helper()
 	if name == "thomas-drybox-amfibia" {
 		m, path = columnFixture(t)
 	} else {
@@ -52,7 +91,7 @@ func blocksOfFixture(t *testing.T, name string) (m *fixture.Manifest, pages []do
 	if err != nil {
 		t.Fatalf("ExtractRuns: %v", err)
 	}
-	return m, pages, res.Regions
+	return m, pages, res.Regions, path
 }
 
 // scriptsIn reports which of the alphabets these two manuals use appear in a
@@ -91,9 +130,9 @@ const polishOnlyLetters = "ąćęłńśźżĄĆĘŁŃŚŹŻ"
 // the negative the contract insists on: the German regions of a page holding five
 // languages must produce German and nothing else.
 func TestBlocksOfTheColumnManualsGermanAreGerman(t *testing.T) {
-	_, pages, regions := blocksOfFixture(t, "thomas-drybox-amfibia")
+	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true})
+	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
 	if len(german) == 0 {
 		t.Fatal("the German regions produced no blocks at all")
 	}
@@ -154,28 +193,47 @@ func TestBlocksOfTheColumnManualsGermanAreGerman(t *testing.T) {
 // happens to hold.
 //
 // The test above it guards Cyrillic and Polish-only letters, and that is not
-// enough. Page 57 of this manual divides into FOUR regions — Finnish at x=36-178
-// and German at 179-424, 457-589 and 601-846 — and Finnish shares the Latin
-// alphabet AND ä and ö with German, so a Finnish column bleeding into a German
-// block passes every letter test there is. The narrow first column of a
-// troubleshooting table being named a language at all is the case regions.md
-// records as unsolved, and it is exactly where a leak would come from.
+// enough. Page 57 of this manual USED to divide into four regions — Finnish at
+// x=36-178 and German at 179-424, 457-589 and 601-846 — and Finnish shares the
+// Latin alphabet AND ä and ö with German, so a Finnish column bleeding into a
+// German block passes every letter test there is.
 //
-// This matters beyond the two fixtures, because the ruled-line work measures those
-// same two tables at x=29.7-428.1 and x=450.2-848.7. The first spans two regions in
-// two DIFFERENT languages, so anything that later hands a table's area to a row
-// walk cannot assume one table sits inside one region: doing so would pull the
-// Finnish column into a German conversion. Nothing does that today and this test
-// is what says so if something starts to.
+// Those four boundaries turned out to be the cell dividers of the page's two
+// tables, measured at x=29.7-428.1 and x=450.2-848.7, and the page is now one
+// German region because of it. But the property this test states is the one that
+// outlives that: a table's area is handed to the row walk, and a table CAN reach
+// past the region being read. The left table did exactly that, across two regions
+// in two different languages. So every table of this document is read here against
+// every region of its page, and a block that reaches outside its region's box is a
+// failure however the page came to be divided.
+//
+// The hermetic twin of the case that no longer occurs on this document is
+// TestRegionBlocksClipATableToTheRegion, which rebuilds page 57's pre-fix shape and
+// asserts the same thing about it.
 func TestBlocksNeverReachOutsideTheirRegion(t *testing.T) {
-	_, pages, regions := blocksOfFixture(t, "thomas-drybox-amfibia")
+	_, pages, regions, path := regionsOfFixture(t, "thomas-drybox-amfibia")
 
 	byNo := make(map[int]*doc.PageRuns, len(pages))
 	for i := range pages {
 		byNo[pages[i].No] = &pages[i]
 	}
 
-	checked, boxed := 0, 0
+	// Every page, not only the ones in a scope: the point is to run every table the
+	// document draws past every region, and 68 pdftocairo spawns is 6 s.
+	tables := map[int][]doc.RuledTable{}
+	tabled := 0
+	for i := range pages {
+		got, err := doc.PageTables(context.Background(), path, &pages[i])
+		if err != nil {
+			t.Skipf("the ruled lines of page %d could not be read: %v", pages[i].No, err)
+		}
+		if len(got) > 0 {
+			tables[pages[i].No] = got
+			tabled++
+		}
+	}
+
+	checked, boxed, tableBlocks := 0, 0, 0
 	for i := range regions {
 		r := &regions[i]
 		p := byNo[r.Page]
@@ -185,8 +243,11 @@ func TestBlocksNeverReachOutsideTheirRegion(t *testing.T) {
 		if r.X0 != 0 {
 			boxed++
 		}
-		for _, b := range doc.RegionBlocks(p, r) {
+		for _, b := range doc.RegionBlocks(p, r, tables[r.Page]) {
 			checked++
+			if b.Kind == doc.BlockTable {
+				tableBlocks++
+			}
 			// The one-unit slack is runsInBox's own tolerance, which absorbs the
 			// rounding between a column's reported extent and the runs that produced it.
 			if b.X0 < r.X0-1 || b.X1 > r.X1+1 {
@@ -196,12 +257,12 @@ func TestBlocksNeverReachOutsideTheirRegion(t *testing.T) {
 			}
 		}
 	}
-	if checked == 0 || boxed == 0 {
-		t.Fatalf("checked %d blocks over %d boxed regions; both must be non-zero or this "+
-			"test asserts nothing", checked, boxed)
+	if checked == 0 || boxed == 0 || tableBlocks == 0 {
+		t.Fatalf("checked %d blocks over %d boxed regions, %d of them table cells; all "+
+			"three must be non-zero or this test asserts nothing", checked, boxed, tableBlocks)
 	}
-	t.Logf("%d blocks over %d regions, %d of them boxed, none reaching outside its box",
-		checked, len(regions), boxed)
+	t.Logf("%d blocks over %d regions, %d of them boxed, %d table cells from %d tabled "+
+		"pages, none reaching outside its box", checked, len(regions), boxed, tableBlocks, tabled)
 }
 
 // TestBlocksOfTheColumnManualsPage62 pins what one page produces, because a
@@ -316,9 +377,9 @@ func TestBlocksOfTheColumnManualsPage14(t *testing.T) {
 // TestBlocksOfTheSequentialManualsGermanSection is the other half of acceptance:
 // the same reading from a document that gives German pages of its own, 23 to 38.
 func TestBlocksOfTheSequentialManualsGermanSection(t *testing.T) {
-	_, pages, regions := blocksOfFixture(t, "dreame-l40-ultra")
+	_, pages, regions, tables := blocksAndTablesOfFixture(t, "dreame-l40-ultra")
 
-	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true})
+	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
 	if len(german) == 0 {
 		t.Fatal("the German section produced no blocks at all")
 	}
@@ -429,10 +490,10 @@ func TestBlocksOfTheSequentialManualsPages23And24(t *testing.T) {
 // the page, the region's left edge and the index, so a second conversion has to
 // produce the same keys and the same text.
 func TestBlocksConvergeOnASecondRun(t *testing.T) {
-	_, pages, regions := blocksOfFixture(t, "thomas-drybox-amfibia")
+	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	first := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true})
-	second := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true})
+	first := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
+	second := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
 
 	if len(first) != len(second) {
 		t.Fatalf("two runs produced %d and %d blocks", len(first), len(second))
@@ -473,9 +534,9 @@ func TestBlocksConvergeOnASecondRun(t *testing.T) {
 //     buys, and it is what keeps the column manual's medium-face warning
 //     paragraphs — 17.2% of its characters — out of the reader as furniture.
 func TestBlocksHeadingLengthIsASoftCut(t *testing.T) {
-	_, pages, regions := blocksOfFixture(t, "thomas-drybox-amfibia")
+	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	blocks := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true})
+	blocks := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
 	widest, widestText := 0.0, ""
 	for i := range blocks {
 		b := &blocks[i]
@@ -515,7 +576,7 @@ func blocksOfPage(t *testing.T, pages []doc.PageRuns, regions []doc.Region, page
 		}
 		for j := range pages {
 			if pages[j].No == page {
-				got := doc.RegionBlocks(&pages[j], r)
+				got := doc.RegionBlocks(&pages[j], r, nil)
 				if len(got) == 0 {
 					t.Fatalf("page %d region x=%.0f produced no blocks", page, r.X0)
 				}
