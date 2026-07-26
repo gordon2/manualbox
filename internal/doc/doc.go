@@ -140,10 +140,14 @@ type Result struct {
 	Unlabelled int `json:"unlabelled"`
 }
 
-// minTextChars is how many runes a page needs before it counts as carrying text.
+// MinTextChars is how many runes a page needs before it counts as carrying text.
 // Page furniture alone — a folio, a language tab, a header — is a few dozen runes
 // on an otherwise scanned page, so the floor has to sit above that.
-const minTextChars = 50
+//
+// Exported because the pre-flight gate counts unnamed pages from stored rows
+// rather than from a Result, and it has to apply the same floor as
+// [CountUnlabelled] does here. Two floors would disagree about the same document.
+const MinTextChars = 50
 
 // textLayerPageFraction is the share of pages that must carry text before
 // extraction is considered viable. A median alone misjudges a document that is
@@ -580,7 +584,7 @@ func medianChars(pages []Page) int {
 func countWithText(pages []Page) int {
 	n := 0
 	for i := range pages {
-		if pages[i].Chars >= minTextChars {
+		if pages[i].Chars >= MinTextChars {
 			n++
 		}
 	}
@@ -589,7 +593,7 @@ func countWithText(pages []Page) int {
 
 func firstLastWithText(pages []Page) (first, last int) {
 	for i := range pages {
-		if pages[i].Chars >= minTextChars {
+		if pages[i].Chars >= MinTextChars {
 			if first == 0 {
 				first = pages[i].No
 			}
@@ -647,7 +651,7 @@ func CountUnlabelled(pages []Page, runs []Run) int {
 	for i := range pages {
 		p := &pages[i]
 		switch {
-		case p.Chars < minTextChars:
+		case p.Chars < MinTextChars:
 			// Nothing to name.
 		case labelled[p.No]:
 		case IsContentsPage(p):

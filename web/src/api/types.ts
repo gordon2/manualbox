@@ -161,8 +161,23 @@ export interface Doc {
   probedAt?: string;
 }
 
-/** Which signal established a language run. */
-export type LanguageSource = "page-tag" | "index" | "script" | "detector" | "reconciled";
+/**
+ * Which signal established a language run.
+ *
+ * `repertoire` is which alphabet the text uses — the letters only some languages
+ * sharing a script can write, which is what separates Russian, Ukrainian and
+ * Kazakh in one document. The empty string is a real, reportable state and not a
+ * defect: a page of service addresses in six languages is genuinely unnameable,
+ * and saying so beats guessing.
+ */
+export type LanguageSource =
+  | ""
+  | "page-tag"
+  | "index"
+  | "script"
+  | "repertoire"
+  | "detector"
+  | "reconciled";
 
 export interface LanguageRun {
   source: LanguageSource;
@@ -184,6 +199,29 @@ export interface LanguageRun {
 }
 
 /**
+ * One of a document's languages as the gate reports it: everything a stored run
+ * carries, plus what only the region map can say about size.
+ *
+ * Characters lead and pages are context. A language occupying one of three
+ * parallel columns on 26 of 68 pages is not 26 pages of reading, and
+ * `sharesPages` is what says so. A language the per-page signals never named has
+ * no run behind it — a parallel-columns manual has none at all — and then `title`
+ * and `printedPage` are absent and `confidence` is 0, because regions store
+ * neither and inventing them would be an estimate.
+ */
+export interface GateLanguage extends LanguageRun {
+  /** Runes, not bytes: the same writing in Cyrillic or CJK runs about a third more bytes. */
+  chars: number;
+  /** `chars` as a fraction of the document's named text, 0 to 1. */
+  share: number;
+  /**
+   * This language does not have its pages to itself: somewhere it occupies a box
+   * on a page another language also occupies.
+   */
+  sharesPages: boolean;
+}
+
+/**
  * The pre-flight question, answered before anything is spent. `cost.available`
  * is false when there is no honest number to show rather than a guessed one.
  */
@@ -198,12 +236,39 @@ export interface Gate {
   encrypted: boolean;
   hasTextLayer: boolean;
   medianChars: number;
+  /**
+   * The document's named text, and the denominator of every `share`. Text nothing
+   * could name is excluded, so a signal that failed cannot silently shrink a
+   * language's share.
+   */
+  chars: number;
   household: string[];
-  inScope: LanguageRun[];
-  other: LanguageRun[];
+  inScope: GateLanguage[];
+  other: GateLanguage[];
+  /**
+   * Distinct pages carrying an in-scope language, not a sum over languages: on a
+   * parallel-columns manual a sum reports 133 pages of a 68-page document.
+   */
   scopePages: number;
   scopeFraction: number;
+  scopeChars: number;
+  /**
+   * `scopeChars` over `chars`. The honest measure of how much of a document a
+   * household reads: on the measured columns manual German is 38% by pages and
+   * 20% by characters.
+   */
+  scopeCharFraction: number;
+  /**
+   * How many runs the signals disagreed about — the document's own contents table
+   * against its pages. A region's disagreement, a column's alphabet against the
+   * page's printed tab, is a different thing and arrives as `conflict` on the
+   * language itself.
+   */
   conflicts: number;
+  /**
+   * Content pages carrying text that no signal could name. Front matter and a
+   * back cover are excluded: they legitimately belong to no section.
+   */
   unlabelledPages: number;
   requiresApproval: boolean;
   maxPagesAuto: number;

@@ -68,7 +68,7 @@ func Reconcile(pages []Page, bySource map[Source][]Run) []Run {
 
 	for i := range pages {
 		p := &pages[i]
-		if p.Chars < minTextChars {
+		if p.Chars < MinTextChars {
 			continue
 		}
 		var winner *resolution
@@ -222,7 +222,7 @@ func bridgeLowTextGaps(runs []Run, pages []Page) []Run {
 		bridgeable := prev.Lang == cur.Lang && cur.Start > prev.End+1
 		for p := prev.End + 1; bridgeable && p < cur.Start; p++ {
 			page, known := byNo[p]
-			if !known || page.Chars >= minTextChars {
+			if !known || page.Chars >= MinTextChars {
 				bridgeable = false
 			}
 		}

@@ -3,6 +3,8 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/gordon2/manualbox/internal/doc"
 	"github.com/gordon2/manualbox/internal/registry"
@@ -13,7 +15,8 @@ import (
 //
 // It is built entirely from stored probe results, so it survives a restart and
 // costs nothing to render. Re-probing a document to answer "what is in this?"
-// would defeat the purpose of having probed it.
+// would defeat the purpose of having probed it. Every field below is therefore
+// derived from doc_pages, doc_langs and doc_regions and from nothing else.
 type Gate struct {
 	DocumentID string `json:"documentId"`
 	DeviceID   string `json:"deviceId"`
@@ -27,24 +30,54 @@ type Gate struct {
 	HasTextLayer bool `json:"hasTextLayer"`
 	MedianChars  int  `json:"medianChars"`
 
+	// Chars is the document's named text: the characters of every language
+	// something could name, and the denominator [GateLanguage.Share] is taken
+	// against. Text nothing could name is excluded, because a share of it would
+	// silently shrink every language by however much the signals failed to read.
+	Chars int `json:"chars"`
+
 	// Household is the configured reading languages, echoed back so the UI can
 	// explain why a section is in or out of scope.
 	Household []string `json:"household"`
 
 	// InScope are the document's languages the household reads.
-	InScope []registry.LanguageRun `json:"inScope"`
+	InScope []GateLanguage `json:"inScope"`
 	// Other are the languages present that the household does not read. They are
 	// listed, never discarded: the original is kept whole, so importing one later
 	// is a button rather than a re-upload.
-	Other []registry.LanguageRun `json:"other"`
+	Other []GateLanguage `json:"other"`
 
+	// ScopePages counts the pages carrying an in-scope language, DISTINCT pages
+	// rather than a sum over languages. On a parallel-columns manual a page holds
+	// several, so summing per-language page counts reports 133 pages of a 68-page
+	// document. Where languages do not share pages the two agree, which is why the
+	// sequential manual's 16 is unaffected.
 	ScopePages    int     `json:"scopePages"`
 	ScopeFraction float64 `json:"scopeFraction"`
 
+	// ScopeChars is the characters of the in-scope languages, and
+	// ScopeCharFraction its share of [Gate.Chars]. This is the honest measure of
+	// how much of a document a household actually reads: on the measured
+	// parallel-columns manual German is 26 of 68 pages, 38% by pages, and 20% by
+	// characters — because it occupies one column of each of those pages.
+	ScopeChars        int     `json:"scopeChars"`
+	ScopeCharFraction float64 `json:"scopeCharFraction"`
+
 	// Conflicts is how many runs the signals disagreed about. Surfaced rather than
 	// resolved silently.
+	//
+	// Runs, deliberately, and not regions: the UI explains this number as the
+	// document's own contents table disagreeing with its pages, which is what a
+	// conflicting run means. A conflicting region is a different disagreement — a
+	// column's alphabet against the page's printed tab — and the sequential manual
+	// has 1 of the first and 32 of the second. Reporting 32 under the first
+	// sentence would be a lie. A region's dispute reaches the user through
+	// [GateLanguage.Conflict] on the languages regions named.
 	Conflicts int `json:"conflicts"`
-	// UnlabelledPages is how many content pages no signal could name.
+	// UnlabelledPages is how many content pages carry text that no signal could
+	// name. Front matter and a back cover are excluded: they carry text and belong
+	// to no section legitimately, so counting them would report a fault on every
+	// document. On the measured manuals it is 2 and 0.
 	UnlabelledPages int `json:"unlabelledPages"`
 
 	// RequiresApproval reports whether the document exceeds ingest.max_pages_auto
@@ -60,6 +93,35 @@ type Gate struct {
 	Summary string `json:"summary"`
 }
 
+// GateLanguage is one of a document's languages as the gate reports it.
+//
+// It embeds the stored run so that every field the run carried stays present and
+// keeps its meaning — title, printed page, span, confidence — and adds what only
+// the region map can say. A language the per-page signals never named has no run
+// at all, and then the embedded fields carry what the regions know: the printed
+// code, the language, its page span, and no title or confidence, because regions
+// store neither and inventing them would be an estimate.
+type GateLanguage struct {
+	registry.LanguageRun
+
+	// Chars is how much of this language the document holds, in runes.
+	//
+	// Characters lead and pages are context. A language occupying one of three
+	// columns on 26 of 68 pages is not 26 pages of reading, and the page count on
+	// its own says it is — see SharesPages.
+	Chars int `json:"chars"`
+	// Share is Chars as a fraction of [Gate.Chars], 0 to 1.
+	Share float64 `json:"share"`
+	// SharesPages reports that this language does not have its pages to itself:
+	// somewhere it occupies a box on a page another language also occupies.
+	//
+	// This is what stops the page count misleading, and it is worked out from a
+	// page carrying more than one region rather than from a region's x0 — a
+	// leftmost column legitimately begins at 0, so testing x0 would call every
+	// left-hand column whole-page.
+	SharesPages bool `json:"sharesPages"`
+}
+
 // CostEstimate is what the scope would cost to process.
 //
 // When no AI provider is configured there is no honest number to show. A token
@@ -71,12 +133,27 @@ type Gate struct {
 type CostEstimate struct {
 	Available bool `json:"available"`
 	// Chars is measured, free, and always present: the extracted character count
-	// of the pages in scope. It is a real quantity rather than a prediction.
+	// of the text in scope. It is a real quantity rather than a prediction, and it
+	// is the same number as [Gate.ScopeChars] — repeated here because this is the
+	// struct a caller asks about spending.
 	Chars  int    `json:"chars"`
 	Reason string `json:"reason,omitempty"`
 }
 
 // Gate assembles the pre-flight answer for a document.
+//
+// The language map is read from the regions where there are regions, and from the
+// per-page runs otherwise. That is not a preference between two equivalent
+// sources. On a parallel-columns manual the per-page map names nothing — a page
+// there holds three languages and no per-page answer about it can be right — so
+// summarised from runs alone that document reported "68 pages, but no language
+// could be identified" while its regions held five languages and 240,622
+// characters. Regions are the finer-grained record of the same reconciliation, so
+// on a sequential manual the two agree and nothing it reports changes.
+//
+// An empty region set is not the claim that a manual has one language: a document
+// probed on a host without pdftohtml has no regions and a complete per-page map,
+// which is exactly what the fallback is for.
 func (s *Service) Gate(ctx context.Context, documentID string) (*Gate, error) {
 	document, err := s.registry.GetDocument(ctx, documentID)
 	if err != nil {
@@ -92,8 +169,8 @@ func (s *Service) Gate(ctx context.Context, documentID string) (*Gate, error) {
 		Probed:       document.Probed(),
 		Household:    s.cfg.Content.Languages,
 		MaxPagesAuto: s.cfg.Ingest.MaxPagesAuto,
-		InScope:      []registry.LanguageRun{},
-		Other:        []registry.LanguageRun{},
+		InScope:      []GateLanguage{},
+		Other:        []GateLanguage{},
 	}
 
 	if document.PageCount != nil {
@@ -120,60 +197,301 @@ func (s *Service) Gate(ctx context.Context, documentID string) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Collapse runs to one entry per language, keeping the most specific label.
-	type acc struct {
-		run   registry.LanguageRun
-		pages int
+	regions, err := s.registry.Regions(ctx, document.ID)
+	if err != nil {
+		return nil, err
 	}
-	order := make([]string, 0, len(runs))
-	byLang := make(map[string]*acc, len(runs))
+	pages, err := s.registry.Pages(ctx, document.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	langs := collapseRuns(runs)
+	g.Conflicts = countConflicts(runs)
+	if len(regions) > 0 {
+		langs.addRegions(regions)
+	} else {
+		langs.sizeFromPages(pages)
+	}
+	langs.finish(g, s.cfg.Content.Languages)
+
+	first, last := contentRange(document)
+	g.UnlabelledPages = unlabelledPages(regions, pages, first, last)
+
+	g.Cost = s.costEstimate()
+	g.Cost.Chars = g.ScopeChars
+	g.Summary = g.summarize()
+	return g, nil
+}
+
+// languageMap accumulates one entry per language while both stored sources are
+// read, keyed on base language so that a document printing ZH-HK and zh is one
+// language rather than two.
+type languageMap struct {
+	order  []string
+	byLang map[string]*langEntry
+}
+
+type langEntry struct {
+	lang GateLanguage
+	// pages is the distinct pages this language occupies according to the regions,
+	// which is how a page holding several languages is counted once.
+	pages map[int]bool
+	// runPages is the same count according to the runs, summed across them as it
+	// always was. Kept apart from the map because the two are different
+	// measurements and mixing them would double-count a page.
+	runPages int
+	// fromRun records that a stored run described this language. Where one did,
+	// the run's own span and page count stand, so a sequential manual reports
+	// exactly what it reported before regions were read here.
+	fromRun bool
+}
+
+func newLanguageMap(size int) *languageMap {
+	return &languageMap{order: make([]string, 0, size), byLang: make(map[string]*langEntry, size)}
+}
+
+// langKey is the language a label belongs to, falling back to the label itself so
+// that a manual printing an unrecognised code still gets an entry. Storing the
+// unrecognised is deliberate — see doc.KnownLanguage.
+func langKey(lang, code string) string {
+	if k := doc.BaseLanguage(lang); k != "" {
+		return k
+	}
+	return code
+}
+
+func (m *languageMap) at(k string) (*langEntry, bool) {
+	e, ok := m.byLang[k]
+	if ok {
+		return e, false
+	}
+	e = &langEntry{pages: make(map[int]bool, 16)}
+	m.byLang[k] = e
+	m.order = append(m.order, k)
+	return e, true
+}
+
+// collapseRuns reduces the stored per-page runs to one entry per language,
+// keeping the most specific label and the widest span. This is what the gate did
+// before it read regions, unchanged, because a sequential manual must go on
+// reporting exactly what it reported.
+func collapseRuns(runs []registry.LanguageRun) *languageMap {
+	m := newLanguageMap(len(runs))
 	for i := range runs {
 		r := &runs[i]
-		if r.Conflict {
-			g.Conflicts++
-		}
-		key := doc.BaseLanguage(r.Lang)
-		if key == "" {
-			key = r.Code
-		}
-		a, ok := byLang[key]
-		if !ok {
-			byLang[key] = &acc{run: *r, pages: r.Pages}
-			order = append(order, key)
+		e, fresh := m.at(langKey(r.Lang, r.Code))
+		e.fromRun = true
+		e.runPages += r.Pages
+		if fresh {
+			e.lang.LanguageRun = *r
 			continue
 		}
-		a.pages += r.Pages
-		if len(r.Lang) > len(a.run.Lang) {
-			a.run = *r
+		run := &e.lang.LanguageRun
+		if len(r.Lang) > len(run.Lang) {
+			*run = *r
 		}
-		if r.Start < a.run.Start {
-			a.run.Start = r.Start
+		if r.Start < run.Start {
+			run.Start = r.Start
 		}
-		if r.End > a.run.End {
-			a.run.End = r.End
+		if r.End > run.End {
+			run.End = r.End
+		}
+	}
+	for _, k := range m.order {
+		e := m.byLang[k]
+		e.lang.Pages = e.runPages
+	}
+	return m
+}
+
+// countConflicts counts the runs the signals disagreed about. See
+// [Gate.Conflicts] for why this is counted over runs and never over regions.
+func countConflicts(runs []registry.LanguageRun) int {
+	n := 0
+	for i := range runs {
+		if runs[i].Conflict {
+			n++
+		}
+	}
+	return n
+}
+
+// addRegions folds the region map in: characters and shared pages for every
+// language, and a whole entry for a language only the regions named.
+func (m *languageMap) addRegions(regions []registry.Region) {
+	perPage := make(map[int]int, len(regions))
+	for i := range regions {
+		perPage[regions[i].Page]++
+	}
+
+	for i := range regions {
+		r := &regions[i]
+		if r.Lang == "" && r.Code == "" {
+			// Nothing named it, so it belongs to no language's total. Its characters
+			// are still real, which is what UnlabelledPages reports.
+			continue
+		}
+		e, fresh := m.at(langKey(r.Lang, r.Code))
+		e.lang.Chars += r.Chars
+		e.pages[r.Page] = true
+		if perPage[r.Page] > 1 {
+			e.lang.SharesPages = true
+		}
+
+		if e.fromRun {
+			// A run already described this language and its record stands: the run
+			// carries a title, a confidence and a span the regions do not have.
+			continue
+		}
+		run := &e.lang.LanguageRun
+		if fresh {
+			run.Source, run.Code, run.Lang, run.Name = r.Source, r.Code, r.Lang, r.Name
+			run.Note, run.Conflict = r.Note, r.Conflict
+			run.Start, run.End = r.Page, r.Page
+		}
+		if len(r.Lang) > len(run.Lang) {
+			run.Code, run.Lang, run.Name = r.Code, r.Lang, r.Name
+		}
+		if r.Page < run.Start {
+			run.Start = r.Page
+		}
+		if r.Page > run.End {
+			run.End = r.Page
+		}
+		if r.Conflict {
+			run.Conflict, run.Note = true, r.Note
 		}
 	}
 
-	for _, key := range order {
-		a := byLang[key]
-		entry := a.run
-		entry.Pages = a.pages
-		if _, reads := doc.MatchesAny(entry.Lang, s.cfg.Content.Languages); reads {
+	for _, k := range m.order {
+		e := m.byLang[k]
+		if !e.fromRun {
+			e.lang.Pages = len(e.pages)
+		}
+	}
+}
+
+// sizeFromPages measures each language from the per-page character counts, for a
+// document that has no regions stored.
+//
+// The two measurements are not identical and the difference is known: whole-page
+// counts come from pdftotext and a region's from positioned runs, and on the
+// fixtures they disagree by 3.3% and 2.5% on a document's total. Regions are
+// preferred where they exist for that reason; where they do not, a 3% difference
+// beats reporting nothing.
+func (m *languageMap) sizeFromPages(pages []registry.PageFact) {
+	chars := make(map[int]int, len(pages))
+	for i := range pages {
+		chars[pages[i].Page] = pages[i].Chars
+	}
+	for _, k := range m.order {
+		e := m.byLang[k]
+		run := &e.lang.LanguageRun
+		// A run that named a language but could not place it starts at 0 and covers
+		// no pages, so it has no characters to find either.
+		if run.Start == 0 {
+			continue
+		}
+		for p := run.Start; p <= run.End; p++ {
+			e.lang.Chars += chars[p]
+		}
+	}
+}
+
+// finish splits the languages into scope and the rest, and totals the document.
+func (m *languageMap) finish(g *Gate, household []string) {
+	scopePages := make(map[int]bool, 64)
+	for _, k := range m.order {
+		e := m.byLang[k]
+		entry := e.lang
+		g.Chars += entry.Chars
+
+		if _, reads := doc.MatchesAny(entry.Lang, household); reads {
 			g.InScope = append(g.InScope, entry)
-			g.ScopePages += entry.Pages
+			g.ScopeChars += entry.Chars
+			if len(e.pages) == 0 {
+				// No regions named this language, so the runs are the only source and
+				// their page counts sum as they always did.
+				g.ScopePages += entry.Pages
+			}
+			for p := range e.pages {
+				scopePages[p] = true
+			}
 		} else {
 			g.Other = append(g.Other, entry)
 		}
 	}
+	g.ScopePages += len(scopePages)
 
+	if g.Chars > 0 {
+		for i := range g.InScope {
+			g.InScope[i].Share = float64(g.InScope[i].Chars) / float64(g.Chars)
+		}
+		for i := range g.Other {
+			g.Other[i].Share = float64(g.Other[i].Chars) / float64(g.Chars)
+		}
+		g.ScopeCharFraction = float64(g.ScopeChars) / float64(g.Chars)
+	}
 	if g.Pages > 0 {
 		g.ScopeFraction = float64(g.ScopePages) / float64(g.Pages)
 	}
+}
 
-	g.Cost = s.costEstimate()
-	g.Summary = g.summarize()
-	return g, nil
+// contentRange is the pages holding actual content, excluding front matter and
+// back cover. A document probed before those were recorded has no range, and 0, 0
+// means every page counts.
+func contentRange(document *registry.Document) (first, last int) {
+	if document.ContentStartPage != nil {
+		first = *document.ContentStartPage
+	}
+	if document.ContentEndPage != nil {
+		last = *document.ContentEndPage
+	}
+	return first, last
+}
+
+// unlabelledPages counts the content pages carrying text that nothing could name.
+//
+// It is the honest measure of how much a statistical detector would add for this
+// document, and it must be read from the regions where there are regions: the
+// parallel-columns manual has no per-page language at all, so counted from
+// doc_pages it reports all 68 of its pages as unnamed when 2 of them are — a
+// number that would send the reader looking for a detector this document does not
+// need. Counted from its regions it is 2, both of them the service-address pages
+// at the back that genuinely name nothing.
+func unlabelledPages(regions []registry.Region, pages []registry.PageFact, first, last int) int {
+	inRange := func(page int) bool {
+		return (first == 0 || page >= first) && (last == 0 || page <= last)
+	}
+
+	if len(regions) > 0 {
+		named := make(map[int]bool, len(regions))
+		chars := make(map[int]int, len(regions))
+		for i := range regions {
+			r := &regions[i]
+			chars[r.Page] += r.Chars
+			if r.Lang != "" || r.Code != "" {
+				named[r.Page] = true
+			}
+		}
+		n := 0
+		for page, c := range chars {
+			if !named[page] && c >= doc.MinTextChars && inRange(page) {
+				n++
+			}
+		}
+		return n
+	}
+
+	n := 0
+	for i := range pages {
+		p := &pages[i]
+		if p.Lang == "" && p.Chars >= doc.MinTextChars && inRange(p.Page) {
+			n++
+		}
+	}
+	return n
 }
 
 // costEstimate reports what is known about cost, and admits what is not.
@@ -192,6 +510,11 @@ func (s *Service) costEstimate() CostEstimate {
 }
 
 // summarize renders the sentence the gate leads with.
+//
+// Characters lead and pages are context, which is the decision docs/design/
+// regions.md records: "48 of 560 pages" was always a proxy, and on a manual
+// running its languages in parallel columns it is a wrong one, because a language
+// filling one column of 26 pages is not 26 pages of reading.
 func (g *Gate) summarize() string {
 	switch {
 	case g.Encrypted:
@@ -209,21 +532,44 @@ func (g *Gate) summarize() string {
 	if total == 1 {
 		return fmt.Sprintf("%d pages in %s.", g.Pages, g.InScope[0].Name)
 	}
-	return fmt.Sprintf("This manual contains %d languages across %d pages. Yours are %d of them — %d pages, %.0f%% of the document.",
-		total, g.Pages, len(g.InScope), g.ScopePages, 100*g.ScopeFraction)
+
+	yours := "Yours is 1 of them"
+	if len(g.InScope) > 1 {
+		yours = fmt.Sprintf("Yours are %d of them", len(g.InScope))
+	}
+	return fmt.Sprintf("This manual contains %d languages across %d pages. %s — %s characters, %.0f%% of the text.",
+		total, g.Pages, yours, groupThousands(g.ScopeChars), 100*g.ScopeCharFraction)
+}
+
+// groupThousands renders a count with thousands separators, because 47641 in a
+// sentence a person reads is worse than 47,641.
+func groupThousands(n int) string {
+	digits := strconv.Itoa(n)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	var b strings.Builder
+	for i, d := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(d)
+	}
+	return sign + b.String()
 }
 
 // listLanguages names up to limit languages for a human-readable sentence.
-func listLanguages(runs []registry.LanguageRun, limit int) string {
-	if len(runs) == 0 {
+func listLanguages(langs []GateLanguage, limit int) string {
+	if len(langs) == 0 {
 		return ""
 	}
 	names := make([]string, 0, limit)
-	for i := range runs {
+	for i := range langs {
 		if i == limit {
-			return fmt.Sprintf("It has %s and %d more.", joinWords(names), len(runs)-limit)
+			return fmt.Sprintf("It has %s and %d more.", joinWords(names), len(langs)-limit)
 		}
-		names = append(names, runs[i].Name)
+		names = append(names, langs[i].Name)
 	}
 	return fmt.Sprintf("It has %s.", joinWords(names))
 }

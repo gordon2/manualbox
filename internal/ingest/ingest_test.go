@@ -27,6 +27,9 @@ type harness struct {
 	store    *store.Store
 	queue    *jobs.Queue
 	pool     *jobs.Pool
+	// db is here for one purpose: deleting a document's regions, which is how a
+	// host without pdftohtml is simulated without uninstalling poppler.
+	db *db.DB
 }
 
 func newHarness(t *testing.T, household []string) *harness {
@@ -61,7 +64,7 @@ func newHarness(t *testing.T, household []string) *harness {
 	pool := jobs.NewPool(queue, cfg.Jobs, nil)
 	svc.Register(pool)
 
-	return &harness{registry: reg, ingest: svc, store: blobs, queue: queue, pool: pool}
+	return &harness{registry: reg, ingest: svc, store: blobs, queue: queue, pool: pool, db: database}
 }
 
 // upload stores a generated document against a new device and returns the

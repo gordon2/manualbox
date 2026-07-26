@@ -382,6 +382,54 @@ func (s *Service) LanguageRuns(ctx context.Context, documentID string, source do
 	return out, nil
 }
 
+// PageFact is what the probe stored about one page: the facts that genuinely are
+// per page, which is why they did not move to doc_regions. Language is here too,
+// and it is the one field that can be absent where a region names something: a
+// page holding three languages has no honest per-page answer, so a
+// parallel-columns manual stores ” on every page and its languages live only in
+// its regions.
+type PageFact struct {
+	Page  int `json:"page"`
+	Chars int `json:"chars"`
+	// Script is the dominant Unicode script, and Tag the language code printed on
+	// the page, both empty when nothing was read.
+	Script string `json:"script,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	// PrintedFolio is the page number the page prints, which is usually offset from
+	// the PDF's own.
+	PrintedFolio *int `json:"printedFolio,omitempty"`
+	// Lang is the reconciled per-page language, empty when the per-page signals
+	// named nothing, and LangSource says which signal named it.
+	Lang       string `json:"lang,omitempty"`
+	LangSource string `json:"langSource,omitempty"`
+}
+
+// Pages returns the stored per-page facts in page order.
+//
+// The gate reads these to answer two questions that need a page's size rather than
+// its language: how many characters a language covers when no regions were stored,
+// and how many content pages carry text that nothing could name.
+func (s *Service) Pages(ctx context.Context, documentID string) ([]PageFact, error) {
+	rows, err := gen.New(s.db.Read()).ListDocPages(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("registry: list pages: %w", err)
+	}
+	out := make([]PageFact, 0, len(rows))
+	for i := range rows {
+		r := &rows[i]
+		out = append(out, PageFact{
+			Page:         int(r.PageNo),
+			Chars:        int(r.Chars),
+			Script:       r.Script,
+			Tag:          r.PageTag,
+			PrintedFolio: intFromPtr(r.PrintedFolio),
+			Lang:         r.Lang,
+			LangSource:   r.LangSource,
+		})
+	}
+	return out, nil
+}
+
 // Region is one stored language territory on a page.
 //
 // X0 and X1 are integers here because that is what is stored, and the coordinate

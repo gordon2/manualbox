@@ -127,12 +127,20 @@ where text sits with `pdftohtml`, `regions.go` divides a page on language, and
 stores all five of its languages across its columns, the sequential one stores
 exactly one whole-page region per page and its 34-section map is unchanged.
 
+**The gate answers from regions, and characters lead.** `ingest.Gate` reads
+`registry.Regions` where a document has them and falls back to the per-page runs
+where it does not, so the parallel-columns manual now reports its five languages
+with 47,641 characters of German — 20% of the document's text, on 26 of 68 pages it
+shares with four other languages — instead of "68 pages, but no language could be
+identified". The sequential manual reports exactly what it did, plus the new fields.
+`Gate.UnlabelledPages` and `CostEstimate.Chars` were declared and never assigned;
+both are now derived from stored rows.
+
 Deliberately not built yet, each for a stated reason:
 
-- **Regions are not surfaced.** `ingest.Gate` still prices from the per-page
-  `doc_langs` rows, so a column manual summarises for the user as it did before, and
-  `CostEstimate.Chars` is documented as always present but never set
-  (`internal/ingest/gate.go`). Storing and showing are separate slices.
+- **No React component shows the new fields.** The API carries characters, shares
+  and `sharesPages`; `web/src/screens/DeviceDetail.tsx` still renders pages only.
+  The contract and the screen are separate slices.
 - **The printed-index parser cannot read a contents page laid out in columns.** It
   returns junk for the Thomas manual, which costs 26 columns of printed-tag
   attribution and once labelled two pages `fax`. See language-detection.md; a test

@@ -35,6 +35,7 @@ tags:
   - name: setup
   - name: auth
   - name: jobs
+  - name: documents
 
 paths:
   /health:
@@ -294,6 +295,32 @@ paths:
           description: Already finished (`not_cancellable`)
           $ref: "#/components/responses/Error"
 
+  /documents/{documentID}/gate:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string, examples: [doc_01JQ8ZK3M4N5P6R7S8T9V0W1X2] }
+    get:
+      tags: [documents]
+      summary: The pre-flight question, before anything is spent
+      description: |
+        What manualbox is holding, what it would process, and what that would
+        cost. Built entirely from stored probe results, so it survives a restart,
+        costs nothing to render, and never re-reads the document.
+
+        The rest of the document and device surface is not written up here yet;
+        this path is documented because the gate is the screen a user decides on
+        and its shape is what the SPA reads.
+      responses:
+        "200":
+          description: The gate
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Gate" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -439,6 +466,150 @@ components:
         externalTools:
           type: object
           additionalProperties: { $ref: "#/components/schemas/ExternalTool" }
+
+    LanguageRun:
+      type: object
+      description: |
+        One language as a stored run of pages: what a signal concluded about a
+        contiguous stretch of the document, collapsed to one entry per language.
+      required: [source, code, lang, name, start, end, pages, confidence, conflict]
+      properties:
+        source:
+          type: string
+          enum: ["", page-tag, index, script, repertoire, detector, reconciled]
+          description: Which signal named it. Empty where nothing could.
+        code:
+          type: string
+          description: The label the document itself prints, which need not be a valid tag.
+          examples: [DE, UA, KAZ]
+        lang: { type: string, description: "`code` normalised to BCP-47, empty when it could not be." }
+        name: { type: string, description: English display name., examples: [German] }
+        title: { type: string, description: The section title from the manual's own contents table. }
+        start: { type: integer, description: First 1-based PDF page. 0 means the language could not be placed. }
+        end: { type: integer }
+        pages: { type: integer }
+        printedPage: { type: integer, description: The start page the printed index claims, often 1-2 off. }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        conflict: { type: boolean, description: The signals disagreed. Shown, never silently resolved. }
+        note: { type: string }
+
+    GateLanguage:
+      description: |
+        One of a document's languages as the gate reports it: the stored run, plus
+        what only the region map can say about size.
+
+        Characters lead and pages are context. A language occupying one of three
+        parallel columns on 26 of 68 pages is not 26 pages of reading, and
+        `sharesPages` is what says so. A language the per-page signals never named
+        has no run behind it, and then `title`, `printedPage` and `confidence` are
+        absent or zero because regions store none of them.
+      allOf:
+        - $ref: "#/components/schemas/LanguageRun"
+        - type: object
+          required: [chars, share, sharesPages]
+          properties:
+            chars:
+              type: integer
+              description: Runes, not bytes — the same amount of Cyrillic or CJK writing runs about a third more bytes.
+              examples: [47641]
+            share:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: "`chars` as a fraction of the document's named text."
+            sharesPages:
+              type: boolean
+              description: |
+                This language does not have its pages to itself: somewhere it
+                occupies a box on a page another language also occupies.
+
+    CostEstimate:
+      type: object
+      description: |
+        What the scope would cost. `chars` is measured and always present;
+        `available` stays false while there is no honest token or money figure to
+        give, and `reason` says why.
+      required: [available, chars]
+      properties:
+        available: { type: boolean }
+        chars: { type: integer, description: Characters in scope. The same number as `Gate.scopeChars`. }
+        reason: { type: string }
+
+    Gate:
+      type: object
+      description: |
+        The pre-flight answer for one document.
+
+        The language map is read from the stored regions where there are regions,
+        and from the per-page runs otherwise. On a parallel-columns manual a page
+        holds three languages, so no per-page answer about it can be right; on a
+        sequential manual the two sources agree.
+      required:
+        [documentId, deviceId, kind, state, probed, pages, encrypted, hasTextLayer,
+         medianChars, chars, household, inScope, other, scopePages, scopeFraction,
+         scopeChars, scopeCharFraction, conflicts, unlabelledPages, requiresApproval,
+         maxPagesAuto, cost, summary]
+      properties:
+        documentId: { type: string }
+        deviceId: { type: string }
+        filename: { type: string }
+        kind: { type: string, enum: [manual, receipt, warranty, photo, other] }
+        state: { type: string, enum: [uploaded, probing, awaiting_scope, declined, ready, failed] }
+        probed: { type: boolean }
+        pages: { type: integer }
+        encrypted: { type: boolean }
+        hasTextLayer: { type: boolean, description: False means this is a scan and reading it needs OCR. }
+        medianChars: { type: integer }
+        chars:
+          type: integer
+          description: |
+            The document's named text: the characters of every language something
+            could name, and the denominator of every `share`. Text nothing could
+            name is excluded, so a failed signal cannot silently shrink a share.
+        household:
+          type: array
+          items: { type: string }
+          description: The configured reading languages, echoed back so the UI can explain scope.
+        inScope:
+          type: array
+          items: { $ref: "#/components/schemas/GateLanguage" }
+        other:
+          type: array
+          items: { $ref: "#/components/schemas/GateLanguage" }
+          description: |
+            Present but not read by this household. Listed, never discarded: the
+            original is kept whole, so importing one later is a button rather than
+            a re-upload.
+        scopePages:
+          type: integer
+          description: |
+            Distinct pages carrying an in-scope language, not a sum over
+            languages — on a columns manual a sum reports 133 pages of a 68-page
+            document.
+        scopeFraction: { type: number, description: "`scopePages` over `pages`." }
+        scopeChars: { type: integer }
+        scopeCharFraction:
+          type: number
+          description: |
+            `scopeChars` over `chars`. The honest measure of how much of a
+            document a household reads: on the measured columns manual German is
+            38% by pages and 20% by characters.
+        conflicts:
+          type: integer
+          description: |
+            How many runs the signals disagreed about — the document's own contents
+            table against its pages. A region's disagreement (a column's alphabet
+            against the page's printed tab) is a different thing and reaches the
+            user through `conflict` on the language itself.
+        unlabelledPages:
+          type: integer
+          description: |
+            Content pages carrying text that no signal could name. Front matter and
+            a back cover are excluded: they legitimately belong to no section.
+        requiresApproval: { type: boolean }
+        maxPagesAuto: { type: integer }
+        cost: { $ref: "#/components/schemas/CostEstimate" }
+        summary: { type: string, description: One line, characters-led, for a person to read. }
 
 security:
   - sessionCookie: []
