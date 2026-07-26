@@ -18,12 +18,16 @@ import (
 // pipeline does with them is internal/registry's business.
 //
 // It exists because sqlc v1.31.1 (pinned in tools/go.mod, built to ./bin/sqlc)
-// silently TRUNCATES the tail of a generated statement. It tracks each statement's
-// end offset in bytes but slices the text in characters, so every non-ASCII byte
-// earlier in a queries/*.sql file shortens every statement after it by one
-// character. Measured while writing docregions.sql: one em-dash in a comment turned
-// "ORDER BY first_page, code" into "ORDER BY first_page, co", and four em-dashes
-// turned it into "ORDER BY first_pa".
+// silently TRUNCATES the tail of a generated statement when a queries/*.sql file
+// contains a non-ASCII character. It confuses character and byte offsets when
+// cutting statements out of the file; the measured rule is that a statement loses
+// one character of SQL per extra byte those characters occupy, and every statement
+// after the character is affected. Measured while writing docregions.sql: one
+// em-dash in a comment turned "ORDER BY first_page, code" into
+// "ORDER BY first_page, co", and four em-dashes turned it into "ORDER BY first_pa".
+// Placed elsewhere in a file the same corruption instead breaks sqlc's own parser
+// and it exits loudly, so neither outcome is a reliable signal. See the header of
+// queries/docregions.sql.
 //
 // Nothing upstream catches that. `make sqlc` exits 0, the generated Go compiles,
 // the linter passes, and the statement fails at PREPARE time inside a background
@@ -152,13 +156,14 @@ func TestDocRegionQueriesExecute(t *testing.T) {
 // TestQueryFilesAreASCII is the cause-side guard for the generator bug that
 // TestDocRegionQueriesExecute catches symptomatically.
 //
-// sqlc v1.31.1 truncates a generated statement by one character for every non-ASCII
-// byte that appears earlier in the same queries/*.sql file, because it mixes byte
-// offsets with character slicing. All the query files were pure ASCII when this was
-// written, which is the only reason the bug had never fired here; the codebase's
-// prose comments elsewhere use em-dashes freely, so the first person to write one in
-// a query comment would have shipped invalid SQL that generates and compiles
-// cleanly.
+// sqlc v1.31.1 corrupts generated statements when a queries/*.sql file contains a
+// non-ASCII character, losing one character of SQL for every extra byte such
+// characters occupy, in every statement after them. All the query files were pure
+// ASCII when this was written — 0 non-ASCII bytes across all ten, measured rather
+// than assumed — which is the only reason the bug had never fired here. The
+// codebase's prose comments elsewhere use em-dashes freely, so the first person to
+// write one in a query comment would have shipped invalid SQL that generates and
+// compiles cleanly.
 //
 // Restricting these files to ASCII costs nothing — they are SQL and identifiers —
 // and it removes the whole failure mode rather than one instance of it.

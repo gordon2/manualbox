@@ -178,13 +178,26 @@ type Querier interface {
 	// TWO RULES FOR THIS FILE, BOTH LEARNED THE HARD WAY WHILE WRITING IT.
 	//
 	// 1. KEEP THIS FILE PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
-	//    tracks each statement's end offset in BYTES but slices the text in
-	//    CHARACTERS, so every non-ASCII byte anywhere earlier in the file silently
-	//    truncates the tail of every statement after it. Measured exactly: with one
-	//    em-dash in a comment, "ORDER BY first_page, code" generated as
-	//    "ORDER BY first_page, co"; with four em-dashes it generated as
-	//    "ORDER BY first_pa". The truncation equals the running count of non-ASCII
-	//    overhead bytes, one character lost per extra byte.
+	//    (pinned in tools/go.mod) mixes up character and byte offsets when it cuts
+	//    statements out of a file, so a single non-ASCII character anywhere earlier
+	//    corrupts every statement after it. What is measured is the rule, not the
+	//    internals: the damage equals the extra bytes those characters occupy, one
+	//    character of SQL lost per extra byte.
+	//
+	//    Two shapes were observed, and the quiet one is the dangerous one. With
+	//    em-dashes in a comment above, "ORDER BY first_page, code" generated as
+	//    "ORDER BY first_page, co" for one and "ORDER BY first_pa" for four -- clean
+	//    Go, broken SQL. With em-dashes placed differently, sqlc instead garbled a
+	//    statement badly enough to fail its own parser, printing tokens like
+	//    "SELdocument_id" and exiting noisily. Which of the two you get depends on
+	//    where the character sits, so neither a clean run nor a loud failure tells
+	//    you the file is safe. Only ASCII does.
+	//
+	//    The direction of sqlc's own mismatch is deliberately not asserted here. It
+	//    was not read out of sqlc's source, and the two published guesses point
+	//    opposite ways -- byte offsets applied to characters would overshoot a
+	//    statement's end rather than cut it short, which is not what happens. The
+	//    rule above is what was measured and is what protects this file.
 	//
 	//    This is the worst failure shape available: `make sqlc` exits 0, the generated
 	//    Go compiles, the linter is happy, and the statement fails at PREPARE time

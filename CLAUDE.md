@@ -120,8 +120,30 @@ reports what a document contains and then stops at the gate. Conversion,
 full-text search, export and the reader are still to come — see the roadmap in
 [README.md](README.md).
 
-Deliberately not built yet, each for a stated reason: AI provider adapters (the
-`Kind` values are accepted and fail at first use with a clear message), the
-statistical language detector (see language-detection.md), serial numbers and
-purchase prices in the schema (they need the keyring first), and login throttling
-(`TODO(M1)` in `internal/auth/auth.go`).
+**Regions are computed and stored.** A page can hold several languages, so the unit
+of the language map is a region rather than a page: `internal/doc/runs.go` reads
+where text sits with `pdftohtml`, `regions.go` divides a page on language, and
+`doc_regions` persists it. Verified on both real manuals — the parallel-columns one
+stores all five of its languages across its columns, the sequential one stores
+exactly one whole-page region per page and its 34-section map is unchanged.
+
+Deliberately not built yet, each for a stated reason:
+
+- **Regions are not surfaced.** `ingest.Gate` still prices from the per-page
+  `doc_langs` rows, so a column manual summarises for the user as it did before, and
+  `CostEstimate.Chars` is documented as always present but never set
+  (`internal/ingest/gate.go`). Storing and showing are separate slices.
+- **The printed-index parser cannot read a contents page laid out in columns.** It
+  returns junk for the Thomas manual, which costs 26 columns of printed-tag
+  attribution and once labelled two pages `fax`. See language-detection.md; a test
+  pins the current reading so the gap stays visible.
+- AI provider adapters (the `Kind` values are accepted and fail at first use with a
+  clear message), the statistical language detector (see language-detection.md),
+  serial numbers and purchase prices in the schema (they need the keyring first),
+  and login throttling (`TODO(M1)` in `internal/auth/auth.go`).
+
+**One trap worth knowing before you touch `internal/db/queries/`:** those files must
+stay pure ASCII. sqlc v1.31.1 corrupts generated statements when a query file
+contains a non-ASCII character, sometimes silently — valid Go, invalid SQL, failing
+at PREPARE time in a background job. Two tests guard it; the header of
+`queries/docregions.sql` has the measurement.
