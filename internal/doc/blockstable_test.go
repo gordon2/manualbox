@@ -210,7 +210,21 @@ func TestRegionBlocksWithoutRuledLinesAreUnchanged(t *testing.T) {
 // region's character count comes through that same filter.
 func TestRegionBlocksReadNoTextTwice(t *testing.T) {
 	page, table := troublePage(57)
+	// One of the production slugs usableRuns exists to drop, placed inside a cell.
+	// This manual's illustrations are placed PDFs that each brought an InDesign
+	// filename along, scaled down with the artwork, and 522 of them are in its text
+	// layer. A table walk with a filter of its own would put this in the reader.
+	page.Runs = append(page.Runs, doc.TextRun{
+		X: 200, Y: 150, Width: 60, Height: 3, Text: "Amfibia_57.indd",
+		Font: doc.Font{Size: 3, Family: "Test-Face"},
+	})
+
 	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table})
+	if strings.Contains(blockTexts(got), "Amfibia") {
+		t.Errorf("a sub-legible production slug reached a table cell, so the table walk "+
+			"is not reading through the region's own filter: %s", blockTexts(got))
+	}
+	page.Runs = page.Runs[:len(page.Runs)-1]
 
 	// The page's own words against the blocks' words, as multisets. Nothing may be
 	// counted twice and nothing may be missing, which is both halves of the property
