@@ -38,6 +38,10 @@ const (
 	SourceIndex Source = "index"
 	// SourceScript is Unicode script analysis.
 	SourceScript Source = "script"
+	// SourceRepertoire is which alphabet the text uses — the letters only some
+	// languages sharing a script can write. Free, and it settles cases Unicode
+	// script analysis cannot: Russian, Ukrainian and Kazakh in one document.
+	SourceRepertoire Source = "repertoire"
 	// SourceDetector is statistical language detection. No implementation is
 	// wired up yet; the constant exists so stored rows and the reconciliation
 	// order do not change when one is added.
