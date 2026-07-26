@@ -113,11 +113,28 @@ pipeline that is not free, and the gate exists precisely so a user authorises it
 The document states `converting` and `ready` have been in the schema since `00002`
 with nothing setting them; this is what sets them.
 
-**Cost, measured, and smaller than it first appears.** Reading the ruled lines costs
-8.6 s over all 68 pages of the column manual and 42.3 s over all 560 of the
-sequential one, against a probe of about 4 s for either. But conversion runs only
-over the pages in scope — 26 of 68, 32 of 560 — so in practice it is seconds, and it
-never slows the free pre-flight. A 6.5x saving exists and is not yet verified: one
+**Cost — and the free probe now pays some of it, which this section originally
+denied.** Reading the ruled lines costs 6.1 s over all 68 pages of the column manual
+and 36 s over all 560 of the sequential one, against a probe of about 4 s for either.
+
+The first version of this said conversion runs only over the pages in scope, so the
+pre-flight is never slowed. That became false the moment tables were needed to derive
+regions — which they are, because a table's cell dividers would otherwise be read as
+language boundaries, and regions are computed by the probe. Reading every page's rules
+there would take the sequential manual's probe from 3.6 s to about 46 s: a tenfold
+regression of the one thing the design insists is free.
+
+So the rules are read **lazily, only for a page that just divided into more than one
+column** — the only place a table can change a stored answer. Measured: 44 of the
+column manual's 68 pages, and **0 of the sequential manual's 560**, since none of its
+pages divide by language. Its probe is untouched at 3.60 s. The column manual's goes
+from 4.09 s to **8.02 s**, and that is the honest price of reading a
+parallel-columns manual correctly.
+
+Converting the pages in scope is still separate, still after the gate, and still only
+over the pages asked for.
+
+A 6.5x saving exists for that later pass and is not yet verified: one
 `pdftocairo -ps` call renders all 560 pages in 5.15 s where per-page SVG spawns take
 33.5 s, and the strokes survive, but no PostScript parser has been written.
 
@@ -238,10 +255,34 @@ the printed `D` in the page's corner is rejected for want of an index vocabulary
 *and* the thing whose language is being asked about is a column of short table
 labels rather than a column of prose.
 
-**Therefore a table's area must be excluded from region derivation, not reconciled
-with it afterwards.** Joining tables to regions geometrically would be joining a
-table to boundaries the table itself created. This touches `regions.go` and is the
+**Therefore a table's cell BOUNDARIES are excluded from region derivation, not
+reconciled with it afterwards.** Joining tables to regions afterwards would be joining
+a table to boundaries the table itself created. This touches `regions.go` and is the
 one place the two halves genuinely meet.
+
+*Boundaries, not area* — an earlier draft said area, and that is not implementable
+without a migration: a region is one x-range and cannot have a table-sized hole in it.
+What is excluded is the table's interior dividers from the set of candidates a page
+may divide on, before any region exists. Two guards stop that welding two genuine
+language columns a table happens to cross: only dividers inside the table's own box
+are candidates, and a gutter is merged away only if a cell divider sits within 1% of
+the page width of it — 8.9 units, against the 5.2 by which page 57's widest
+coincidence misses.
+
+Subtracting the area would also have been actively wrong, and by a lot. Pages 58-61 of
+the column manual are tables covering nearly the whole measure, and it is their *cell
+columns* — all one language — that name the page under rule 3. Remove the table's text
+and what is left is a running head, which falls below `minColumnRuns` and loses 3,502,
+3,691, 3,668 and 3,339 characters of Polish, Russian, Ukrainian and Kazakh. Four pages
+would have lost their language to tidy one.
+
+**Result, measured end to end on a clean database.** Page 57 goes from four regions —
+`fi` at 36-178 and German at 179-424, 457-589, 601-846 — to **one whole-page German
+region of 3,618 characters**. With the page's German finally together the alphabet has
+`ü×17` and `ß` to read, so it names German confidently. The document goes from 6
+languages to 5; `fi` is gone and nothing replaced it. The gate reports German at
+47,932 characters instead of 47,641. The sequential manual's dump is identical: 560
+regions, 0 boxed, 34 languages, every section's pages and spans unchanged.
 
 Three constraints on that join, all measured rather than reasoned:
 

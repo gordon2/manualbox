@@ -141,11 +141,24 @@ func (s *Service) handleProbe(ctx context.Context, job *jobs.Job, report jobs.Re
 		return s.probeFailed(ctx, job, document.ID, err)
 	}
 
+	// regions_unnamed rather than result.Unlabelled, which counts pages carrying
+	// text that no PER-PAGE run named. On a parallel-columns manual the per-page map
+	// is legitimately empty — a page there holds three languages and no per-page
+	// answer about it can be right — so that number was 68 of 68 for a document the
+	// gate correctly reports 2 unnamed pages for. A log that disagrees with the
+	// screen by a factor of thirty is how a reader stops trusting both.
+	unnamed := 0
+	for i := range result.Regions {
+		if result.Regions[i].Lang == "" {
+			unnamed++
+		}
+	}
 	log.Info("document probed",
 		"pages", result.Info.Pages,
 		"text_layer", result.HasTextLayer,
 		"languages", len(result.Languages()),
-		"unlabelled_pages", result.Unlabelled)
+		"regions", len(result.Regions),
+		"regions_unnamed", unnamed)
 
 	return report.Progress(ctx, 1, s.progressNote(result))
 }
