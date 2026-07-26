@@ -89,15 +89,24 @@ var (
 		Install:     popplerInstall,
 	}
 	// PDFToHTML is listed separately from pdftotext because it answers a question
-	// pdftotext cannot. Only its XML output carries font size, family and weight,
-	// and those are what separate a heading from a paragraph. Measured on the
+	// pdftotext cannot: where on the page the text is. Only its XML output carries
+	// coordinates, and those are what a column is — on a manual whose languages run
+	// in parallel columns a language IS a column, and no per-page reading of such a
+	// document can be right. See docs/design/regions.md.
+	//
+	// Its output also carries font size, family and weight, which separate a heading
+	// from a paragraph and are what this tool was first added for. Measured on the
 	// fixture's English section: body text is 11pt regular at 58% of characters,
 	// while 17pt *regular* is safety body copy at another 15% — so a
 	// "larger than body means heading" rule promotes prose. Weight is the
-	// discriminator, and pdftotext does not report it.
+	// discriminator, and pdftotext does not report it. That use is still ahead.
+	//
+	// Optional, deliberately. A document with no positioned text still probes and
+	// still gets a per-page language map; what is lost is the column resolution, and
+	// the probe says so rather than failing.
 	PDFToHTML = Tool{
 		Name:        "pdftohtml",
-		Purpose:     "read font size and weight, which is how headings are found",
+		Purpose:     "read where text sits on the page, which is how parallel language columns are found",
 		VersionArgs: []string{"-v"},
 		Install:     popplerInstall,
 	}
