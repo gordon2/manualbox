@@ -264,9 +264,49 @@ func analyzeRegions(ctx context.Context, path string, res *Result, knownCodes ma
 		if page, ok := byNo[p.No]; ok {
 			resolved.Contents = IsContentsPage(page)
 		}
-		regions = append(regions, PageRegions(p, knownCodes, resolved)...)
+		regions = append(regions, pageRegionsWithTables(ctx, path, p, knownCodes, resolved)...)
 	}
 	return regions, ""
+}
+
+// pageRegionsWithTables derives one page's regions, reading its ruled lines only
+// where a table could have decided the answer.
+//
+// The lazy read is the whole point and it is a cost decision taken from
+// measurement rather than a shortcut. Reading the ruled lines is a pdftocairo
+// spawn per page — 5.9 s over the column manual's 68 pages and 42.3 s over the
+// sequential manual's 560, against a probe of about 4 s for either — and this pass
+// runs inside the free pre-flight, where docs/design/conversion.md's whole cost
+// argument is that ruled lines are read only for the pages a user has paid for.
+// Reading them for every page would make the free gate ten times slower on the
+// larger document.
+//
+// What narrows it: [mergeCellColumns] can only change a stored answer by stopping
+// a page from dividing, so the ruled lines are worth reading exactly for a page
+// that just divided. Measured, that is 44 of the column manual's 68 pages and 0
+// of the sequential manual's 560 — which is a document with no parallel columns
+// paying nothing at all, and the column manual's probe going from 4.1 s to 7.9 s.
+//
+// A page whose columns already agree keeps today's reading untouched, and that is
+// deliberate rather than a gap. The column manual's pages 58 to 61 are tables
+// covering almost the whole measure, and it is their cell columns — all of one
+// language — that name them at all; subtracting the table there would leave a
+// running head and lose the page's language entirely.
+//
+// A failing or missing pdftocairo leaves the pre-table reading in place, which is
+// exactly the behaviour that shipped. It is silent because there is nothing
+// actionable to say: the answer is the same one the previous release gave.
+func pageRegionsWithTables(ctx context.Context, path string, p *PageRuns,
+	knownCodes map[string]bool, resolved PageResolution) []Region {
+	regions := PageRegions(p, knownCodes, resolved, nil)
+	if len(regions) < 2 {
+		return regions
+	}
+	tables, err := PageTables(ctx, path, p)
+	if err != nil || len(tables) == 0 {
+		return regions
+	}
+	return PageRegions(p, knownCodes, resolved, tables)
 }
 
 // Languages returns the language map collapsed to one entry per language, in

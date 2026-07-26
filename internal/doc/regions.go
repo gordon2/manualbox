@@ -2,6 +2,7 @@ package doc
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -93,6 +94,9 @@ type PageResolution struct {
 //
 // knownCodes is the vocabulary the document's own contents table declares, passed
 // through to [ColumnLanguages]. resolved is what the per-page pass concluded.
+// tables are the page's ruled tables, which the region reader needs for the reason
+// [mergeCellColumns] gives; nil is a normal argument and means "the ruled lines
+// were not read", not "this page has none".
 //
 // The precedence, in order, and every branch of it is measured against both
 // fixtures:
@@ -121,7 +125,7 @@ type PageResolution struct {
 // tabs and names no page — so the mechanism for it would be invented rather than
 // designed. If a third manual does it, that is the stop condition, in the sense
 // docs/design/regions.md uses the term.
-func PageRegions(p *PageRuns, knownCodes map[string]bool, resolved PageResolution) []Region {
+func PageRegions(p *PageRuns, knownCodes map[string]bool, resolved PageResolution, tables []RuledTable) []Region {
 	// Rule 1 defers to the per-page answer because it is stronger evidence — but
 	// only where it actually names a language. A page-level answer of "fax", which
 	// this document really did produce for two of its pages, is a broken index
@@ -134,7 +138,7 @@ func PageRegions(p *PageRuns, knownCodes map[string]bool, resolved PageResolutio
 	}
 
 	layout := DetectColumns(p.Runs, p.Width, p.Height)
-	cols := ColumnLanguages(p.Runs, layout.Columns, knownCodes)
+	cols := ColumnLanguages(p.Runs, mergeCellColumns(layout.Columns, tables, p.Width), knownCodes)
 
 	// Size is counted over the runs the detector considers text, not every run in
 	// the file. The column manual's text layer carries 522 sub-legible InDesign
@@ -166,6 +170,119 @@ func PageRegions(p *PageRuns, knownCodes map[string]bool, resolved PageResolutio
 		return nil
 	}
 	return []Region{region}
+}
+
+// mergeCellColumns folds the columns a table's own cell dividers created back into
+// one column for the whole table, so that a table's area cannot decide where a
+// page divides on language.
+//
+// This is where a table's area is kept out of region derivation, and it is the
+// root of the one language error this document has been carrying. Measured on the
+// column manual's page 57, whose four stored regions and whose two tables' cell
+// columns are the same four boundaries within about five units:
+//
+//	stored region              table cell column
+//	36-178, read as Finnish    29.7-173.3   table 1's question cells
+//	179-424, German            173.3-428.1  table 1's answer cells
+//	457-589, German            450.2-593.9  table 2's question cells
+//	601-846, German            593.9-848.7  table 2's answer cells
+//
+// So that page has no language columns at all. It has two tables, and the column
+// detector found their cell dividers. Reading the narrow question-cell column of
+// the left table on its own is what produced Finnish: 289 runes of short German
+// labels carrying ä and ö and no ü or ß. Read as one table the same text is
+// plainly German. That is the second cause of this document's one language error,
+// compounding the one already recorded — the printed D in the page's corner is
+// rejected for want of an index vocabulary — and neither alone explains it.
+//
+// Why merging rather than subtracting the table's area: a [Region] is one x-range,
+// so there is no shape in which a page's regions can have a table-sized hole in
+// them. What can be excluded is the table's interior boundaries from the set of
+// candidate region boundaries, which is exactly this. It also runs BEFORE any
+// region exists, which is what docs/design/conversion.md requires — joining a
+// table to a region afterwards would join it to boundaries it created itself.
+//
+// Two guards keep this from merging columns a table did not create, because the
+// hazard runs the other way too: a small table printed across two genuine
+// language columns must not weld them together.
+//
+//   - Only columns lying inside the table's own box are candidates.
+//   - Every gutter merged away must have a cell divider in it. The tolerance is
+//     [minGutterFraction] of the page, 8.9 units on this manual's 892-unit page,
+//     against the 5.2 units by which page 57's widest coincidence misses.
+//
+// With no tables — the tool absent, or the page drawing none — this returns its
+// input untouched, which is the compatibility property that matters most here:
+// region derivation without ruled lines is bit-identical to what shipped.
+func mergeCellColumns(cols []Column, tables []RuledTable, pageWidth float64) []Column {
+	if len(tables) == 0 || len(cols) < 2 {
+		return cols
+	}
+
+	tol := minGutterFraction * pageWidth
+	out := make([]Column, 0, len(cols))
+	for i := 0; i < len(cols); {
+		t := tableAround(&cols[i], tables)
+		if t == nil {
+			out = append(out, cols[i])
+			i++
+			continue
+		}
+		edges := cellDividers(t)
+		merged, j := cols[i], i
+		for j+1 < len(cols) && tableCovers(t, &cols[j+1]) &&
+			nearAny(edges, (cols[j].Max+cols[j+1].Min)/2, tol) {
+			j++
+			merged.Max = cols[j].Max
+			merged.Runs += cols[j].Runs
+		}
+		if j == i {
+			out = append(out, cols[i])
+			i++
+			continue
+		}
+		merged.Note = fmt.Sprintf("%d strips whose boundaries are the cell dividers of a "+
+			"%d by %d ruled table, so they are one column and not one language each",
+			j-i+1, t.Rows, t.Cols)
+		out = append(out, merged)
+		i = j + 1
+	}
+	return out
+}
+
+// tableAround returns the first table whose box holds this column, or nil.
+func tableAround(col *Column, tables []RuledTable) *RuledTable {
+	for i := range tables {
+		if tableCovers(&tables[i], col) {
+			return &tables[i]
+		}
+	}
+	return nil
+}
+
+// tableCovers reports that a table's box spans a column horizontally. The
+// tolerance is [runsInBox]'s own, since a column's extent comes from the runs
+// inside it and a cell lets its text overhang the rule that bounds it.
+func tableCovers(t *RuledTable, col *Column) bool {
+	return col.Min >= t.Box.X0-cellTextMargin && col.Max <= t.Box.X1+cellTextMargin
+}
+
+// cellDividers returns the x positions at which a table's cells begin and end.
+func cellDividers(t *RuledTable) []float64 {
+	out := make([]float64, 0, 2*len(t.Cells))
+	for i := range t.Cells {
+		out = append(out, t.Cells[i].Rect.X0, t.Cells[i].Rect.X1)
+	}
+	return out
+}
+
+func nearAny(at []float64, v, tol float64) bool {
+	for _, x := range at {
+		if math.Abs(x-v) <= tol {
+			return true
+		}
+	}
+	return false
 }
 
 // namedByMinority reports that more of a page's columns declined to name a language

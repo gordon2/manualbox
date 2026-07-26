@@ -54,7 +54,7 @@ func TestPageRegionsPageLevelAnswerWins(t *testing.T) {
 	page := regionPage(7, fill(german, 10), fill(polish, 10))
 	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{
 		Code: "DE", Lang: "de", Source: doc.SourceReconciled,
-	}))
+	}, nil))
 
 	if got.Lang != "de" {
 		t.Errorf("region language = %q, want de from the page-level answer", got.Lang)
@@ -81,7 +81,7 @@ func TestPageRegionsIgnoreAPageLevelAnswerThatNamesNoLanguage(t *testing.T) {
 	page := regionPage(46, fill(german, 10), fill(polish, 10))
 	got := doc.PageRegions(page, nil, doc.PageResolution{
 		Code: "FAX", Lang: "fax", Source: doc.SourceReconciled,
-	})
+	}, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("got %d regions, want the two columns to decide the page", len(got))
@@ -97,7 +97,7 @@ func TestPageRegionsIgnoreAPageLevelAnswerThatNamesNoLanguage(t *testing.T) {
 // languages side by side.
 func TestPageRegionsSplitOnLanguage(t *testing.T) {
 	page := regionPage(2, fill(german, 10), fill(polish, 10), fill(rus, 10))
-	got := doc.PageRegions(page, nil, doc.PageResolution{})
+	got := doc.PageRegions(page, nil, doc.PageResolution{}, nil)
 
 	if len(got) != 3 {
 		t.Fatalf("got %d regions, want 3", len(got))
@@ -137,7 +137,7 @@ func TestPageRegionsSplitOnLanguage(t *testing.T) {
 // sectioned manual sets hundreds of pages as side-by-side tables.
 func TestPageRegionsDoNotSplitColumnsOfOneLanguage(t *testing.T) {
 	page := regionPage(6, fill(german, 10), fill(german, 10))
-	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 
 	if got.Lang != "de" {
 		t.Errorf("region language = %q, want de", got.Lang)
@@ -157,7 +157,7 @@ func TestPageRegionsDoNotSplitColumnsOfOneLanguage(t *testing.T) {
 // one column beside a full-height image, and nothing per-page names it.
 func TestPageRegionsNameASingleColumnPage(t *testing.T) {
 	page := regionPage(12, fill(ukr, 10))
-	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 
 	if got.Lang != "uk" {
 		t.Errorf("region language = %q, want uk from the column", got.Lang)
@@ -172,7 +172,7 @@ func TestPageRegionsNameASingleColumnPage(t *testing.T) {
 // column manual's page of service addresses reads as Turkish. All are wrong.
 func TestPageRegionsRefuseToNameAContentsPage(t *testing.T) {
 	page := regionPage(2, fill(german, 10))
-	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{Contents: true}))
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{Contents: true}, nil))
 
 	if got.Lang != "" {
 		t.Errorf("a contents page was named %q from its own letters", got.Lang)
@@ -193,7 +193,7 @@ func TestPageRegionsRefuseToNameAContentsPage(t *testing.T) {
 // is the honest outcome.
 func TestPageRegionsLeaveAnUnnameablePageUnnamed(t *testing.T) {
 	page := regionPage(68, fill("Service 1234 5678 90", 10))
-	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 
 	if got.Lang != "" {
 		t.Errorf("region language = %q, want none established", got.Lang)
@@ -205,7 +205,7 @@ func TestPageRegionsLeaveAnUnnameablePageUnnamed(t *testing.T) {
 
 func TestPageRegionsSkipAPageWithNothingOnIt(t *testing.T) {
 	page := &doc.PageRuns{No: 3, Width: testRegionPageWidth, Height: 850}
-	if got := doc.PageRegions(page, nil, doc.PageResolution{}); len(got) != 0 {
+	if got := doc.PageRegions(page, nil, doc.PageResolution{}, nil); len(got) != 0 {
 		t.Errorf("got %d regions for an empty page, want none", len(got))
 	}
 }
@@ -216,7 +216,7 @@ func TestPageRegionsSkipAPageWithNothingOnIt(t *testing.T) {
 // page by half.
 func TestRegionCharsExcludeWhatIsNotText(t *testing.T) {
 	page := regionPage(9, fill(german, 10))
-	clean := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	clean := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 
 	page.Runs = append(page.Runs,
 		// A production slug: real text in the file, two units tall, invisible on paper.
@@ -229,7 +229,7 @@ func TestRegionCharsExcludeWhatIsNotText(t *testing.T) {
 			X: 30, Y: -38, Width: 250, Height: 14, Text: "Superseded address list line",
 		})
 
-	withJunk := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	withJunk := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 	if withJunk.Chars != clean.Chars {
 		t.Errorf("characters went from %d to %d when a sub-legible slug and an off-page "+
 			"run were added; neither is text on the page", clean.Chars, withJunk.Chars)
@@ -240,8 +240,8 @@ func TestRegionCharsExcludeWhatIsNotText(t *testing.T) {
 // bitten by: half a real manual is Cyrillic or CJK, where the same writing runs a
 // third more bytes.
 func TestRegionCharsCountRunesNotBytes(t *testing.T) {
-	latin := onlyRegion(t, doc.PageRegions(regionPage(1, fill("aaaaa", 10)), nil, doc.PageResolution{}))
-	cyrillic := onlyRegion(t, doc.PageRegions(regionPage(1, fill("ааааа", 10)), nil, doc.PageResolution{}))
+	latin := onlyRegion(t, doc.PageRegions(regionPage(1, fill("aaaaa", 10)), nil, doc.PageResolution{}, nil))
+	cyrillic := onlyRegion(t, doc.PageRegions(regionPage(1, fill("ааааа", 10)), nil, doc.PageResolution{}, nil))
 
 	if latin.Chars != cyrillic.Chars {
 		t.Errorf("five Latin letters counted %d and five Cyrillic %d; runes, not bytes",
@@ -263,7 +263,7 @@ func TestPageRegionsRefuseAPageNamedByAMinorityOfItsColumns(t *testing.T) {
 		fill("Servis 9876 5432 10", 10),
 		fill("Huolto 5555 4444 33 Jyväskylä Töölö", 10),
 	)
-	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil))
 
 	if got.Lang != "" {
 		t.Errorf("page named %q from one of three columns; the other two established nothing",
@@ -282,7 +282,117 @@ func TestPageRegionsRefuseAPageNamedByAMinorityOfItsColumns(t *testing.T) {
 // is pages 6 to 10 of the same manual.
 func TestPageRegionsStillNameAPageAllOfWhoseColumnsAgree(t *testing.T) {
 	page := regionPage(6, fill(german, 10), fill(german, 10))
-	if got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{})); got.Lang != "de" {
+	if got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, nil)); got.Lang != "de" {
 		t.Errorf("region language = %q, want de; both columns named it", got.Lang)
+	}
+}
+
+// The cell-divider rule. These four are page 57 of the column manual, reduced to
+// the shape that produces its one language error and back again.
+//
+// That page has no language columns at all: it has two ruled tables, and
+// doc.DetectColumns found their cell dividers. Its narrow question-cell column is
+// 289 runes of short German labels carrying ä and ö and no ü or ß, which reads as
+// Finnish on its own and as German once the table's two cell columns are read as
+// one thing. So the case is built the same way here — labels that really do read as
+// Finnish alone — rather than with text chosen to make the test pass.
+const tableLabels = "Saugkraft lässt allmählich nach. Viele Wassertropfen an der " +
+	"Innenseite des Gehäusedeckels. Beim Saugen tritt Staub aus."
+
+// ruledTable builds a table spanning x0 to x1 whose cells divide at each of the
+// given interior x positions, with two rows so it has a grid at all.
+func ruledTable(x0, x1, y0, y1 float64, dividers ...float64) doc.RuledTable {
+	edges := append(append([]float64{x0}, dividers...), x1)
+	t := doc.RuledTable{
+		Box:  doc.CellRect{X0: x0, Y0: y0, X1: x1, Y1: y1},
+		Rows: 2,
+		Cols: len(edges) - 1,
+	}
+	for row := 0; row < 2; row++ {
+		top := y0 + float64(row)*(y1-y0)/2
+		for c := 0; c+1 < len(edges); c++ {
+			t.Cells = append(t.Cells, doc.RuledCell{
+				Row: row, Col: c, ColSpan: 1, Chars: 40,
+				Rect: doc.CellRect{X0: edges[c], Y0: top, X1: edges[c+1], Y1: top + (y1-y0)/2},
+			})
+		}
+	}
+	return t
+}
+
+// TestPageRegionsDivideATablesCellsWithoutItsRuledLines is the state that shipped,
+// pinned so that the fix below is visibly a fix and not a restatement. Given no
+// tables — pdftocairo absent, or the ruled lines not read — the two cell columns
+// are two languages, and the left one is wrong.
+func TestPageRegionsDivideATablesCellsWithoutItsRuledLines(t *testing.T) {
+	page := regionPage(57, fill(tableLabels, 10), fill(german, 10))
+	got := doc.PageRegions(page, nil, doc.PageResolution{}, nil)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d regions, want the 2 this page produced before ruled lines were read", len(got))
+	}
+	if got[0].Lang != "fi" || got[1].Lang != "de" {
+		t.Fatalf("columns read as %q and %q; this test only means something if the left "+
+			"one is the wrong answer the fix removes", got[0].Lang, got[1].Lang)
+	}
+}
+
+// TestPageRegionsDoNotDivideOnATablesCellDividers is the fix: the same page, with
+// the ruled lines read. One region, in the language the table's whole text is in,
+// and the page's characters all still counted.
+func TestPageRegionsDoNotDivideOnATablesCellDividers(t *testing.T) {
+	page := regionPage(57, fill(tableLabels, 10), fill(german, 10))
+	// The gutter runs 280 to 320, so a cell divider at 300 is the boundary the
+	// detector reported, drawn by the table.
+	table := ruledTable(20, 870, 10, 800, 300)
+
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}, []doc.RuledTable{table}))
+	if got.Lang != "de" {
+		t.Errorf("region language = %q, want de: read as one table the text is German", got.Lang)
+	}
+	if got.X0 != 0 || got.X1 != testRegionPageWidth {
+		t.Errorf("region is boxed at x=%.0f-%.0f; a page that does not divide is whole-page",
+			got.X0, got.X1)
+	}
+	// The table's area is excluded from deciding where the page divides, never from
+	// what the page holds. Both cell columns' text is still charged for.
+	if got.Chars < 1000 {
+		t.Errorf("region holds %d characters; both cell columns' text must still be counted",
+			got.Chars)
+	}
+}
+
+// TestPageRegionsKeepColumnsATableDoesNotExplain is the guard that keeps this from
+// running the other way, and it is the case the fix could most easily break: a
+// table printed across two genuine language columns must not weld them into one.
+//
+// The discriminator is measured rather than assumed. On page 57 every one of the
+// four coincidences is within about five units, so a table only merges a boundary
+// it can be shown to have drawn.
+func TestPageRegionsKeepColumnsATableDoesNotExplain(t *testing.T) {
+	page := regionPage(2, fill(german, 10), fill(polish, 10))
+	// A table across the whole measure whose only interior divider is at 150 —
+	// nowhere near the 300 the page divides at.
+	table := ruledTable(20, 870, 10, 800, 150)
+
+	got := doc.PageRegions(page, nil, doc.PageResolution{}, []doc.RuledTable{table})
+	if len(got) != 2 {
+		t.Fatalf("got %d regions, want 2: this table explains neither boundary", len(got))
+	}
+	if got[0].Lang != "de" || got[1].Lang != "pl" {
+		t.Errorf("regions read as %q and %q, want de and pl", got[0].Lang, got[1].Lang)
+	}
+}
+
+// TestPageRegionsIgnoreATableInsideOneColumn is the column manual's pages 52 to 56:
+// a small parts table set inside one of three same-language columns. A table that
+// covers one column has nothing to merge, and the page reads as it did.
+func TestPageRegionsIgnoreATableInsideOneColumn(t *testing.T) {
+	page := regionPage(52, fill(german, 10), fill(polish, 10), fill(rus, 10))
+	table := ruledTable(25, 285, 400, 700, 150)
+
+	got := doc.PageRegions(page, nil, doc.PageResolution{}, []doc.RuledTable{table})
+	if len(got) != 3 {
+		t.Fatalf("got %d regions, want the 3 languages this page prints", len(got))
 	}
 }
