@@ -58,6 +58,24 @@ at all. Its *claimed page numbers* are unreliable: on the L40, 10 of 34 sections
 claim a printed page 1–2 off from the folio actually printed, because two sections
 run 17 pages rather than 16. So a claimed start is a hypothesis, never a boundary.
 
+**The parser cannot read the Thomas manual's contents page**, and this costs more
+than it appears to. `IndexRuns` yields the vocabulary `[FAX GA NDE UA VIA Z]` for
+that document — only `UA` is a language, the rest scraped off a page of service
+addresses. Two consequences, both measured:
+
+- A single-letter printed tab is believed only where the index lists that code, and
+  `D` is not in that vocabulary, so every German column falls back to its alphabet.
+  Tag-named columns drop from 79 to 53 of 169. The total named barely changes, so
+  nothing failed loudly; only the attribution moved.
+- `FAX` parses as a language tag, became a reconciled page language, and labelled two
+  pages `fax` over columns that read correctly as German and Polish. Guarded in
+  regions.md by requiring a page-level answer to name a recognised language.
+
+The 79 figure is what the commit introducing per-column naming recorded, measured with
+a hand-supplied code list rather than through the assembled pipeline. Fixing the parser
+for a contents page laid out in parallel columns is separate, unbuilt work; the gap is
+pinned by a test so it stays visible.
+
 ### 3. Unicode script
 
 Free, and settles more than it looks. On the L40 it resolved 151 of 554 pages
@@ -173,6 +191,21 @@ was measured on.
 written in both. On 31 paragraphs of ordinary manual copy — one per language,
 hermetic, no PDF — 25 were named correctly, six were declined (four carrying no
 distinctive character at all, two as declared ties), and none was named wrongly.
+
+**Accuracy on a real document, and it is lower than the hermetic figure.** The 31
+paragraphs above are one clean paragraph per language. Measured instead against the
+L40's own printed page tab — which is correct on all 553 of its content pages, so it
+is ground truth — over the 685 columns of that manual where the signal named a
+language at all: **93% correct**. The 7% are largely the sibling groups below, which
+that document has in quantity, plus short table cells.
+
+Two things follow. First, the signal earns its place as a corroborator and a
+fallback, not as an authority: where a printed tab exists it must win, which is what
+regions.md rule 1 does. Second, and less obvious, **the errors do not correlate with
+how much evidence the signal had.** Bucketed by distinctive-character count, accuracy
+is flat at every cut from 1 to 50 marks, and one wrong naming carries 118. A
+minimum-evidence threshold was designed against this measurement and abandoned by it.
+That is worth recording precisely because it is the intuitive fix.
 
 **What it cannot do, named.** Three groups have byte-identical repertoires, and
 the signal reports them tied rather than choosing:

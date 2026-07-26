@@ -50,6 +50,50 @@ follow-on: `Scope.Chars` is wrong the moment regions land without it.
 committed and shipped; editing it now would diverge from any database already
 created from it.
 
+## What building it settled
+
+Three things the contract above could not decide in advance. Each was decided by
+measurement, and two of the measurements contradicted the first attempt.
+
+**A page divides on language, never on geometry.** The contract assumed the columns
+were the regions. They are not: the column manual sets two columns of one language on
+pages 6–10 and three on 52–56, and the sectioned manual reads as two or more columns
+on 406 of its 560 pages, every one of them a side-by-side table. Dividing on geometry
+stored four regions for a single-language page, on hundreds of pages of a manual with
+no parallel columns at all. So a page divides only where its columns name more than
+one language, which also disposes of "a table cell is not a text column" below.
+
+**The per-page answer outranks a column's, where it exists.** Letting a column's
+alphabet reading overturn the reconciled page language split 31 pages of the
+sectioned manual and contradicted its printed tab on 46 regions — German read as
+Finnish, Spanish, Portuguese, every case a short table cell. That tab is right on all
+553 of its content pages. On the column manual the per-page signals name *nothing* on
+any of the eight verified pages, which is why the columns are trusted there and not
+here. A disagreeing column now records a conflict and changes no answer.
+
+An earlier attempt made this conditional on how much evidence the alphabet had. That
+is unsupported: over 685 labelled columns the repertoire signal is 93% accurate and
+its errors occur at every amount of evidence, one of them with 118 distinctive
+characters. No threshold separates them, so none was added.
+
+**A page-level answer must name a real language to outrank anything.** BCP-47
+constrains a subtag's shape, not its meaning, so `FAX` parses as the language `fax`,
+`TEL` as `te`, `NDE` as `nd`. The column manual prints FAX on its service-address
+page; the index parser reads that page as a contents table and offers FAX as an
+entry; reconciliation then labelled two pages `fax`, overriding columns that read
+correctly as German and Polish. `doc.KnownLanguage` now gates what may outrank other
+evidence, and deliberately does not gate what may be stored — a manual printing an
+unrecognised code is information worth keeping.
+
+**Characters are counted with one tool, not two.** A boxed region can only be
+measured from positioned runs, so whole-page regions are measured that way too rather
+than reusing the existing `pdftotext` count. The two disagree by 3.3% and 2.5% on the
+fixtures' totals, 1–2% on a median page, and by up to 51% on a page whose text layer
+parks runs outside the page box. One measurement throughout beats two that nearly
+agree. Measured payoff: a German-reading household is charged 44,376 characters of the
+column manual rather than the 233,849 its pages hold in all five languages — 19%,
+where before a single language cost the same as all of them.
+
 ## What this deliberately does not solve
 
 Recorded so the next person does not think they are unsolved by accident:
@@ -67,7 +111,17 @@ design against.
 
 **A table cell is not a text column.** Geometry cannot tell them apart, five pages
 of the measured manual are troubleshooting tables, and it has already caused the
-document's one language error. Above this layer.
+document's one language error. Above this layer — and now handled there, by dividing
+on language rather than on cells, so a same-language table is one region. What is
+still unsolved is a table whose cells are in *different* languages: it would divide,
+and be wrong to. Neither manual does it.
+
+**A page that both prints a whole-page tab and sets parallel columns of different
+languages** would be called one language, with a conflict recorded. Rule 1 gives the
+per-page tab precedence and there is no evidence here for doing otherwise: one manual
+prints per-page tabs and sets one language per page, the other prints per-column tabs
+and names no page at all. The mechanism for the hybrid would be invented rather than
+designed. If a third manual is that document, this is the stop condition.
 
 **Interleaved paragraphs down one column** would need one region per paragraph,
 at which point a region stops being a layout partition and becomes a paragraph
