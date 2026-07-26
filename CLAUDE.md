@@ -15,6 +15,7 @@ Read the relevant one first; do not re-derive it.
 | [docs/design/ingest.md](docs/design/ingest.md) | The funnel: how a 560-page, 34-language manual is reduced to the pages you actually read, before any model is called |
 | [docs/design/layouts.md](docs/design/layouts.md) | How a manual is arranged — sequential sections or parallel columns — and the one seam that varies |
 | [docs/design/regions.md](docs/design/regions.md) | Storing a language that is part of a page: the contract, what building it settled, and what it still does not solve |
+| [docs/design/conversion.md](docs/design/conversion.md) | The next change: turning a manual into readable blocks — reading order, headings, tables from ruled lines, and the five pages nothing can see |
 | [docs/design/language-detection.md](docs/design/language-detection.md) | The five language signals, what each costs and how accurate each is, and why the detector choice is still open |
 | [docs/design/providers.md](docs/design/providers.md) | Why a subscription CLI or local model comes before a metered key, and why a CLI adapter must batch a whole document |
 | [docs/design/privacy.md](docs/design/privacy.md) | What manualbox holds, ranked by how it actually leaks |

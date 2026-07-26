@@ -45,6 +45,11 @@
   },
   "text_runs": 7493,
   "known_limitations": [
+    "TABLE PAGES ARE 52-61, NOT 57-61. Measured from the document's own ruled lines:",
+    "  pages 52-56 carry genuine small tables (Anwendungsfall | Duese/Zubehoer) that",
+    "  this manifest recorded as ordinary column pages. And pages 62-66 print",
+    "  Technische Daten as label/value pairs with NO ruled lines at all - tables that",
+    "  nothing detects and that were recorded nowhere. See docs/design/conversion.md.",
     "Pages 57-61 are troubleshooting tables: two side-by-side tables of two cells each.",
     "  Geometry cannot tell a table cell from a text column; that call belongs above",
     "  this layer, and is made there by dividing a page on language rather than on",
