@@ -136,11 +136,17 @@ identified". The sequential manual reports exactly what it did, plus the new fie
 `Gate.UnlabelledPages` and `CostEstimate.Chars` were declared and never assigned;
 both are now derived from stored rows.
 
+**The gate screen leads with characters too.** `web/src/screens/DeviceDetail.tsx`
+reports each language as its character count and its share of the document's text,
+with the pages underneath as a locator, and words those pages by `sharesPages` —
+"appears on 26 pages, sharing each with other languages" against "pages 23–38, all
+its own". The stat row and the import button count characters rather than pages, for
+the same reason. A language under 1% of the text keeps a decimal and loses its
+emphasis rather than being filtered, which is what the 289 characters of Finnish in
+the columns manual need.
+
 Deliberately not built yet, each for a stated reason:
 
-- **No React component shows the new fields.** The API carries characters, shares
-  and `sharesPages`; `web/src/screens/DeviceDetail.tsx` still renders pages only.
-  The contract and the screen are separate slices.
 - **The printed-index parser cannot read a contents page laid out in columns.** It
   returns junk for the Thomas manual, which costs 26 columns of printed-tag
   attribution and once labelled two pages `fax`. See language-detection.md; a test
