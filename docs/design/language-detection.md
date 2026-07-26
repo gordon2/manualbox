@@ -5,14 +5,17 @@ can happen: it decides what gets converted, what gets translated, and what the
 user is asked to pay for. See [ingest.md](ingest.md) for where this sits in the
 funnel.
 
-There are four signals. None of them is authoritative on its own, and the whole
+There are five signals. None of them is authoritative on its own, and the whole
 design is about combining them and recording which one spoke.
 
-> **Every number below was measured on one document** — the Dreame L40 Ultra,
-> 560 pages, 34 languages. That is one manual, not a corpus. Treat the numbers as
-> real but not general; the open question at the end is how to fix that.
+> **Every number below was measured on a real document, and there are only two of
+> them** — the Dreame L40 Ultra (560 pages, 34 languages in sequential sections)
+> and the Thomas DryBox Amfibia (68 pages, 5 languages in parallel columns).
+> Signals 1–4 were measured on the first, signal 5 on the second. Two manuals are
+> not a corpus: treat the numbers as real but not general, and see the open
+> question at the end.
 
-## The four signals, cheapest first
+## The five signals
 
 | | Signal | Cost | Gives | Fails when |
 |---|---|---|---|---|
@@ -20,6 +23,10 @@ design is about combining them and recording which one spoke.
 | 2 | **Printed index** | free | labels, section titles, claimed starts | claims are wrong or typo'd |
 | 3 | **Unicode script** | free | narrows the candidate set | 25 languages share Latin |
 | 4 | **Statistical detection** | a dependency | a label per page of text | sibling languages, unsupported languages |
+| 5 | **Character repertoire** | free | a language, from the alphabet used | the alphabet is shared, or plain ASCII |
+
+Numbered in the order they were built, not by price: signal 5 costs nothing and
+belongs with 1–3.
 
 ### 1. The printed page tag
 
@@ -56,7 +63,8 @@ run 17 pages rather than 16. So a claimed start is a hypothesis, never a boundar
 Free, and settles more than it looks. On the L40 it resolved 151 of 554 pages
 (27%) and uniquely identified six languages — Greek, Hebrew, Arabic, Thai,
 Chinese and Japanese (the last two separated by the presence of kana). Cyrillic
-narrowed to three candidates.
+narrowed to the three that document contains, out of the seven the script table
+lists.
 
 It cannot help with the remaining 403 pages, which span 25 Latin-script
 languages. That residue is what signal 4 exists for.
@@ -100,6 +108,113 @@ in the Docker image too.
 Also worth knowing: `lingua-go` has no `no` macrolanguage, only Bokmål and
 Nynorsk, so a code map must translate `no → nb`. It covers 32 of this document's
 34 languages.
+
+### 5. Character repertoire
+
+Languages that share a script do not share an *alphabet*. Signal 3 narrows a
+Cyrillic page to seven candidates and stops — that is everything a script table
+knows — but the letters only some of those seven can write are already sitting in
+the text stage 1 extracted, and counting them costs nothing.
+
+The case that forced this comes from the *second* fixture, not the L40: 19 pages
+of the Thomas manual carry three Cyrillic languages side by side, one per column.
+The L40 cannot show this — its languages are sequential, one per page. See
+[layouts.md](layouts.md). Counting each language's distinctive letters per column:
+
+| column | Ukrainian marks | Russian marks | Kazakh marks | verdict |
+|---|---|---|---|---|
+| left | 0 | 40 | 0 | Russian |
+| middle | 83 | 0 | 0 | Ukrainian |
+| right | 78 | 111 | 143 | Kazakh |
+
+Consistent across 18 of the 19 such pages. The exception is a page of contact
+addresses, which is not content.
+
+**The right column is why a maximum over those counts is the wrong reading.**
+Kazakh's alphabet *contains* the і it shares with Ukrainian and the ы it shares
+with Russian, so overlapping counts are the normal case rather than a conflict.
+Two questions decide it instead:
+
+- **Can this language write everything on the page?** Russian cannot account for
+  67% of the right column and Ukrainian cannot account for 76%, so both are out —
+  ruled out by what they *cannot* write, not out-voted.
+- **Does the page exercise this language?** On the *left* column Kazakh can
+  account for everything, because Russian's alphabet is a subset of Kazakh's. What
+  settles it is that none of Kazakh's own nine letters appear.
+
+Both are needed. Either one alone gets the left column wrong.
+
+**Call this per column, not per page.** A page holding three languages is not text
+written by one, so the honest answer for the whole page is nothing — and that is
+what it gives: three columns of ordinary Cyrillic manual prose, concatenated,
+decline correctly, as does any pairing of them.
+
+The reason to state it as a rule anyway is that the margin is narrower than the
+clean result suggests. On the measured page Kazakh already accounts for 422 of 455
+marks — 7.25% foreign against a 5% threshold — because its alphabet contains most
+of what Russian and Ukrainian can write. The guard holds because real Ukrainian
+prose uses ї and є often enough to contradict it. Constructed text where one
+language's own letters are unusually sparse crosses the line and is named
+confidently, which is how this paragraph came to be written: the first version of
+this warning claimed a realistic page fails, on the strength of a sample that
+repeated one thin sentence. It does not. The margin is a property of the text, not
+of a constant, so no threshold fixes it — calling it per column removes the
+question instead.
+
+**Cost, measured.** Linking it adds **1,536 bytes** to the binary (18,475,698 →
+18,477,234) and it needs no dependency, no model and no network. A 1,932-rune
+page takes **100 µs** on an M2 Pro, of which 53 µs is the Unicode-script pass
+signal 3 already runs — 57 ms for all 560 pages, against 1.7 s for the
+`pdftotext` that produced the text and 4.0 s for `lingua-go` across the 554 it
+was measured on.
+
+**Coverage.** 34 table entries over 33 languages and two scripts: seven Cyrillic
+(ru, uk, be, bg, sr, mk, kk) and 27 Latin. Serbian appears in both, because it is
+written in both. On 31 paragraphs of ordinary manual copy — one per language,
+hermetic, no PDF — 25 were named correctly, six were declined (four carrying no
+distinctive character at all, two as declared ties), and none was named wrongly.
+
+**What it cannot do, named.** Three groups have byte-identical repertoires, and
+the signal reports them tied rather than choosing:
+
+| tied | why |
+|---|---|
+| `da` `no` | both æ ø å é. Bokmål and Nynorsk share it too |
+| `bs` `hr` `sr` in Latin script | all č ć đ š ž |
+| `en` `id` `ms` | nothing outside a-z: invisible, all three equally |
+
+A second, quieter weakness is one-way rather than symmetric. Where one alphabet
+is a strict subset of another — `bg` ⊂ `ru` ⊂ `kk`, `fi` ⊂ `sv`, `sl` ⊂ `hr`,
+`nl` ⊂ `fr` — the smaller language wins by exercising all of itself, and it is
+only *right* when the text is long enough that the larger one's extra letters
+would have shown up. On a heading or a caption it is a coin toss dressed as an
+answer, so the runner-up is always returned ranked beneath the winner rather than
+discarded, and a floor of three distinctive characters stops one brand name being
+read as a language at all.
+
+**Czech and Slovak are not on that list, and the usual expectation is wrong
+here.** They are the standard example of a pair a trigram detector flip-flops on
+mid-section, and by repertoire they separate cleanly: Czech ř, ě and ů and Slovak
+ľ, ĺ, ŕ, ä and ô are frequent enough in ordinary prose that each contradicts the
+other outright. Measured on a paragraph each, Czech is not even admitted as a
+candidate for the Slovak text.
+
+**It does not replace signal 4, and it is not an argument for reopening that
+decision.** It reads alphabets, not language: it says nothing about the 25
+Latin-script languages when a page happens to carry no diacritic, and it cannot
+tell Indonesian from Malay or English at all. It does dent two of the systematic
+failures recorded above, in different ways and neither completely:
+
+- **Latin-script Serbian** — `lingua-go` scored 0 of 16 pages and answered `hr` or
+  `bs` with confidence. This signal narrows the same pages from 25 candidates to
+  exactly three and refuses to pick. That is not a label, but a declared tie is
+  worth more than a confident wrong answer, and the printed index or the page tag
+  breaks it.
+- **Uzbek** — untouched. `lingua-go` has no Uzbek and neither does this table.
+
+**Status: implemented, not wired in.** `internal/doc/repertoire.go` is a pure
+function with its own tests; nothing calls it from `Analyze` or `Reconcile` yet,
+so it changes no stored row and no reconciled outcome.
 
 ## Why detection is still needed
 
