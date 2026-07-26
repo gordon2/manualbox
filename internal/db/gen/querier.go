@@ -53,6 +53,11 @@ type Querier interface {
 	// attempt. Scoped to one source so the other signals' rows survive.
 	DeleteDocLangsBySource(ctx context.Context, arg DeleteDocLangsBySourceParams) error
 	DeleteDocPages(ctx context.Context, documentID string) error
+	// Replacing a document's regions wholesale is how a re-probe stays honest, and it
+	// is required rather than merely tidy: a region whose attribution changed is a new
+	// row under this key, so without the delete the superseded one lingers and the
+	// page reports itself twice.
+	DeleteDocRegions(ctx context.Context, documentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) (int64, error)
 	// DeleteFinishedJobsBefore keeps the activity history from growing without bound.
@@ -99,6 +104,10 @@ type Querier interface {
 	ListDocLangs(ctx context.Context, documentID string) ([]DocLang, error)
 	ListDocLangsBySource(ctx context.Context, arg ListDocLangsBySourceParams) ([]DocLang, error)
 	ListDocPages(ctx context.Context, documentID string) ([]DocPage, error)
+	// Reading order: down the page, then left to right across it. A whole-page region
+	// sorts first on its page because it begins at x0 = 0.
+	ListDocRegions(ctx context.Context, documentID string) ([]DocRegion, error)
+	ListDocRegionsForPage(ctx context.Context, arg ListDocRegionsForPageParams) ([]DocRegion, error)
 	ListDocumentsByState(ctx context.Context, state string) ([]Document, error)
 	ListDocumentsForDevice(ctx context.Context, deviceID string) ([]Document, error)
 	// Two separate queries rather than one with an optional filter: sqlc cannot infer
@@ -135,6 +144,16 @@ type Querier interface {
 	// pages at all. Counting its span reported a language the printed index merely
 	// mentioned as a one-page section.
 	SummarizeDocLangs(ctx context.Context, arg SummarizeDocLangsParams) ([]SummarizeDocLangsRow, error)
+	// The region map as shown to the user: one row per language label, with the
+	// characters and runs it holds, how many pages it appears on, and whether any of
+	// its regions are disputed.
+	//
+	// Characters rather than pages is the point, because a page holding three
+	// languages is not a unit of size; pages are still what a reader is shown, so both
+	// are reported. Every aggregate is wrapped in CAST(... AS INTEGER): without it
+	// sqlc cannot infer the type and emits interface{}, pushing a type assertion onto
+	// every caller.
+	SummarizeDocRegions(ctx context.Context, documentID string) ([]SummarizeDocRegionsRow, error)
 	// The CAST is load-bearing: without it sqlc cannot infer the type of an
 	// aggregate in SQLite and generates interface{}, pushing a type assertion onto
 	// every caller. Wrap aggregates in CAST(... AS INTEGER) throughout.
@@ -152,6 +171,40 @@ type Querier interface {
 	// Upsert on the natural key, because a probe job may run twice and must converge
 	// on the same rows rather than duplicating them.
 	UpsertDocPage(ctx context.Context, arg UpsertDocPageParams) error
+	// Queries over doc_regions: one language's territory on a page. See
+	// 00004_doc_regions.sql for the schema's reasoning and docs/design/regions.md for
+	// the contract.
+	//
+	// TWO RULES FOR THIS FILE, BOTH LEARNED THE HARD WAY WHILE WRITING IT.
+	//
+	// 1. KEEP THIS FILE PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
+	//    tracks each statement's end offset in BYTES but slices the text in
+	//    CHARACTERS, so every non-ASCII byte anywhere earlier in the file silently
+	//    truncates the tail of every statement after it. Measured exactly: with one
+	//    em-dash in a comment, "ORDER BY first_page, code" generated as
+	//    "ORDER BY first_page, co"; with four em-dashes it generated as
+	//    "ORDER BY first_pa". The truncation equals the running count of non-ASCII
+	//    overhead bytes, one character lost per extra byte.
+	//
+	//    This is the worst failure shape available: `make sqlc` exits 0, the generated
+	//    Go compiles, the linter is happy, and the statement fails at PREPARE time
+	//    inside a background job against a user's database. All ten pre-existing query
+	//    files happen to be pure ASCII, which is the only reason this had not bitten
+	//    anyone yet. That was checked rather than assumed: 0 non-ASCII bytes across
+	//    every one of them. TestDocRegionQueriesExecute in internal/db is the guard;
+	//    it runs every statement below against a real migrated database, so a mangled
+	//    one cannot reach a user.
+	//
+	// 2. Columns are listed explicitly rather than with SELECT *, so that adding a
+	//    column to doc_regions later cannot silently change every caller's row shape.
+	// Upsert on the natural key (document_id, source, page, x0), because a probe job
+	// may run twice and must converge on the same rows rather than duplicating them.
+	//
+	// This is belt and braces beside the delete that SaveProbe does first, and it
+	// cannot be the whole story: source is part of the key and a region's source can
+	// change between probes, so an upsert alone would leave the superseded row behind
+	// at the same x0. The note at the foot of 00004_doc_regions.sql explains why.
+	UpsertDocRegion(ctx context.Context, arg UpsertDocRegionParams) error
 }
 
 var _ Querier = (*Queries)(nil)

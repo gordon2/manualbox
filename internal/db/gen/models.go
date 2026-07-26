@@ -50,6 +50,21 @@ type DocPage struct {
 	LangSource   string
 }
 
+type DocRegion struct {
+	DocumentID string
+	Source     string
+	Page       int64
+	X0         int64
+	X1         int64
+	Code       string
+	Lang       string
+	Chars      int64
+	Runs       int64
+	Conflict   int64
+	Note       string
+	CreatedAt  int64
+}
+
 type Document struct {
 	ID                 string
 	DeviceID           string

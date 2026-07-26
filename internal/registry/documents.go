@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/gordon2/manualbox/internal/db"
@@ -182,9 +183,9 @@ func (s *Service) SetDocumentState(ctx context.Context, documentID, state, lastE
 //
 // All of it or none of it: a document whose row claims it was probed but whose
 // pages are missing would look complete and behave as though the manual had no
-// languages. The write is also idempotent — page rows and language runs are keyed
-// naturally and upserted, and each signal's runs are replaced wholesale — because
-// a worker can die after doing the work and have the job run again.
+// languages. The write is also idempotent — page rows, language runs and regions
+// are keyed naturally and upserted, and runs and regions are replaced wholesale —
+// because a worker can die after doing the work and have the job run again.
 func (s *Service) SaveProbe(ctx context.Context, documentID string, res *doc.Result, state string) error {
 	now := db.Millis(s.now())
 
@@ -261,8 +262,80 @@ func (s *Service) SaveProbe(ctx context.Context, documentID string, res *doc.Res
 				}
 			}
 		}
+
+		if err := saveRegions(ctx, q, documentID, res, now); err != nil {
+			return err
+		}
 		return nil
 	})
+}
+
+// saveRegions stores the language territories the probe read, inside SaveProbe's
+// transaction.
+//
+// WHETHER TO WRITE AT ALL IS THE DECISION HERE, and it turns on RegionNote rather
+// than on len(Regions).
+//
+// A non-empty RegionNote means positioned text could not be read at all: pdftohtml
+// is absent or failed, so the probe has no opinion about regions rather than the
+// opinion that there are none. Existing rows are then left exactly as they are.
+// Deleting a good region map because an optional tool went missing from the host
+// would be destructive, and it is the likely case — poppler is optional at runtime
+// here, so the same document can be probed with regions available and then without.
+//
+// An empty RegionNote means the probe did read the document, so its answer replaces
+// what was there even when that answer is no regions at all. An encrypted document
+// and one with no text layer both land here legitimately: doc.Analyze returns early
+// for them with no regions and no note, and "this document has none" is a real
+// result that must overwrite a stale map rather than hide behind it.
+//
+// Replace, not merge: source is part of the primary key and a region's attribution
+// can change between probes, so an upsert alone would leave the superseded row
+// behind at the same x0 and the page would report itself twice. The delete is
+// load-bearing, not tidying. See the note at the foot of 00004_doc_regions.sql.
+func saveRegions(ctx context.Context, q *gen.Queries, documentID string, res *doc.Result, now int64) error {
+	if res.RegionNote != "" {
+		return nil
+	}
+
+	if err := q.DeleteDocRegions(ctx, documentID); err != nil {
+		return fmt.Errorf("clear regions: %w", err)
+	}
+	for i := range res.Regions {
+		r := &res.Regions[i]
+		if err := q.UpsertDocRegion(ctx, gen.UpsertDocRegionParams{
+			DocumentID: documentID,
+			Source:     string(r.Source),
+			Page:       int64(r.Page),
+			X0:         roundCoord(r.X0),
+			X1:         roundCoord(r.X1),
+			Code:       r.Code,
+			Lang:       r.Lang,
+			Chars:      int64(r.Chars),
+			Runs:       int64(r.Runs),
+			Conflict:   boolInt(r.Conflict),
+			Note:       r.Note,
+			CreatedAt:  now,
+		}); err != nil {
+			return fmt.Errorf("save region on page %d at x %.0f: %w", r.Page, r.X0, err)
+		}
+	}
+	return nil
+}
+
+// roundCoord narrows a region's float coordinate to the integer the schema stores.
+//
+// Rounded, not truncated. A float in a primary key would need two probes to produce
+// bit-identical floats before the upsert converged, and one unit here is one pixel
+// of a pdftoppm -r 108 raster, so sub-unit precision describes nothing about a
+// column boundary. Truncation would instead bias every edge left by up to a unit.
+// Negative coordinates are clamped: the schema requires x0 >= 0, and a run parked
+// off the left edge of the page is furniture, not a column that starts at -3.
+func roundCoord(v float64) int64 {
+	if v <= 0 {
+		return 0
+	}
+	return int64(math.Round(v))
 }
 
 // LanguageRun is one stored language run.
@@ -304,6 +377,59 @@ func (s *Service) LanguageRuns(ctx context.Context, documentID string, source do
 			Confidence:  r.Confidence,
 			Conflict:    r.Conflict == 1,
 			Note:        r.Note,
+		})
+	}
+	return out, nil
+}
+
+// Region is one stored language territory on a page.
+//
+// X0 and X1 are integers here because that is what is stored, and the coordinate
+// space is poppler's: one unit is one pixel of a pdftoppm -r 108 raster, 1.5 times
+// the PDF's own points. A whole-page region runs from 0 to the page width, which is
+// why no field says whether a region is boxed — a caller clipping to the box gets
+// the whole page and needs no special case.
+type Region struct {
+	Page     int    `json:"page"`
+	X0       int    `json:"x0"`
+	X1       int    `json:"x1"`
+	Source   string `json:"source"`
+	Code     string `json:"code"`
+	Lang     string `json:"lang"`
+	Name     string `json:"name"`
+	Chars    int    `json:"chars"`
+	Runs     int    `json:"runs"`
+	Conflict bool   `json:"conflict"`
+	Note     string `json:"note,omitempty"`
+}
+
+// Regions returns a document's language territories in reading order: down the
+// page, then left to right across it.
+//
+// Empty is not the same claim as absent. A document probed without pdftohtml
+// available has no regions stored and its per-page language map is still complete,
+// so a caller must not read an empty result as "this manual has one language".
+func (s *Service) Regions(ctx context.Context, documentID string) ([]Region, error) {
+	rows, err := gen.New(s.db.Read()).ListDocRegions(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("registry: list regions: %w", err)
+	}
+	out := make([]Region, 0, len(rows))
+	for i := range rows {
+		r := &rows[i]
+		out = append(out, Region{
+			Page: int(r.Page),
+			X0:   int(r.X0), X1: int(r.X1),
+			Source: r.Source,
+			Code:   r.Code,
+			Lang:   r.Lang,
+			// The UI shows "Ukrainian", not "uk", and the manual's own label may be
+			// neither: it prints UA.
+			Name:     doc.DisplayName(r.Lang),
+			Chars:    int(r.Chars),
+			Runs:     int(r.Runs),
+			Conflict: r.Conflict == 1,
+			Note:     r.Note,
 		})
 	}
 	return out, nil
