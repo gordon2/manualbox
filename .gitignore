@@ -38,6 +38,11 @@ coverage.html
 /tmp/
 /scratch/
 
+# Agent worktrees. Root-anchored for the same reason as /manualbox above: these
+# are checkouts of this repository, and `git add -A` will otherwise stage one as
+# an embedded repository.
+/.claude/worktrees/
+
 # Vite builds the SPA into internal/frontend/dist/app so it can be go:embed-ed.
 # It writes into the app/ subdirectory rather than dist/ itself because Vite's
 # emptyOutDir wipes its output directory on every build — which silently deleted

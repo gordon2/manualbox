@@ -108,6 +108,24 @@ type Manifest struct {
 
 	Sections  []Section  `json:"sections,omitempty"`
 	PageFacts []PageFact `json:"page_facts,omitempty"`
+
+	// PageBox is the page dimensions poppler's XML reports, and TextRuns how many
+	// positioned runs the whole document yields. Both are what a coordinate-space
+	// change would show up in first, and neither can be derived from the others.
+	//
+	// They are held to different standards on purpose. The box is exactly 1.5
+	// times the PDF's own page size and so is a property of the output format —
+	// assert it exactly. The run count depends on how a version of poppler
+	// segments a line into runs, which may legitimately shift — assert it with a
+	// tolerance.
+	PageBox  *PageBox `json:"page_box,omitempty"`
+	TextRuns int      `json:"text_runs,omitempty"`
+}
+
+// PageBox is a document's page dimensions in poppler's XML coordinate space.
+type PageBox struct {
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
 // PageFact returns the ground truth for a page.

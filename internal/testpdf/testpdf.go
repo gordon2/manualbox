@@ -26,6 +26,29 @@ type Page struct {
 	// Lines are drawn top to bottom, and come back out of pdftotext in the same
 	// order. The first line is therefore where a language tag goes, which is what
 	// makes the printed-tag signal testable.
+	//
+	// They span the full measure from the left margin, so a long line here is how
+	// a heading set across several columns is generated.
+	Lines []string
+	// Columns are blocks of text at their own horizontal offsets, drawn below
+	// Lines and all starting at the same height.
+	Columns []Column
+}
+
+// Column is a block of lines set at its own horizontal offset.
+//
+// It exists because a single-column generator cannot exercise the column
+// detector, and geometry is the one input the detector has: it needs a real
+// gutter in a real PDF read by real poppler, not hand-written coordinates. Every
+// other test of it supplies runs directly, which cannot catch a disagreement
+// between what this package writes and what poppler reports back.
+type Column struct {
+	// X is the left edge in PDF points, on the 612 by 792 page this package
+	// writes. Poppler's XML reports coordinates at 1.5 times this — 108 dpi
+	// against the PDF's 72 — so a column at X=60 arrives as left=90 and the page
+	// as 918 by 1188. Measured on both real fixtures: 918/612.283 and 892/595.276.
+	X int
+	// Lines are drawn top to bottom, as [Page.Lines] are.
 	Lines []string
 }
 
@@ -136,21 +159,50 @@ func (d Doc) Build() []byte {
 	return buf.Bytes()
 }
 
+// Where text is placed on the 612 by 792 page, in PDF points.
+const (
+	marginX  = 72
+	firstY   = 720
+	lineStep = 24
+	// lastY is the floor. Lines pile up on it rather than running off the page,
+	// because a run outside the page box is dropped by the column detector as
+	// off-page and would silently vanish from a test's expectations.
+	lastY = 40
+)
+
 // pageStream renders one page's text as a content stream.
 func pageStream(p Page) string {
-	if len(p.Lines) == 0 {
+	if len(p.Lines) == 0 && len(p.Columns) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	y := 720
+
+	y := firstY
 	for _, line := range p.Lines {
-		fmt.Fprintf(&b, "BT /F1 11 Tf 72 %d Td (%s) Tj ET\n", y, escapeString(line))
-		y -= 24
-		if y < 40 {
-			y = 40
+		drawLine(&b, marginX, y, line)
+		y = nextY(y)
+	}
+	// Every column starts where the full-measure lines left off, so a heading in
+	// Lines sits above all of them rather than beside one.
+	for _, col := range p.Columns {
+		cy := y
+		for _, line := range col.Lines {
+			drawLine(&b, col.X, cy, line)
+			cy = nextY(cy)
 		}
 	}
 	return b.String()
+}
+
+func drawLine(b *strings.Builder, x, y int, line string) {
+	fmt.Fprintf(b, "BT /F1 11 Tf %d %d Td (%s) Tj ET\n", x, y, escapeString(line))
+}
+
+func nextY(y int) int {
+	if y-lineStep < lastY {
+		return lastY
+	}
+	return y - lineStep
 }
 
 // escapeString escapes the characters that would otherwise end a PDF string

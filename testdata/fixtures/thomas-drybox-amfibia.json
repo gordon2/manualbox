@@ -39,6 +39,11 @@
   "columns_established": 165,
   "columns_total": 169,
   "coordinate_space": "pdftohtml -xml, page width 892. A raster from pdftoppm -r 108 matches it 1:1, which is what lets a detected box be checked against the render.",
+  "page_box": {
+    "width": 892,
+    "height": 850
+  },
+  "text_runs": 7493,
   "known_limitations": [
     "Pages 57-61 are troubleshooting tables: two side-by-side tables of two cells each.",
     "  Geometry cannot tell a table cell from a text column; that call belongs above",

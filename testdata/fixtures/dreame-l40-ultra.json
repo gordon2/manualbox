@@ -20,6 +20,13 @@
   "has_text_layer": true,
   "median_chars_per_page": 1693,
   "content_starts_on_pdf_page": 7,
+  "page_box": {
+    "width": 918,
+    "height": 620
+  },
+  "text_runs": 34413,
+  "layout": "sequential-sections",
+  "layout_note": "One language per page — but NOT one column per page, which was assumed once and is wrong. Measured column counts across all 560 pages: 0 on 6, one on 148, two on 136, three on 199, four on 71. The multi-column pages are overwhelmingly side-by-side troubleshooting tables; pages 20 and 100 were checked against their renders and each is two tables of two cells, whose cells are what the detector returns. So column count is not language count on this manual either, for the opposite reason to thomas-drybox-amfibia: there, one page holds several languages; here, one language is laid out in several table cells.",
   "index_pages": [
     2,
     3,
