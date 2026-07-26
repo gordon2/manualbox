@@ -161,3 +161,94 @@ func parseIndexCodes(text string) map[string]bool {
 	}
 	return codes
 }
+
+// TestColumnFixtureLoads checks the manifest that describes a parallel-column
+// manual. It is the counter-example to the sectioned fixture, and it exists
+// because a pipeline built against that one alone found 1 of this document's 5
+// languages.
+func TestColumnFixtureLoads(t *testing.T) {
+	m, err := Load(fixturesDir, "thomas-drybox-amfibia")
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+
+	if m.Layout != "parallel-columns" {
+		t.Errorf("layout = %q", m.Layout)
+	}
+	if len(m.Sections) != 0 {
+		t.Error("a column manual has no contiguous language sections; Sections should be empty")
+	}
+	if len(m.PageFacts) != m.Pages {
+		t.Errorf("%d page facts for a %d-page document", len(m.PageFacts), m.Pages)
+	}
+	if len(m.Languages) != 5 {
+		t.Errorf("languages = %v, want 5", m.Languages)
+	}
+	if len(m.KnownLimitations) == 0 {
+		t.Error("no known limitations recorded; silence would read as coverage")
+	}
+
+	// Provenance is the point of this fixture. An entry produced by the detector
+	// cannot be used to judge the detector, so the two kinds must stay
+	// distinguishable and both must be present.
+	verified := m.VerifiedPages()
+	if len(verified) == 0 {
+		t.Fatal("no page was human-verified, so nothing here is ground truth")
+	}
+	if len(verified) == len(m.PageFacts) {
+		t.Error("every page claims human verification; only eight were checked against renders")
+	}
+	for _, p := range m.PageFacts {
+		if p.Verified != "image" && p.Verified != "detector" {
+			t.Errorf("page %d has provenance %q, want image or detector", p.Page, p.Verified)
+		}
+	}
+
+	// The verified pages are the acceptance test, so their expected counts must
+	// be present and self-consistent.
+	for _, p := range verified {
+		if p.Columns != len(p.Cols) {
+			t.Errorf("page %d says %d columns but lists %d", p.Page, p.Columns, len(p.Cols))
+		}
+		for _, c := range p.Cols {
+			if c.X1 <= c.X0 {
+				t.Errorf("page %d has an inverted column %d-%d", p.Page, c.X0, c.X1)
+			}
+		}
+	}
+
+	known, total := m.EstablishedColumns()
+	if known == total {
+		t.Error("every column claims a language; the manifest records unknowns deliberately")
+	}
+
+	// The properties that make this document the counter-example.
+	var multiLang, sameLangTwice int
+	for _, f := range m.PageFacts {
+		seen := map[string]int{}
+		for _, c := range f.Cols {
+			if c.Lang != "" {
+				seen[c.Lang]++
+			}
+		}
+		if len(seen) > 1 {
+			multiLang++
+		}
+		for _, n := range seen {
+			if n > 1 {
+				sameLangTwice++
+				break
+			}
+		}
+	}
+	if multiLang == 0 {
+		t.Error("no page carries more than one language, so this is not a column fixture")
+	}
+	if sameLangTwice == 0 {
+		t.Error("no page carries one language in two columns — that case is why " +
+			"column count cannot be treated as language count")
+	}
+	t.Logf("%d pages human-verified, %d with several languages, %d with one language "+
+		"in several columns, %d of %d columns named",
+		len(verified), multiLang, sameLangTwice, known, total)
+}
