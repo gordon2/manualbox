@@ -47,6 +47,35 @@ type Page struct {
 	// Columns are blocks of text at their own horizontal offsets, drawn below
 	// Lines and all starting at the same height.
 	Columns []Column
+	// Drawings are vector illustrations, drawn before any text so the text sits
+	// over them the way a caption does on a real page.
+	//
+	// They exist because a document with no vector graphics cannot exercise the
+	// figure reader at all, and that turned out to be the only kind of picture the
+	// two real manuals contain: `pdfimages` yields not one illustration over their
+	// 628 pages, and every diagram in both is drawn. See internal/doc/figures.go.
+	// A raster is deliberately not generated here — embedding a JPEG would test a
+	// path this project has no document for.
+	Drawings []Drawing
+}
+
+// Drawing is a scribble in a box: a frame with a fixed number of strokes inside
+// it, at a position in PDF points on the 612 by 792 page.
+//
+// Strokes rather than a shape, because what separates a picture from page
+// furniture in internal/doc/figures.go is how many shapes an area holds, and a
+// generator that draws one rectangle can only produce furniture. The strokes are
+// laid out deterministically so a test can assert an exact count.
+type Drawing struct {
+	// X and Y are the lower-left corner in PDF points, W and H the size. Poppler
+	// reports coordinates at 1.5 times this and measures Y down from the top of the
+	// page, so a drawing at Y=400 on a 792-point page arrives with its top edge at
+	// 1.5*(792-400-H).
+	X, Y, W, H int
+	// Strokes is how many lines to draw inside the frame, over and above the frame
+	// itself. Each is a separate subpath, so the shape count internal/doc reads back
+	// is Strokes plus one.
+	Strokes int
 }
 
 // Column is a block of lines set at its own horizontal offset.
@@ -195,10 +224,15 @@ const (
 
 // pageStream renders one page's text as a content stream.
 func pageStream(p Page) string {
-	if len(p.Headings) == 0 && len(p.Lines) == 0 && len(p.Columns) == 0 {
+	if len(p.Headings) == 0 && len(p.Lines) == 0 && len(p.Columns) == 0 &&
+		len(p.Drawings) == 0 {
 		return ""
 	}
 	var b strings.Builder
+
+	for _, d := range p.Drawings {
+		drawDrawing(&b, d)
+	}
 
 	y := firstY
 	for _, line := range p.Headings {
@@ -219,6 +253,25 @@ func pageStream(p Page) string {
 		}
 	}
 	return b.String()
+}
+
+// drawDrawing writes a frame and its strokes as one stroked path per subpath.
+//
+// Each stroke is its own `m`/`l`/`S` rather than one path with many subpaths,
+// because cairo re-emits a multi-subpath stroke as a single <path> element and
+// internal/doc counts shapes off those elements' subpaths — separate paths keep
+// the two counts equal and the test's arithmetic honest.
+func drawDrawing(b *strings.Builder, d Drawing) {
+	fmt.Fprintf(b, "0.5 w 0 0 0 RG\n%d %d %d %d re S\n", d.X, d.Y, d.W, d.H)
+	for i := range d.Strokes {
+		// A diagonal from the left edge to the right, stepped down the frame, so
+		// every stroke is inside it and none is axis-aligned — an axis-aligned one
+		// would also be read as a ruled line by rules.go, which would make a test
+		// of one file depend on the other.
+		dy := d.H * (i + 1) / (d.Strokes + 1)
+		fmt.Fprintf(b, "%d %d m %d %d l S\n",
+			d.X+2, d.Y+dy, d.X+d.W-2, d.Y+dy-d.H/(2*(d.Strokes+1))-1)
+	}
 }
 
 func drawLine(b *strings.Builder, x, y int, line string) {
