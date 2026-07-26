@@ -209,6 +209,60 @@ that fills a narrow column reads as a paragraph, which loses `Fehlersuche`,
 **Hyphenation is not undone.** `brud-` / `nej` survives as written, because German
 legitimately ends a line with a hyphen and rejoining would corrupt those.
 
+## The integration this leaves, and the thing it explains
+
+Blocks and cells were built separately and deliberately do not know about each
+other. Joining them is the next step, and measuring both halves against page 57 of
+the column manual settled what that join has to be — and incidentally explained a
+misreading this project has been carrying since the language work.
+
+**A table's cell dividers are being read as language columns.** Page 57's four
+stored language regions and its two tables' cell columns are the same boundaries:
+
+| stored region | table cell column |
+|---|---|
+| 36-178, read as Finnish | 29.7-173.3 — table 1's question cells |
+| 179-424, German | 173.3-428.1 — table 1's answer cells |
+| 457-589, German | 450.2-593.9 — table 2's question cells |
+| 601-846, German | 593.9-848.7 — table 2's answer cells |
+
+Within about five units on all four. And 173.3 is not incidental: it is the only
+interior vertical the left table draws, arriving as six segments broken at each row
+and recovered only by merging them.
+
+So that page has **no language columns**. It has two tables, and the column detector
+found their cell dividers. That is the root of the one language error both
+`layouts.md` and the fixture record — a German cell read as Finnish — one level
+below the explanation already written down. Both causes are real and they compound:
+the printed `D` in the page's corner is rejected for want of an index vocabulary,
+*and* the thing whose language is being asked about is a column of short table
+labels rather than a column of prose.
+
+**Therefore a table's area must be excluded from region derivation, not reconciled
+with it afterwards.** Joining tables to regions geometrically would be joining a
+table to boundaries the table itself created. This touches `regions.go` and is the
+one place the two halves genuinely meet.
+
+Three constraints on that join, all measured rather than reasoned:
+
+- **It must be geometric, not by key.** Blocks key on `(page, region left edge,
+  index)` and a table area has no region left edge, so there is no key to join on.
+- **Both halves already draw from the same filtered run set** — each calls
+  `usableRuns` — so cells and blocks can never see text the other cannot. That is
+  also what keeps both inside what the gate charged for, since a region's character
+  count comes through the same filter.
+- **A heading printed across a table must not be assigned to a cell.** It lands in
+  the banner group that is read first and is dropped from every cell, so it appears
+  exactly once and in the right place. An integration that tries to place it in a
+  cell, or that suppresses banner blocks wherever a table covers the region, makes
+  it vanish.
+
+One trap for whoever builds it: page 57 draws a **real vertical at x=440.2 spanning
+the full page height**, between the two tables. The cell grid correctly ignores it —
+no horizontal rule spans 428.1 to 450.2, so it bounds no cell — but any page-wide
+column projection will find it and read the page as split at 440. A convincing
+divider that is neither a language boundary nor a table one.
+
 ## Acceptance
 
 Not "it produces blocks". The column manual's German must come back as readable
