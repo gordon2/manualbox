@@ -155,6 +155,32 @@ func DisplayName(tag string) string {
 	return parsed.String()
 }
 
+// KnownLanguage reports whether a tag names a language manualbox recognises.
+//
+// A tag can parse cleanly and name nothing at all: BCP-47 constrains the shape of
+// a subtag, not its meaning, so language.Parse accepts FAX as "fax", TEL as "te"
+// and NDE as "nd". That is measured rather than hypothetical. The column manual
+// prints FAX on its page of service addresses, the printed-index parser reads that
+// page as a contents table and offers FAX as an index entry, and reconciliation
+// then labelled two of the document's pages "fax" — overriding two columns that
+// correctly read as German and Polish.
+//
+// [languageNames] is the set of languages that actually appear in appliance
+// manuals, so membership is the available definition of "a language a household
+// could read". This is deliberately not a filter on what may be stored: an
+// unrecognised code is still kept and still reported, because a manual printing an
+// unknown code is information. It is a filter on what may outrank other evidence.
+func KnownLanguage(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	parsed, err := language.Parse(tag)
+	if err != nil {
+		return false
+	}
+	return languageNames[BaseLanguage(parsed.String())] != ""
+}
+
 // languageNames covers the languages that actually turn up in appliance manuals.
 // x/text can produce display names only with the full display package and its
 // tables, which is a large dependency for a label; this is the subset that

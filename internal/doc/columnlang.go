@@ -106,16 +106,14 @@ func nameColumn(runs []TextRun, col *Column, knownCodes map[string]bool) ColumnL
 }
 
 // runsInColumn returns the runs belonging to a column, in reading order.
+//
+// Membership is [runsInBox], shared with the region reader so that a region's
+// characters are counted over exactly the runs its language was read from. The
+// sort is what this adds: the printed tag is looked for in a column's leading
+// runs, and "leading" means down the page rather than in the order the tool
+// happened to emit them.
 func runsInColumn(runs []TextRun, col *Column) []TextRun {
-	var inside []TextRun
-	for i := range runs {
-		r := &runs[i]
-		// A run belongs to the column its left edge sits in. A run crossing the
-		// boundary spans columns and belongs to neither.
-		if r.X >= col.Min-1 && r.X+r.Width <= col.Max+1 {
-			inside = append(inside, *r)
-		}
-	}
+	inside := runsInBox(runs, col.Min, col.Max)
 	sort.SliceStable(inside, func(a, b int) bool { return inside[a].Y < inside[b].Y })
 	return inside
 }

@@ -102,6 +102,19 @@ type Result struct {
 	// Runs is the reconciled language map: what manualbox actually believes.
 	Runs []Run `json:"runs"`
 
+	// Regions is the language map at the resolution a page can hold several: one
+	// entry per language territory, whole-page where the page holds one language
+	// and boxed where it holds more. See docs/design/regions.md.
+	//
+	// Empty when positioned text could not be read, which is a stated state rather
+	// than a silent one — see RegionNote. Regions need coordinates and there is no
+	// honest way to invent them, so without pdftohtml the pipeline reports exactly
+	// what it reported before regions existed.
+	Regions []Region `json:"-"`
+	// RegionNote says why Regions is empty, when it is empty for a reason worth
+	// telling the user rather than because the document has no text.
+	RegionNote string `json:"regionNote,omitempty"`
+
 	// MedianChars is the median rune count across all pages. A scan yields ~0,
 	// which is the number that selects between the free extraction path and one
 	// costing a vision call per page.
@@ -197,12 +210,149 @@ func Analyze(ctx context.Context, path string) (*Result, error) {
 	res.ContentStart, res.ContentEnd = ContentRange(pages, res.Runs)
 	res.Unlabelled = CountUnlabelled(pages, res.Runs)
 
+	// Regions run last because a whole-page region records the reconciled language,
+	// so they need the map above to already exist.
+	res.Regions, res.RegionNote = analyzeRegions(ctx, path, res, IndexCodes(indexRuns))
+
 	return res, nil
 }
 
-// Languages returns the reconciled map collapsed to one entry per language, in
+// analyzeRegions reads the document's positioned text and divides each page into
+// language regions.
+//
+// This is the second poppler pass, and it costs what was measured in runs.go: 1.8 s
+// on the 560-page document against 1.8 s for the pdftotext pass beside it, so the
+// probe roughly doubles and stays under four seconds. It buys the only reading of a
+// parallel-columns manual that is not wrong — a page there holds three languages,
+// and no per-page answer about it can be right.
+//
+// A missing or failing pdftohtml is reported, not fatal. The document has already
+// been probed by this point and its per-page language map is complete; losing
+// regions costs the column resolution and nothing else, so the honest outcome is
+// the previous behaviour plus a note saying what is unavailable and why.
+func analyzeRegions(ctx context.Context, path string, res *Result, knownCodes map[string]bool) (regions []Region, note string) {
+	pages, err := ExtractRuns(ctx, path)
+	if err != nil {
+		return nil, fmt.Sprintf("per-column languages are unavailable: %s", err)
+	}
+
+	byNo := make(map[int]*Page, len(res.Pages))
+	for i := range res.Pages {
+		byNo[res.Pages[i].No] = &res.Pages[i]
+	}
+
+	regions = make([]Region, 0, len(pages))
+	for i := range pages {
+		p := &pages[i]
+		code, lang, source := res.pageLanguage(p.No)
+		resolved := PageResolution{Code: code, Lang: lang, Source: source}
+		if page, ok := byNo[p.No]; ok {
+			resolved.Contents = IsContentsPage(page)
+		}
+		regions = append(regions, PageRegions(p, knownCodes, resolved)...)
+	}
+	return regions, ""
+}
+
+// Languages returns the language map collapsed to one entry per language, in
 // document order. This is what the pre-flight gate shows.
+//
+// It reads the regions where there are regions, and the per-page runs otherwise.
+// That is not a preference between two equivalent sources: on the parallel-columns
+// manual the per-page map names nothing on any of its verified pages, so summarised
+// from runs alone that document reports no languages at all while plainly
+// containing five. Regions are the finer-grained record of the same reconciliation,
+// so on a sectioned manual the two agree exactly — asserted against that manual's
+// 34 sections, page counts and spans included.
 func (r *Result) Languages() []LanguageSummary {
+	if len(r.Regions) > 0 {
+		return r.regionLanguages()
+	}
+	return r.runLanguages()
+}
+
+// regionLanguages summarises the regions, one entry per language.
+func (r *Result) regionLanguages() []LanguageSummary {
+	titles := indexTitles(r.BySource[SourceIndex])
+
+	type acc struct {
+		code, lang string
+		pages      map[int]bool
+		disputed   bool
+	}
+	order := make([]string, 0, 8)
+	seen := make(map[string]*acc, 8)
+
+	for i := range r.Regions {
+		region := &r.Regions[i]
+		if region.Lang == "" {
+			continue
+		}
+		// Keyed by language rather than by printed label, so a section the document
+		// calls UA and a signal calls uk are one language and not two.
+		key := BaseLanguage(region.Lang)
+		if key == "" {
+			key = region.Code
+		}
+		a, ok := seen[key]
+		if !ok {
+			a = &acc{code: region.Code, lang: region.Lang, pages: make(map[int]bool, 16)}
+			seen[key] = a
+			order = append(order, key)
+		}
+		a.pages[region.Page] = true
+		if region.Conflict {
+			a.disputed = true
+		}
+		// Keep the most specific tag seen for this language: zh-HK beats zh.
+		if len(region.Lang) > len(a.lang) {
+			a.lang, a.code = region.Lang, region.Code
+		}
+	}
+
+	out := make([]LanguageSummary, 0, len(order))
+	for _, key := range order {
+		a := seen[key]
+		first, last, spans := pageSpans(a.pages)
+		out = append(out, LanguageSummary{
+			Code: a.code, Lang: a.lang, Title: titles[a.code],
+			Name: DisplayName(a.lang), Pages: len(a.pages),
+			FirstPage: first, LastPage: last, Runs: spans,
+			Disputed: a.disputed,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].FirstPage < out[j].FirstPage })
+	return out
+}
+
+// pageSpans reports the first and last page a language occupies and how many
+// contiguous stretches it occupies them in.
+//
+// The count of stretches is what [LanguageSummary.Runs] means, and it is worth
+// computing rather than approximating: a section wrongly split in two still totals
+// the right number of pages, which is how one such split went unnoticed.
+func pageSpans(pages map[int]bool) (first, last, spans int) {
+	if len(pages) == 0 {
+		return 0, 0, 0
+	}
+	sorted := make([]int, 0, len(pages))
+	for page := range pages {
+		sorted = append(sorted, page)
+	}
+	slices.Sort(sorted)
+
+	spans = 1
+	for i := 1; i < len(sorted); i++ {
+		if sorted[i] != sorted[i-1]+1 {
+			spans++
+		}
+	}
+	return sorted[0], sorted[len(sorted)-1], spans
+}
+
+// runLanguages summarises the per-page reconciled runs, for a document whose
+// positioned text could not be read.
+func (r *Result) runLanguages() []LanguageSummary {
 	type acc struct {
 		code, lang, title  string
 		pages, first, last int
@@ -332,6 +482,31 @@ func (r *Result) ScopeFor(household []string) Scope {
 		}
 	}
 
+	scope.Chars = r.scopeChars(inScope)
+	return scope
+}
+
+// scopeChars measures the text the household's languages actually occupy.
+//
+// From the regions where there are regions, because that is the only correct
+// answer on a manual whose languages share a page: three languages in three
+// columns, and charging a household for all three because one of them is theirs
+// overstates the work by the number of languages on the page. On the measured
+// column manual that is a factor of about three.
+//
+// Falling back to whole pages where there are none is not a lesser answer for a
+// sectioned manual — there, one page is one language and the two agree — but it is
+// a different measurement, taken with pdftotext rather than pdftohtml. Measured,
+// the two tools disagree by 3.3% and 2.5% on the two fixtures' totals, 1 to 2% on a
+// median page, and by up to 51% on individual pages where a text layer parks runs
+// off the page. So the number moves slightly with which tool produced it, which is
+// acceptable for a free proxy that docs/design/providers.md already refuses to turn
+// into a token count, and is worth writing down rather than discovering later.
+func (r *Result) scopeChars(inScope map[string]bool) int {
+	if len(r.Regions) > 0 {
+		return RegionChars(r.Regions, inScope)
+	}
+
 	byPage := make(map[int]bool, 64)
 	for i := range r.Runs {
 		if inScope[BaseLanguage(r.Runs[i].Lang)] {
@@ -340,23 +515,32 @@ func (r *Result) ScopeFor(household []string) Scope {
 			}
 		}
 	}
+	chars := 0
 	for i := range r.Pages {
 		if byPage[r.Pages[i].No] {
-			scope.Chars += r.Pages[i].Chars
+			chars += r.Pages[i].Chars
 		}
 	}
-	return scope
+	return chars
 }
 
 // PageLang returns the reconciled language for a page, or "" if none was
 // established.
 func (r *Result) PageLang(page int) (string, Source) {
-	for _, run := range r.Runs {
-		if run.Contains(page) {
-			return run.Lang, run.Source
+	_, lang, source := r.pageLanguage(page)
+	return lang, source
+}
+
+// pageLanguage returns the reconciled label as well as the tag, which a region
+// stores: the code is how the document expressed it — D, RUS, UA — and dropping it
+// would leave an unnormalisable code unreportable.
+func (r *Result) pageLanguage(page int) (code, lang string, source Source) {
+	for i := range r.Runs {
+		if r.Runs[i].Contains(page) {
+			return r.Runs[i].Code, r.Runs[i].Lang, r.Runs[i].Source
 		}
 	}
-	return "", ""
+	return "", "", ""
 }
 
 // String renders a one-line summary for logs. It deliberately carries no
