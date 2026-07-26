@@ -110,6 +110,25 @@ var (
 		VersionArgs: []string{"-v"},
 		Install:     popplerInstall,
 	}
+	// PDFToCairo is listed separately again, and for the same kind of reason
+	// PDFToHTML is: it reports something no other poppler tool reports at all.
+	// A manual's tables are found from the lines the page draws, and those lines
+	// are vector graphics rather than text. Measured on the parallel-columns
+	// fixture's page 57, which is visibly ruled: `pdftohtml -xml` emits exactly
+	// four kinds of element — pdf, page, fontspec and text — and not one path,
+	// so the rules are not merely hard to find there, they are absent.
+	// `pdftocairo -svg` reports them exactly, in the PDF's own points, which is
+	// the space pdftohtml uses divided by 1.5. See docs/design/conversion.md.
+	//
+	// Optional like the rest. A document whose tables cannot be read still
+	// converts to blocks; what is lost is the cell structure, and the caller says
+	// so rather than failing the document.
+	PDFToCairo = Tool{
+		Name:        "pdftocairo",
+		Purpose:     "read the ruled lines a page draws, which is how tables are found",
+		VersionArgs: []string{"-v"},
+		Install:     popplerInstall,
+	}
 	Tesseract = Tool{
 		Name:        "tesseract",
 		Purpose:     "OCR scanned manuals and phone photos",
@@ -130,7 +149,7 @@ var popplerInstall = map[string]string{
 
 // All is every tool manualbox may use, in doctor-report order.
 func All() []Tool {
-	return []Tool{PDFToText, PDFToHTML, PDFToPPM, PDFImages, PDFInfo, Tesseract}
+	return []Tool{PDFToText, PDFToHTML, PDFToCairo, PDFToPPM, PDFImages, PDFInfo, Tesseract}
 }
 
 // ErrNotFound is returned by [Require] when a tool is not installed.
