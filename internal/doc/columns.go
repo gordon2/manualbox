@@ -511,7 +511,7 @@ func sharedBaselines(runs []TextRun, strip, other []int, tol float64) int {
 	n := 0
 	for _, i := range strip {
 		for _, j := range other {
-			if math.Abs(runs[i].Y-runs[j].Y) <= tol {
+			if sameBaseline(runs[i].Y, runs[j].Y, tol) {
 				n++
 				break
 			}
@@ -519,6 +519,15 @@ func sharedBaselines(runs []TextRun, strip, other []int, tol float64) int {
 	}
 	return n
 }
+
+// sameBaseline is the single definition of "these runs sit on one line".
+//
+// Poppler reports every run of a line with the same top, so this has rounding to
+// absorb and nothing more — see [baselineToleranceFraction] for the tolerance and
+// what it was measured against. Shared with blocks.go, which folds runs into lines
+// for a different purpose: a marker and its text are one line whether the question
+// being asked is which column they belong to or which paragraph.
+func sameBaseline(a, b, tol float64) bool { return math.Abs(a-b) <= tol }
 
 // crossesAny reports whether a run passes right over a gutter. Reaching into
 // one is not crossing it: a column's longest lines routinely end inside the
