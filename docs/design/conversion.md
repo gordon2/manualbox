@@ -169,10 +169,40 @@ would recover them.
 **Framed illustrations are geometrically identical to tables.** Only the text guard
 separates them, and a figure with a caption inside its frame would defeat it.
 
-**Language-neutral content still has no home.** regions.md left this open and
-conversion inherits it: a diagram or a specification table shared by all five
-languages belongs to a region only if it happens to sit inside one. A picture
-spanning the full measure belongs to none.
+**Language-neutral content still has no home, and measuring the pictures showed how
+much that costs.** regions.md left this open and conversion inherits it: a diagram or
+a specification table shared by all five languages belongs to a region only if it
+happens to sit inside one, and a picture spanning the full measure belongs to none.
+
+The size of it, measured: the sequential manual has **229 figures on 23 of its 560
+pages, and every one is in front or back matter.** Its 34 language sections carry
+prose and ruled tables and not a single illustration. So a language-scoped conversion
+of that document shows a reader **no pictures at all** — which is not a bug in any of
+the code, it is the funnel doing exactly what it was told on a document whose pictures
+are shared by every language. The column manual is the opposite: 45 figures on 27 of
+68 pages, sitting inside the language columns where they belong.
+
+That is a product decision rather than a technical one, and it is not taken here.
+
+**The pictures in a manual are not the images in the file.** `pdfimages` — the
+obvious tool, registered in `extern` since before any of this — yields **zero
+illustrations across all 628 pages of both manuals.** What it does yield is 1,358
+gradient-mesh slivers of 12x4 pixels on two pages, a 97x73 corner logo, some CE marks
+and recycling symbols. Page 42 of the column manual prints four framed line drawings
+and reports zero embedded images. Every illustration in both documents is **vector**,
+so a figure is found the same way a table is — from what the page draws — and its
+bytes come from rendering the crop.
+
+Two consequences worth stating. `pdfimages` is not useless, but its role is the raster
+path for a photographed or scanned manual, which neither fixture is. And a caller that
+wants both tables and figures pays `pdftocairo` twice for the same page; that is
+accepted for now and recorded rather than optimised.
+
+**Clip paths are not read, and that is the real cost of the vector route.** A figure's
+box is a path's *unclipped* extent, so neighbouring drawings merge — page 42 returns 3
+figures for 4 printed, page 16 returns 1 for 3 — and a figure can reach over adjacent
+text. Trimming to the drawn content takes that overlap from 19 of 46 figures to 8. The
+proper fix is for the SVG reader to keep the `clip-path` attribute it currently drops.
 
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
