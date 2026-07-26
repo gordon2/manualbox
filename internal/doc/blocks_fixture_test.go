@@ -149,6 +149,61 @@ func TestBlocksOfTheColumnManualsGermanAreGerman(t *testing.T) {
 	t.Logf("  %d umlauts and eszetts, no Cyrillic, no Polish-only letters", umlauts)
 }
 
+// TestBlocksNeverReachOutsideTheirRegion states the funnel geometrically, which is
+// the only way to state it that does not depend on which languages a document
+// happens to hold.
+//
+// The test above it guards Cyrillic and Polish-only letters, and that is not
+// enough. Page 57 of this manual divides into FOUR regions — Finnish at x=36-178
+// and German at 179-424, 457-589 and 601-846 — and Finnish shares the Latin
+// alphabet AND ä and ö with German, so a Finnish column bleeding into a German
+// block passes every letter test there is. The narrow first column of a
+// troubleshooting table being named a language at all is the case regions.md
+// records as unsolved, and it is exactly where a leak would come from.
+//
+// This matters beyond the two fixtures, because the ruled-line work measures those
+// same two tables at x=29.7-428.1 and x=450.2-848.7. The first spans two regions in
+// two DIFFERENT languages, so anything that later hands a table's area to a row
+// walk cannot assume one table sits inside one region: doing so would pull the
+// Finnish column into a German conversion. Nothing does that today and this test
+// is what says so if something starts to.
+func TestBlocksNeverReachOutsideTheirRegion(t *testing.T) {
+	_, pages, regions := blocksOfFixture(t, "thomas-drybox-amfibia")
+
+	byNo := make(map[int]*doc.PageRuns, len(pages))
+	for i := range pages {
+		byNo[pages[i].No] = &pages[i]
+	}
+
+	checked, boxed := 0, 0
+	for i := range regions {
+		r := &regions[i]
+		p := byNo[r.Page]
+		if p == nil {
+			continue
+		}
+		if r.X0 != 0 {
+			boxed++
+		}
+		for _, b := range doc.RegionBlocks(p, r) {
+			checked++
+			// The one-unit slack is runsInBox's own tolerance, which absorbs the
+			// rounding between a column's reported extent and the runs that produced it.
+			if b.X0 < r.X0-1 || b.X1 > r.X1+1 {
+				t.Errorf("page %d block %d spans x=%.1f-%.1f, outside its %q region at "+
+					"x=%.1f-%.1f: %q", b.Page, b.Index, b.X0, b.X1, r.Lang, r.X0, r.X1,
+					truncate(b.Text, 100))
+			}
+		}
+	}
+	if checked == 0 || boxed == 0 {
+		t.Fatalf("checked %d blocks over %d boxed regions; both must be non-zero or this "+
+			"test asserts nothing", checked, boxed)
+	}
+	t.Logf("%d blocks over %d regions, %d of them boxed, none reaching outside its box",
+		checked, len(regions), boxed)
+}
+
 // TestBlocksOfTheColumnManualsPage62 pins what one page produces, because a
 // document-level count can stay right while every page goes wrong. This page was
 // rendered at 108 dpi and read: a two-column German page with four headings
