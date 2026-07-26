@@ -220,11 +220,22 @@ func Analyze(ctx context.Context, path string) (*Result, error) {
 // analyzeRegions reads the document's positioned text and divides each page into
 // language regions.
 //
-// This is the second poppler pass, and it costs what was measured in runs.go: 1.8 s
-// on the 560-page document against 1.8 s for the pdftotext pass beside it, so the
-// probe roughly doubles and stays under four seconds. It buys the only reading of a
-// parallel-columns manual that is not wrong — a page there holds three languages,
-// and no per-page answer about it can be right.
+// This is the second poppler pass, and the whole probe was timed rather than
+// extrapolated from it — best of three, page cache warm:
+//
+//	560-page, 15 MB manual   Analyze 3.71 s, of which this pass 1.86 s (50%)
+//	68-page, 9 MB manual     Analyze 4.09 s, of which this pass 3.03 s (74%)
+//
+// So the probe roughly doubles on the first document and is dominated by this pass
+// on the second — which is the SMALLER document, 68 pages costing more than 560.
+// Cost here is evidently per page of content rather than per page: the 68-page
+// manual carries 139 KB and 110 runs per page against the other's 27 KB and 61. Why
+// that ratio produces this one has not been measured, so it is recorded as a fact
+// and not explained. What matters for the funnel is the bound, and both are a few
+// seconds, free, and local.
+//
+// It buys the only reading of a parallel-columns manual that is not wrong: a page
+// there holds three languages, so no per-page answer about it can be right.
 //
 // A missing or failing pdftohtml is reported, not fatal. The document has already
 // been probed by this point and its per-page language map is complete; losing
