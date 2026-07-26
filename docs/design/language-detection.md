@@ -58,23 +58,46 @@ at all. Its *claimed page numbers* are unreliable: on the L40, 10 of 34 sections
 claim a printed page 1–2 off from the folio actually printed, because two sections
 run 17 pages rather than 16. So a claimed start is a hypothesis, never a boundary.
 
-**The parser cannot read the Thomas manual's contents page**, and this costs more
-than it appears to. `IndexRuns` yields the vocabulary `[FAX GA NDE UA VIA Z]` for
-that document — only `UA` is a language, the rest scraped off a page of service
-addresses. Two consequences, both measured:
+**The parser could not read the Thomas manual's contents page, and read its back
+page instead.** That manual's contents are pages 2 and 3, one column per language,
+with title-and-dot-leader entries rather than the code/title/page triples the parser
+expects. It recovered nothing from them. What it did read — the only page of that
+document it read at all — was page 68, a page of service addresses for six countries,
+which it took for the contents table:
 
-- A single-letter printed tab is believed only where the index lists that code, and
-  `D` is not in that vocabulary, so every German column falls back to its alphabet.
-  Tag-named columns drop from 79 to 53 of 169. The total named barely changes, so
-  nothing failed loudly; only the attribution moved.
-- `FAX` parses as a language tag, became a reconciled page language, and labelled two
-  pages `fax` over columns that read correctly as German and Polish. Guarded in
-  regions.md by requiring a page-level answer to name a recognised language.
+| entry | scraped from | title it invented | claimed |
+|---|---|---|---|
+| `VIA` | *Via Monte Rosa* | "Monte Rosa" | pages 28–45 |
+| `FAX` | a fax label | | pages 46–48 |
+| `UA` | a Ukrainian postal address | "Telefax" | pages 49–68 |
+| `Z` | *Sp. z o.o.* | "o.o. Telefon" | unplaceable |
+| `NDE` | *Neunkirchen* | | page 4931 |
+
+Reconciliation trusted those claims, so a five-language manual reported two languages,
+neither of them right, across more than half the document. The user-facing sentence
+was *"68 pages in 2 languages, none of them yours. It has fax and Ukrainian."*
+
+**Half of this is fixed.** An index entry's token must now name a language something
+recognises, not merely be shaped like one — the same rule regions.md states, applied
+one layer earlier, and here the decision it gates is whether the page is a contents
+table at all. `VIA`, `Z`, `NDE` and `GA` name nothing; `FAX` parses as the language
+`fax`, which is not among the languages that appear in appliance manuals. Only `UA`
+survives, one entry against a floor of three, so the page stops being a contents table
+and the fabrication disappears. The sectioned manual is untouched: 34 entries, 34 with
+titles.
+
+**Half is not.** The columnar contents pages still cannot be parsed, so no vocabulary
+is recovered from that document at all — and a single-letter printed tab is believed
+only where the index lists that code. `D` is not listed, so every German column falls
+back to its alphabet and tag-named columns stay at 53 of 169 instead of 79. The total
+named barely changes, which is why nothing failed loudly; only the attribution moved.
 
 The 79 figure is what the commit introducing per-column naming recorded, measured with
-a hand-supplied code list rather than through the assembled pipeline. Fixing the parser
-for a contents page laid out in parallel columns is separate, unbuilt work; the gap is
-pinned by a test so it stays visible.
+a hand-supplied code list rather than through the assembled pipeline. That gap is
+pinned by a test so it stays visible, and it has one further cost: the document's one
+language error, a German table cell read as Finnish on page 57, happens because the
+`D` printed in that page's own corner is rejected for want of the vocabulary. Fix the
+parser and that misread goes with it — they are one bug, not two.
 
 ### 3. Unicode script
 
