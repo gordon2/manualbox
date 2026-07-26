@@ -29,18 +29,43 @@ other four languages sharing it. The measurement that justifies the funnel is
 already recorded: 47,641 characters of the column manual against 240,622 in all its
 languages, so converting one language is a fifth of the work.
 
-**Reading order comes from the region, not from the page.** Runs are sorted down
-and then across *within a region's box*, because a page of parallel columns has no
-meaningful page-wide reading order — that is the mistake `pdftotext -layout` makes,
-and it is measurable: on the sequential manual's page 20 it reflows two side-by-side
-tables into one interleaved block. Lines are grouped by shared baseline, using the
-same rule `columns.go` already uses to fold a list marker into its text.
+**Reading order comes from the columns inside a region, not from the region's box.**
+The first version of this contract said "within a region's box" and that was wrong —
+corrected here because it was caught in implementation rather than in review.
 
-**A heading is found by weight and by length, not by size.** Size alone is known to
-be wrong here, and the counter-example is measured: on the sequential manual, 17pt
-regular is 11.4% of the document at 70 characters per run — safety body copy, which
-"larger than body means heading" would promote to a heading. Its real headings are
-15pt semibold, 1,268 runs at **15.5 characters per run**. Characters per run is what
+A region is not always one column. [regions.md](regions.md) rule 3 deliberately
+stores a page whose columns are all the *same* language as one whole-page region:
+the column manual's page 62 is two columns of German at x=43-443 and x=463-863, and
+it is stored as a single region spanning 0-892. Sorting runs down-then-across inside
+*that* box interleaves the two columns line by line — which is precisely the
+`pdftotext -layout` failure this section exists to avoid, committed under another
+name. Measured on that page: its two columns run body lines at a 16-unit pitch whose
+baselines drift apart across the gutter (102/102, then 118/120), and interleaving
+produces `"rial bitte umweltgerecht. sich bei gewerblicher Benutzung oder
+gleichzusetzender Beanspruchung…"`. The sequential manual has the same shape on the
+199 pages that read as three columns.
+
+So a region is subdivided by [DetectColumns] first, and reading order runs down each
+column in turn. Lines within a column are grouped by shared baseline, using the same
+rule `columns.go` already uses to fold a list marker into its text.
+
+That rule 3 is still right — a page of same-language columns is one *language*
+territory — is what makes this a seam rather than a contradiction: the region says
+which language and how much text, the columns inside it say in what order to read it.
+
+**A heading is found by weight and by length, not by size — and there is no size
+floor either.** Size alone is known to be wrong here, and the counter-example is
+measured: on the sequential manual, 17pt text is 11.4% of the document at 70
+characters per run — safety body copy, which "larger than body means heading" would
+promote to a heading. (Its weight reads as *unknown* rather than regular: the face is
+plainly `MiSans` and states nothing, and unknown sorts below light, which matters to
+any rule comparing weights.) Its real headings are 15pt semibold, 1,268 runs at
+**15.5 characters per run**.
+
+The tempting corollary — that a heading is at least as large as the body — is also
+wrong, and costs 80 real headings. The sequential manual's safety pages are set
+entirely in 17pt, so on those pages 17pt *is* the body, and their real subheadings
+(`Nutzungsbeschränkungen`) are 15pt semibold: **smaller than the text they head.** Characters per run is what
 separates a heading from same-size emphasis, and on the column manual the same holds:
 18pt bold at 17.8 characters per run are headings, while 14pt medium at 43.8 is
 emphasis and table labels.
@@ -100,10 +125,11 @@ never slows the free pre-flight. A 6.5x saving exists and is not yet verified: o
 
 Recorded so the next person does not think these are unsolved by accident.
 
-**A table with no ruled lines is invisible.** The column manual's pages 62-66 print
+**A table with no ruled lines is invisible.** The column manual prints
 `Technische Daten` as label/value pairs — `Spannungsversorgung: | 230 V, 50 Hz` —
-with no rule anywhere, and nothing detects them. Five pages, the same count as its
-ruled tables. This is accepted rather than solved, and the softening is real: those
+with no rule anywhere, and nothing detects them. Not five separate spec pages, as an
+earlier draft of this said: it is one spec table repeated per language, a block within
+the disposal-and-warranty page — 62 German, 63 Polish, 65 Ukrainian. This is accepted rather than solved, and the softening is real: those
 pages still *read* correctly, as lines of text, which is how they read on paper. What
 is lost is answering "what is the tank capacity" from a cell later.
 
@@ -148,7 +174,40 @@ Found while measuring, and both concern the column fixture:
 
 - Its tables are on **pages 52-61, not 57-61**. Pages 52-56 carry genuine small
   tables (`Anwendungsfall | Düse/Zubehör`) that the manifest never recorded.
-- Its pages **62-66 are tables with no ruling**, which nothing had recorded at all.
+- It prints an **unruled specification table** that nothing had recorded at all, as a
+  block within its disposal-and-warranty page, once per language: 62 German, 63
+  Polish, 65 Ukrainian.
+
+## What building the first half settled
+
+**Page furniture is not identified, and one page cannot identify it.** The printed
+`DE` badge comes back as a level-2 heading on 110 pages, the folio as a one-character
+paragraph, the running head as a paragraph. Nothing *on a page* separates those from
+content — the sequential manual genuinely titles sections `A`, `B` and `C` — and what
+does identify furniture is repetition in the same position *across* pages, which is a
+different input than a single region's runs. Left for the pass that has the whole
+document in view.
+
+**A paragraph break cannot always be found.** The gap factor is 1.2 of the measured
+line pitch, and on the column manual's page 62 that resolves paragraphs separated by
+20-21 units against a 16-unit pitch — but 17-unit gaps occur both inside and between
+paragraphs on that same page, so **no factor separates those**, and two paragraphs 18
+units apart stay joined. Chosen as the smaller error: a missed break reads as a long
+paragraph, an invented one splits a sentence.
+
+**The pitch must be the mode, not the median.** Page 62's left column has nearly as
+many paragraph breaks as body lines, so its median gap is 18 against a real pitch of
+16 — high enough to swallow the 20-21 unit breaks it needs to find. The mode is 16.
+
+**A heading's share of the measure is a soft cut with no gap to put it in.** Every
+candidate's width as a fraction of its column is a smooth continuum from 5% to 100%
+on both manuals — 33 candidates at 60-64%, 25 at 65-69%, 116 at 95-99% — and rune
+counts are no better. 0.6 is chosen for precision, and its cost is named: a heading
+that fills a narrow column reads as a paragraph, which loses `Fehlersuche`,
+`Feilsøking` and `Depanare`.
+
+**Hyphenation is not undone.** `brud-` / `nej` survives as written, because German
+legitimately ends a line with a hyphen and rejoining would corrupt those.
 
 ## Acceptance
 
