@@ -158,6 +158,16 @@ type TextRun struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
 	Text   string  `json:"text"`
+	// Font is what the run is set in, and it is what will tell a heading from a
+	// paragraph. Nothing in this file reads it — the column detector is pure
+	// geometry — but it travels with the run because resolving it needs the
+	// document's font table, which only [ExtractRuns] sees.
+	//
+	// Its zero value means "not known", which is what a run built by hand in a
+	// test carries. That is why it comes last and why the five fields above are
+	// unchanged: every existing caller constructs those positionally or by name
+	// and must keep compiling and meaning the same thing.
+	Font Font `json:"font,omitzero"`
 }
 
 func (r *TextRun) right() float64  { return r.X + r.Width }

@@ -184,6 +184,72 @@ func TestExtractRunsReadsEveryPageOfAMultiSectionDocument(t *testing.T) {
 	}
 }
 
+// TestExtractRunsReadsTheFontOfEachRun drives the font through real poppler
+// rather than through XML written by hand, which is the only way to catch the
+// reader agreeing with an assumption instead of with the tool.
+//
+// It needed testpdf to grow a second face: everything it wrote was Helvetica at
+// one size, so no generated document could vary either. A standard Type 1 font
+// costs one more object and no embedded file, which is why that was preferred to
+// making this test fixture-only — the fixtures measure the distribution, but they
+// skip without MANUALBOX_TEST_FIXTURES and cannot guard the default suite.
+//
+// What it can and cannot reach is worth stating. Poppler reports both faces as
+// the family "Helvetica" — a standard font is not embedded, so there is no subset
+// name carrying a weight — so this exercises size and poppler's own <b> verdict,
+// and the family-name weight is unit-tested against the real fixture families in
+// runs_internal_test.go instead.
+func TestExtractRunsReadsTheFontOfEachRun(t *testing.T) {
+	requirePDFToHTML(t)
+
+	const headingText = "A heading in the heavier face"
+	const bodyText = "Ordinary body text on this page."
+	pages := extract(t, testpdf.Doc{Pages: []testpdf.Page{{
+		Headings: []string{headingText},
+		Lines:    []string{bodyText},
+	}}})
+
+	byText := make(map[string]doc.Font, 2)
+	for i := range pages[0].Runs {
+		r := &pages[0].Runs[i]
+		byText[strings.TrimSpace(r.Text)] = r.Font
+	}
+	heading, ok := byText[headingText]
+	if !ok {
+		t.Fatalf("the heading did not come back as a run of its own; got %q", runTexts(pages[0].Runs))
+	}
+	body := byText[bodyText]
+
+	// Exact, because these are the sizes written scaled by the same 1.5 the page
+	// box is scaled by — 17pt and 11pt. That the size shares the coordinate space
+	// rather than being the PDF's point size is a property of the format, and a
+	// caller comparing a size against a run height depends on it.
+	if heading.Size != 26 || body.Size != 17 {
+		t.Errorf("heading size %g and body size %g, want 26 and 17 — poppler scales "+
+			"the fontspec size by 1.5 exactly as it scales the coordinates",
+			heading.Size, body.Size)
+	}
+	if heading.Family == "" || body.Family == "" {
+		t.Errorf("family missing: heading %q, body %q", heading.Family, body.Family)
+	}
+
+	// The weight, which is the whole reason the font is read at all. Poppler names
+	// both faces "Helvetica", so its own verdict is the only signal here — and that
+	// is exactly the case measured on the real manual as FuturaBQ, 78 runs of 78
+	// marked bold with nothing in the name to say so.
+	if !heading.MarkedBold {
+		t.Errorf("the heading was not marked bold: %+v — without a weight, a larger "+
+			"size cannot tell a heading from the larger regular face that real "+
+			"manuals set safety text in", heading)
+	}
+	if body.MarkedBold {
+		t.Errorf("body text was marked bold: %+v", body)
+	}
+	if heading.MarkedItalic || body.MarkedItalic {
+		t.Error("nothing on this page is italic")
+	}
+}
+
 func TestExtractRunsRejectsAMissingFile(t *testing.T) {
 	requirePDFToHTML(t)
 

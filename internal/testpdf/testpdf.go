@@ -23,6 +23,20 @@ import (
 
 // Page is one page of a generated document.
 type Page struct {
+	// Headings are drawn above Lines in a second, heavier face at a larger size.
+	//
+	// They exist because a document written wholly in one font cannot exercise the
+	// font a run comes back with, and that is what separates a heading from a
+	// paragraph. One face and one size was enough while only geometry was read
+	// back; it is not enough now.
+	//
+	// Two things measured on what poppler actually reports for these, neither of
+	// them guessable. It names the family "Helvetica" for the bold face as well as
+	// the regular one — a standard font is not embedded, so there is no subset name
+	// to read a weight out of — and marks these runs <b> regardless. And it scales
+	// the size by the same 1.5 as the coordinates, so headingSize of 17 arrives as
+	// 26 and bodySize of 11 as 17. See runs_test.go, which asserts both.
+	Headings []string
 	// Lines are drawn top to bottom, and come back out of pdftotext in the same
 	// order. The first line is therefore where a language tag goes, which is what
 	// makes the printed-tag signal testable.
@@ -121,8 +135,8 @@ func (d Doc) Build() []byte {
 
 	// Object numbers are laid out in advance so references can be written before
 	// the objects they point at exist.
-	const catalogObj, pagesObj, fontObj = 1, 2, 3
-	firstPageObj := 4
+	const catalogObj, pagesObj, fontObj, boldFontObj = 1, 2, 3, 4
+	firstPageObj := 5
 
 	kids := make([]string, 0, len(d.Pages))
 	for i := range d.Pages {
@@ -133,13 +147,18 @@ func (d Doc) Build() []byte {
 	addObject(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>",
 		strings.Join(kids, " "), len(d.Pages)))
 	addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+	// The second face is one of the standard 14, so it needs no embedded file and
+	// no metrics of its own. Poppler does not report it as a distinct family —
+	// see Page.Headings, it calls both of them "Helvetica" — but it does mark its
+	// runs bold, which is what makes a weight readable end to end from here.
+	addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
 
 	for i, page := range d.Pages {
 		contentObj := firstPageObj + i*2 + 1
 		addObject(fmt.Sprintf(
 			"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 612 792] /Contents %d 0 R "+
-				"/Resources << /Font << /F1 %d 0 R >> >> >>",
-			pagesObj, contentObj, fontObj))
+				"/Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> >> >>",
+			pagesObj, contentObj, fontObj, boldFontObj))
 
 		stream := pageStream(page)
 		addObject(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(stream), stream))
@@ -164,6 +183,10 @@ const (
 	marginX  = 72
 	firstY   = 720
 	lineStep = 24
+	// bodySize and headingSize are the two sizes written. They differ enough that
+	// poppler reports two distinct fontspecs rather than rounding them together.
+	bodySize    = 11
+	headingSize = 17
 	// lastY is the floor. Lines pile up on it rather than running off the page,
 	// because a run outside the page box is dropped by the column detector as
 	// off-page and would silently vanish from a test's expectations.
@@ -172,12 +195,16 @@ const (
 
 // pageStream renders one page's text as a content stream.
 func pageStream(p Page) string {
-	if len(p.Lines) == 0 && len(p.Columns) == 0 {
+	if len(p.Headings) == 0 && len(p.Lines) == 0 && len(p.Columns) == 0 {
 		return ""
 	}
 	var b strings.Builder
 
 	y := firstY
+	for _, line := range p.Headings {
+		drawIn(&b, "F2", headingSize, marginX, y, line)
+		y = nextY(y)
+	}
 	for _, line := range p.Lines {
 		drawLine(&b, marginX, y, line)
 		y = nextY(y)
@@ -195,7 +222,11 @@ func pageStream(p Page) string {
 }
 
 func drawLine(b *strings.Builder, x, y int, line string) {
-	fmt.Fprintf(b, "BT /F1 11 Tf %d %d Td (%s) Tj ET\n", x, y, escapeString(line))
+	drawIn(b, "F1", bodySize, x, y, line)
+}
+
+func drawIn(b *strings.Builder, font string, size, x, y int, line string) {
+	fmt.Fprintf(b, "BT /%s %d Tf %d %d Td (%s) Tj ET\n", font, size, x, y, escapeString(line))
 }
 
 func nextY(y int) int {
