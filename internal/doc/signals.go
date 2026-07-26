@@ -376,6 +376,22 @@ func parseIndexPage(text string) []struct {
 		if len([]rune(line)) > maxRunesInCodeLine || !looksLikeLanguageCode(line) {
 			continue
 		}
+		// The token must name a language something recognises, not merely be shaped
+		// like a code. Without this the parser reads a page of service addresses as a
+		// contents table, and it is the only page of the measured column manual it
+		// reads at all: VIA from "Via Monte Rosa" claimed pages 28-45, FAX claimed
+		// 46-48, UA from a Ukrainian postal address claimed 49-68 with the title
+		// "Telefax", Z came from "Sp. z o.o." and NDE from "Neunkirchen" with a phone
+		// number for a page. Those reached the user as "68 pages in 2 languages, none
+		// of them yours. It has fax and Ukrainian."
+		//
+		// This is the same rule [KnownLanguage] states for regions, applied one layer
+		// earlier: an unrecognised code is still stored and still reportable when a
+		// document really prints one, but it may not drive a decision. Here the
+		// decision it was driving is whether the page is a contents table at all.
+		if normalised, ok := NormalizeCode(line); !ok || !KnownLanguage(normalised) {
+			continue
+		}
 		// Walk forward for this entry's page number, collecting the title on the
 		// way. Stop at the next code line: a missing page number means a
 		// malformed entry, not a licence to consume the following one.

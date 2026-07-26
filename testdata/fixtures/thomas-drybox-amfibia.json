@@ -47,9 +47,22 @@
   "known_limitations": [
     "Pages 57-61 are troubleshooting tables: two side-by-side tables of two cells each.",
     "  Geometry cannot tell a table cell from a text column; that call belongs above",
-    "  this layer. Page 57's narrow left cell is also the one language misread in the",
-    "  document (German read as Finnish), because a short cell sharing a-umlaut and",
-    "  o-umlaut gives the repertoire signal too little to work with.",
+    "  this layer, and is made there by dividing a page on language rather than on",
+    "  cells. Page 57's narrow left cell is the document's one language misread",
+    "  (German read as Finnish) - see its per-column note for the actual cause, which",
+    "  is the unreadable contents page and not the cell's length.",
+    "THE CONTENTS PAGES OF THIS MANUAL CANNOT BE PARSED. They are pages 2 and 3, laid",
+    "  out as one column per language with title-and-dot-leader entries rather than",
+    "  the code/title/page triples the parser expects, so no language vocabulary is",
+    "  recovered from them at all. Two measured consequences: printed-tag naming",
+    "  reaches 53 of 169 columns instead of the 79 the real vocabulary allows, and",
+    "  page 57 is misread. Until this is fixed the index signal contributes NOTHING",
+    "  to this document.",
+    "Page 68, the back page of service addresses in six languages, is genuinely",
+    "  unnameable and its three columns are recorded as establishing nothing. It was",
+    "  previously suppressed by accident, the address page being misread as a contents",
+    "  table; now it is refused deliberately, because only one of its three columns",
+    "  names anything.",
     "Page 1 (cover) is the weakest reading: both 0 and 1 columns are defensible."
   ],
   "why_this_fixture": [
@@ -1338,7 +1351,7 @@
           "x1": 178,
           "runs": 13,
           "lang": "",
-          "note": "read as Finnish by the repertoire signal; it is German. A narrow table cell sharing a-umlaut and o-umlaut gives too little to discriminate. Recorded as unestablished rather than wrong."
+          "note": "read as Finnish; it is German. Recorded as unestablished rather than wrong. The cause is NOT that the cell is too short, which is what this note used to say: the page prints its language as D in the oval at its top left, that run falls inside this column's box, and columnTag finds it and then rejects it because a single letter must be corroborated by the document's own index vocabulary. This manual's contents pages are laid out in parallel columns and the index parser cannot read them, so there is no vocabulary. Supply the real one and the column reads code=D lang=de src=page-tag and the alphabet is never consulted. The alphabet's own reading is a distant second cause: the cell holds a-umlaut x5 and o-umlaut x1 and no u-umlaut or sharp-s at all, so Finnish uses 2 of its 2 distinctive letters where German uses 2 of 4, and Finnish scores higher."
         },
         {
           "x0": 179,

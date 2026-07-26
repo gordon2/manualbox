@@ -168,6 +168,35 @@ func PageRegions(p *PageRuns, knownCodes map[string]bool, resolved PageResolutio
 	return []Region{region}
 }
 
+// namedByMinority reports that more of a page's columns declined to name a language
+// than named one.
+//
+// A page named on the strength of one column out of three, where the other two read
+// nothing, is being named on weak evidence. The measured case is the column manual's
+// back page: three columns of service addresses in six languages, two declining and
+// one reading as Turkish, which would then label the page Turkish. Its three columns
+// are recorded in the fixture as establishing nothing, checked by eye.
+//
+// Measured across both documents before adopting: this describes exactly one page,
+// that one, and no page of the sectioned manual. So it is a rule about weak
+// evidence rather than a threshold tuned to a document.
+//
+// It is a separate guard from the contents-page one beside it, and both are needed:
+// the contents guard is what stops the sectioned manual's pages 2 to 5 being named
+// from their own letters, and this one is what stops an address page being named
+// from a third of its columns. Neither document exercises both.
+func namedByMinority(cols []ColumnLanguage) bool {
+	named, declined := 0, 0
+	for i := range cols {
+		if cols[i].Lang == "" {
+			declined++
+			continue
+		}
+		named++
+	}
+	return named > 0 && declined > named
+}
+
 // distinctLanguages returns the base languages the columns named, deduplicated.
 //
 // Base languages, not labels: a page whose columns are tagged ZH-HK and zh is one
@@ -245,7 +274,7 @@ func wholePageRegion(p *PageRuns, cols []ColumnLanguage, kept []TextRun, resolve
 				DisplayName(region.Lang), len(disputes), len(cols), strings.Join(disputes, " and "))
 		}
 
-	case len(columnLangs) == 1 && !resolved.Contents:
+	case len(columnLangs) == 1 && !resolved.Contents && !namedByMinority(cols):
 		// Rule 3. The columns agree on one language the page-level pass could not
 		// find, which on the column manual is how a single-column page and a page of
 		// two same-language columns are named at all.
@@ -273,6 +302,10 @@ func wholePageNote(columns int, lang string, columnLangs []string, contents bool
 		// could be made of.
 		return fmt.Sprintf("a contents page, whose letters read as %s; too weak a "+
 			"guide to name the page by", strings.Join(columnLangs, " and "))
+	case lang == "" && len(columnLangs) > 0:
+		// The other refusal: something was read, by too few of the page's columns.
+		return fmt.Sprintf("read as %s, but by a minority of this page's %d columns; "+
+			"left unnamed rather than named on that", strings.Join(columnLangs, " and "), columns)
 	case lang == "":
 		return "no language established for this page"
 	case columns > 1:

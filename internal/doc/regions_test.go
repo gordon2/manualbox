@@ -1,6 +1,7 @@
 package doc_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gordon2/manualbox/internal/doc"
@@ -245,5 +246,43 @@ func TestRegionCharsCountRunesNotBytes(t *testing.T) {
 	if latin.Chars != cyrillic.Chars {
 		t.Errorf("five Latin letters counted %d and five Cyrillic %d; runes, not bytes",
 			latin.Chars, cyrillic.Chars)
+	}
+}
+
+// TestPageRegionsRefuseAPageNamedByAMinorityOfItsColumns is the column manual's
+// back page: three columns of service addresses in six languages, one of which the
+// alphabet reads as Turkish while the other two decline. Naming the page from a
+// third of it is naming it on weak evidence.
+//
+// This was previously suppressed by accident — the address page was misread as a
+// contents table, and the contents guard caught it. Fixing the index parser removed
+// that accident and exposed the reading, which is why the refusal is now explicit.
+func TestPageRegionsRefuseAPageNamedByAMinorityOfItsColumns(t *testing.T) {
+	page := regionPage(68,
+		fill("Service 1234 5678 90", 10),
+		fill("Servis 9876 5432 10", 10),
+		fill("Huolto 5555 4444 33 Jyväskylä Töölö", 10),
+	)
+	got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{}))
+
+	if got.Lang != "" {
+		t.Errorf("page named %q from one of three columns; the other two established nothing",
+			got.Lang)
+	}
+	if !strings.Contains(got.Note, "minority") {
+		t.Errorf("note does not say why the reading was refused: %q", got.Note)
+	}
+	if got.Chars == 0 {
+		t.Error("the page's characters must still be counted; size does not depend on naming")
+	}
+}
+
+// TestPageRegionsStillNameAPageAllOfWhoseColumnsAgree is the other side of that
+// guard: it must not refuse the ordinary case of two columns in one language, which
+// is pages 6 to 10 of the same manual.
+func TestPageRegionsStillNameAPageAllOfWhoseColumnsAgree(t *testing.T) {
+	page := regionPage(6, fill(german, 10), fill(german, 10))
+	if got := onlyRegion(t, doc.PageRegions(page, nil, doc.PageResolution{})); got.Lang != "de" {
+		t.Errorf("region language = %q, want de; both columns named it", got.Lang)
 	}
 }

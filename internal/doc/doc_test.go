@@ -917,3 +917,74 @@ func TestAnUnplaceableRunCoversNoPages(t *testing.T) {
 		t.Errorf("run 7-22 covers %d pages, want 16", got)
 	}
 }
+
+// TestAnAddressPageIsNotAContentsTable is the measured failure this guards.
+//
+// The column manual's back page prints service addresses for six countries. The
+// index parser read it as the document's contents table — the ONLY page of that
+// manual it read at all — and produced VIA from "Via Monte Rosa" claiming pages
+// 28-45, FAX claiming 46-48, and UA from a Ukrainian postal address claiming 49-68
+// with the title "Telefax". Those reached the user as "68 pages in 2 languages,
+// none of them yours. It has fax and Ukrainian."
+//
+// A code-shaped token is not enough. It must name a language something recognises.
+func TestAnAddressPageIsNotAContentsTable(t *testing.T) {
+	// The shape of that page: a country or label token alone on a line, then an
+	// address line, then a number that looks like a page reference.
+	addresses := doc.Page{No: 68}
+	addresses.Text = strings.Join([]string{
+		"Robert Thomas GmbH", "Service",
+		"VIA", "Monte Rosa", "28",
+		"FAX", "", "46",
+		"UA", "Telefax", "49",
+		"Z", "o.o. Telefon", "90",
+		"NDE", "Tel. 555 0100", "4931",
+	}, "\n")
+	addresses.Chars = len([]rune(addresses.Text))
+
+	if doc.IsContentsPage(&addresses) {
+		t.Error("a page of postal addresses is treated as the document's contents table")
+	}
+	if runs := doc.IndexRuns([]doc.Page{addresses}); len(runs) != 0 {
+		t.Errorf("it produced %d index entries:", len(runs))
+		for _, r := range runs {
+			t.Errorf("  code=%q lang=%q title=%q", r.Code, r.Lang, r.Title)
+		}
+	}
+}
+
+// TestARealContentsTableStillParses is the other side of that guard. The sectioned
+// manual's contents pages are the reason the index signal exists at all: they supply
+// localised section titles no other signal can.
+func TestARealContentsTableStillParses(t *testing.T) {
+	contents := doc.Page{No: 2}
+	contents.Text = strings.Join([]string{
+		"Contents",
+		"EN", "User Manual", "1",
+		"DE", "Bedienungsanleitung", "17",
+		"UA", "Посібник користувача", "33",
+		"CZ", "Návod k použití", "49",
+	}, "\n")
+	contents.Chars = len([]rune(contents.Text))
+
+	if !doc.IsContentsPage(&contents) {
+		t.Fatal("a real contents table was not recognised")
+	}
+	runs := doc.IndexRuns([]doc.Page{contents})
+	if len(runs) != 4 {
+		t.Fatalf("got %d index entries, want 4", len(runs))
+	}
+	// Including the codes real manuals print that are not valid tags on their own.
+	byCode := make(map[string]string, 4)
+	for _, r := range runs {
+		byCode[r.Code] = r.Lang
+	}
+	for code, want := range map[string]string{"EN": "en", "DE": "de", "UA": "uk", "CZ": "cs"} {
+		if byCode[code] != want {
+			t.Errorf("%s normalised to %q, want %q", code, byCode[code], want)
+		}
+	}
+	if runs[0].Title == "" {
+		t.Error("no title survived; titles are what only the index can supply")
+	}
+}
