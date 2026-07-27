@@ -550,3 +550,106 @@ func TestDeletingADocumentRemovesItsBlocksAndFigures(t *testing.T) {
 		t.Error("deleting a document deleted a figure's bytes from the content-addressed store")
 	}
 }
+
+func TestAConversionThatFailsToSaveLeavesTheStateAlone(t *testing.T) {
+	// The state moves in the same transaction as the content it rests on, so a save
+	// that fails part-way through leaves a document that still says what it said.
+	// Setting the state on its own handle -- or before the rows -- would leave this
+	// document claiming to be readable with no blocks behind it, which is exactly
+	// what a reader sees as an empty manual.
+	s := newService(t)
+	blobs := newBlobStore(t)
+	ctx := context.Background()
+	docID := newProbedDocument(t, s, "b7")
+
+	// Page 0 violates doc_blocks' CHECK (page >= 1), so this fails inside the
+	// transaction and after the point a wrongly-ordered state write would already
+	// have committed.
+	blocks := []doc.Block{
+		{Page: 12, RegionX0: 0, Index: 0, Kind: doc.BlockParagraph, Text: "gut", Lang: "de"},
+		{Page: 0, RegionX0: 0, Index: 0, Kind: doc.BlockParagraph, Text: "impossible", Lang: "de"},
+	}
+	if err := s.SaveConversion(ctx, docID, blocks, nil, blobs, registry.StateReady); err == nil {
+		t.Fatal("a block on page 0 was accepted")
+	}
+
+	document, err := s.GetDocument(ctx, docID)
+	if err != nil {
+		t.Fatalf("get document: %v", err)
+	}
+	if document.State == registry.StateReady {
+		t.Errorf("the document says %q after a failed save; the state must not outlive "+
+			"the content it claims", document.State)
+	}
+
+	got, err := s.Blocks(ctx, docID)
+	if err != nil {
+		t.Fatalf("blocks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("a rolled-back conversion left %d blocks behind", len(got))
+	}
+}
+
+func TestOneLanguagesFiguresAreItsOwnPlusTheNeutralOnes(t *testing.T) {
+	// The read side of the rule conversion.md settles: a picture belonging to no
+	// language belongs to every language. A household reading two languages stores
+	// the union of both, so selecting a language's pictures by page would hand a
+	// German reader everything out of the Ukrainian column of every page they share.
+	s := newService(t)
+	blobs := newBlobStore(t)
+	ctx := context.Background()
+	docID := newProbedDocument(t, s, "c3")
+
+	// One page, two columns, a picture in each and one spanning both.
+	if err := s.SaveProbe(ctx, docID, resultWith(
+		doc.Region{Page: 1, X0: 40, X1: 440, Lang: "de", Source: doc.SourceRepertoire, Chars: 900, Runs: 30},
+		doc.Region{Page: 1, X0: 460, X1: 860, Lang: "uk", Source: doc.SourceRepertoire, Chars: 900, Runs: 30},
+	), registry.StateAwaitingScope); err != nil {
+		t.Fatalf("save probe: %v", err)
+	}
+
+	german := figure(t, 1, 0, 12, 9)
+	german.Rect = doc.CellRect{X0: 60, Y0: 100, X1: 400, Y1: 300}
+	ukrainian := figure(t, 1, 1, 13, 9)
+	ukrainian.Rect = doc.CellRect{X0: 480, Y0: 100, X1: 840, Y1: 300}
+	neutral := figure(t, 1, 2, 14, 9)
+	neutral.Rect = doc.CellRect{X0: 40, Y0: 400, X1: 860, Y1: 600}
+
+	if err := s.SaveConversion(ctx, docID, nil,
+		[]doc.Figure{german, ukrainian, neutral}, blobs, registry.StateReady); err != nil {
+		t.Fatalf("save conversion: %v", err)
+	}
+
+	for _, tc := range []struct {
+		lang string
+		want []string
+	}{
+		{"de", []string{german.Digest, neutral.Digest}},
+		{"uk", []string{ukrainian.Digest, neutral.Digest}},
+		// The unnamed question: only the picture belonging to no column. Asked by no
+		// other language's call, which is how it stays reachable.
+		{"", []string{neutral.Digest}},
+		// A language this document does not print still gets the neutral picture.
+		// Nothing here filters by scope, because the conversion already did.
+		{"fr", []string{neutral.Digest}},
+	} {
+		got, err := s.FiguresByLang(ctx, docID, tc.lang)
+		if err != nil {
+			t.Fatalf("figures for %q: %v", tc.lang, err)
+		}
+		digests := make([]string, 0, len(got))
+		for i := range got {
+			digests = append(digests, got[i].SHA256)
+		}
+		if len(digests) != len(tc.want) {
+			t.Errorf("%q got %d figures, want %d: %v", tc.lang, len(digests), len(tc.want), digests)
+			continue
+		}
+		for i := range tc.want {
+			if digests[i] != tc.want[i] {
+				t.Errorf("%q figure %d is %s, want %s", tc.lang, i, digests[i], tc.want[i])
+			}
+		}
+	}
+}
