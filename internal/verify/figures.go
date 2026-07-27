@@ -171,8 +171,8 @@ func paintedMargins(f *doc.ConvertedFigure) (left, right, top, bottom float64, o
 		// [doc.PageFigures]'s to report: it read the size out of the same bytes.
 		return 0, 0, 0, 0, false
 	}
-	box, any := paintedBox(img)
-	if !any {
+	box, painted := paintedBox(img)
+	if !painted {
 		return 0, 0, 0, 0, false
 	}
 	// Pixels per unit, read off the render rather than assumed: doc renders at twice

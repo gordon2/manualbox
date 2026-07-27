@@ -402,13 +402,13 @@ func pageScope(in Input) []int {
 }
 
 func maxPage(in Input) int {
-	max := 0
+	last := 0
 	for i := range in.Blocks {
-		if in.Blocks[i].Page > max {
-			max = in.Blocks[i].Page
+		if in.Blocks[i].Page > last {
+			last = in.Blocks[i].Page
 		}
 	}
-	return max
+	return last
 }
 
 func sortedPages(m map[int]bool) []int {

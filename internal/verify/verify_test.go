@@ -30,7 +30,7 @@ func page(no int, text string) doc.Page {
 // block builds one converted block. Chars is derived rather than passed, because
 // two of the checks read it and a test that set it inconsistently would be
 // asserting on a block that cannot exist.
-func block(pg int, idx int, x0, x1, y0 float64, text string) doc.Block {
+func block(pg, idx int, x0, x1, y0 float64, text string) doc.Block {
 	return doc.Block{
 		Page: pg, Index: idx, Kind: doc.BlockParagraph, Text: text,
 		X0: x0, X1: x1, Y0: y0, Y1: y0 + 12,
@@ -138,11 +138,19 @@ func TestInventedTextToleratesOneOddWordInALongBlock(t *testing.T) {
 
 // --- 2b. right to left, which is a known defect and must stay one finding
 
+// rtlEmbed and popDirectional are the bidi controls pdftotext wraps a
+// right-to-left line in, written as escapes because they are invisible: a test
+// whose input cannot be seen in the source is a test nobody can check.
+const (
+	rtlEmbed       = "\u202b"
+	popDirectional = "\u202c"
+)
+
 func TestRightToLeftIsOneNamedFindingPerPage(t *testing.T) {
 	// pdftohtml returns the line in visual order; pdftotext returns it logically,
 	// wrapped in bidi controls. So every word of the block is absent, and every one
 	// of them is present reversed — which is the finding's evidence.
-	printed := "‫הגבלות שימוש על המכשיר‬"
+	printed := rtlEmbed + "הגבלות שימוש על המכשיר" + popDirectional
 	visual := "שומיש תולבגה רישכמה לע"
 	in := verify.Input{
 		Blocks: []doc.Block{block(185, 0, 55, 800, 95, visual)},
@@ -164,7 +172,7 @@ func TestRightToLeftIsOneNamedFindingPerPage(t *testing.T) {
 }
 
 func TestRightToLeftQuietWhenTheOrderIsRight(t *testing.T) {
-	printed := "‫הגבלות שימוש על המכשיר‬"
+	printed := rtlEmbed + "הגבלות שימוש על המכשיר" + popDirectional
 	in := verify.Input{
 		Blocks: []doc.Block{block(185, 0, 55, 800, 95, "הגבלות שימוש על המכשיר")},
 		Text:   []doc.Page{page(185, printed)},
