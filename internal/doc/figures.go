@@ -206,6 +206,21 @@ const (
 	// rather than minutes.
 	maxFigureClusterInk = 200_000
 
+	// trimReachSlack is how far a line of text may poke out of a candidate's box
+	// and still count as printed inside it, in units. Zero: the comparison is exact.
+	//
+	// A tolerance is the obvious thing to want here, because the two rectangles come
+	// from two tools — the text box from pdftohtml, the ink box from pdftocairo — and
+	// a unit is what this project allows elsewhere when it compares one measurement
+	// of a drawing against another. It is not free, and that is why it is not taken.
+	// Swept at 0, 1 and 2 over both documents, the columns manual does not move at
+	// all; the sequential one loses a trim at 1, on page 523, where a two-line Russian
+	// caption clears the box's top edge by 0.5 units and so stops being seen as
+	// reaching over it. Its own right-hand exclusion is blocked by [maxTrimFraction],
+	// so the tolerance is the difference between excluding that caption and keeping
+	// it. Nothing is gained anywhere in exchange, so the exact test stands.
+	trimReachSlack = 0.0
+
 	// maxFigurePNGBytes caps one rendered figure held in memory. Measured over
 	// every figure of both fixtures the largest is 353 KB, page 11's parts diagram
 	// at 1077x1510; 32 MB is two orders above that and still bounds a page-sized
@@ -563,44 +578,65 @@ func textFraction(area CellRect, text []TextRun) float64 {
 	return covered / size
 }
 
-// trimToPicture pulls a candidate's edges in off any line of text it has reached
-// over. It was written as the remedy for the clip this code could not read, and it
-// has outlived that cause — which makes it the one thing here whose keep is now a
-// judgement rather than a measurement.
+// trimToPicture pulls a candidate's edges in off a line of text the box has
+// REACHED OVER — a line that starts or ends outside the box — and leaves a line
+// printed wholly within the artwork alone.
 //
-// It was added because an ink box was a path's unclipped extent, so a drawing whose
-// artwork ran past its frame reached into the text column beside it: 19 of the
-// columns manual's 45 figures overlapped a line of five characters or more, and the
-// crop of page 18's first figure contained a slab of German prose and the printed D
-// badge. clip.go now cuts that box back to what the page paints, so the cause is
-// gone. What trimming is worth on top of it was measured over both whole documents,
-// as figures overlapping a line of five runes or more, and figures with ink of their
-// own crossing their box:
+// That distinction is the whole function, and it is what was missing. Trimming was
+// written as the remedy for the clip this code could not read: an ink box was a
+// path's unclipped extent, so a drawing whose artwork ran past its frame reached
+// into the text column beside it, and the crop of page 18's first figure contained
+// a slab of German prose and the printed D badge. clip.go removed that cause, and
+// what was left was a rule that could not tell a picture's own callout from the
+// prose next to it. It cut into 13 of the columns manual's 59 drawings to exclude
+// 6 lines of prose — page 16 figure 2 lost its right third to the label »click«,
+// printed inside the illustration with artwork around it.
 //
-//	                        trimming on        trimming off
-//	columns manual, 59      9 over prose,      15 over prose,
-//	                        15 cut by the trim  2 cut
-//	sequential, 238         0 over prose,      10 over prose,
-//	                        101 crossing        96 crossing
+// # What separates a callout from prose, measured
 //
-// So it is not redundant and it is not free: it removes six prose overlaps on one
-// document and ten on the other, and it cuts into thirteen columns-manual drawings
-// that the clip alone would have returned whole — page 16 figure 2 loses its right
-// third to the label »click«. Which of those a reader minds more is a decision for
-// whoever owns the reader, not one to settle inside this function, so the behaviour
-// is left exactly as it was and the numbers are recorded here so the decision can
-// be taken on them.
+// The signal tried first was ink: a label inside a drawing should have drawn shapes
+// on more than one side of it. It does not separate these documents. The »click« of
+// page 16 has ink on all four sides, but the same label on pages 24, 26 and 36 sits
+// at the drawing's right edge and has ink only to its left and below — while page
+// 1's "GEBRAUCHSANLEITUNG", which is prose the box reached over, also has ink on two
+// sides. The counts are in TestTrimKeepsALabelTheArtworkSurrounds' header.
 //
-// Only a run of [minTrimRunes] or more is trimmed away, which is the whole reason
-// this does not destroy a diagram: a callout number is one or two characters, and
-// page 11's parts diagram carries 73 of them inside its frame. And no edge moves by
+// What does separate them is containment, and it follows from where a candidate's
+// box comes from: the box IS the bounding box of the drawn ink. So a line the box
+// merely reached over sticks out of it — the edge that touches the line was set by
+// a stroke, not by the line — while a label set inside the artwork has ink beyond
+// it on the side that fixes that edge, and is therefore wholly inside. Measured
+// over both whole documents, every one of the 25 trims the old rule made falls
+// cleanly on one side of that test:
+//
+//	                                    old rule   reaching lines only
+//	columns manual, trims made            13            6
+//	  ...of which cut a printed callout    7            0
+//	  lines of prose excluded              6            6
+//	sequential manual, trims made         12           10
+//
+// The six prose lines are page 1's cover title block and the one line of body text
+// above the process diagram on each of pages 52-56, and they are excluded either
+// way. The seven that stop being cut are »click« on pages 16, 24 (twice), 26 and 36
+// (twice) and "1,8 l"/"max. 30° C" on page 28.
+//
+// The figure-overlaps-text count that used to be quoted here cannot show this and
+// is not quoted any more: it counts any run of five runes or more, so a picture
+// keeping its own »click« reads to it exactly like a picture swallowing a
+// paragraph. On the columns manual it moves 9 -> 14 while the prose excluded stays
+// at 6. TestGuardSweep still prints it, as a bound rather than as a verdict.
+//
+// Two guards are kept underneath. Only a run of [minTrimRunes] or more is trimmed
+// for, because a callout number is one or two characters and page 11's parts diagram
+// carries 73 of them; containment already protects those, and the floor is the
+// second lock on a diagram whose numbering runs to the frame. And no edge moves by
 // more than [maxTrimFraction] of the side it is on, so a candidate that is genuinely
 // half prose — page 34's over-merged cluster — is not whittled into a plausible
 // picture but left for the text guard to reject.
 //
-// The edge that costs the least area is chosen each round, because a line of text
-// at a corner can be excluded two ways and the cheaper one keeps more of the
-// drawing.
+// The edge that costs the least area is chosen each round, among only the edges the
+// run actually reaches past, because a line at a corner can be excluded two ways and
+// the cheaper one keeps more of the drawing.
 func trimToPicture(area CellRect, text []TextRun) CellRect {
 	const (
 		// minTrimRunes is the shortest run worth trimming for. Four rather than one
@@ -633,6 +669,16 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 			if x1 <= x0 || y1 <= y0 {
 				continue
 			}
+			// Which edges the line reaches past. A line wholly inside reaches past
+			// none of them and is the picture's own label, so it is left alone; this
+			// is the test the whole function turns on. Compared exactly rather than
+			// with a tolerance — see [trimReachSlack] for what a tolerance costs.
+			reaches := [4]bool{
+				r.X < area.X0-trimReachSlack,
+				r.X+r.Width > area.X1+trimReachSlack,
+				r.Y < area.Y0-trimReachSlack,
+				r.Y+r.Height > area.Y1+trimReachSlack,
+			}
 			// Four ways to put the run outside: pull in the left, right, top or
 			// bottom edge to the far side of it. Cost is the area given up.
 			costs := [4]float64{
@@ -642,6 +688,9 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 				(area.Y1 - y0) * area.Width(),  // bottom edge moves up to y0
 			}
 			for edge, cost := range costs {
+				if !reaches[edge] {
+					continue
+				}
 				if worst == nil || cost < bestCost {
 					// Only consider an edge that leaves the figure big enough.
 					next := area
