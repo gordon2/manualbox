@@ -205,10 +205,7 @@ function DocumentCard({
                 because the reader is where the progress belongs once you have asked
                 for it — and it fills in by itself when the job finishes. */}
             {document.state === "ready" || document.state === "converting" ? (
-              <button
-                className="text-xs text-accent"
-                onClick={() => onRead(document, languages)}
-              >
+              <button className="text-xs text-accent" onClick={() => onRead(document, languages)}>
                 Read
               </button>
             ) : null}
