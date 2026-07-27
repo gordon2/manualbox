@@ -613,9 +613,9 @@ func textFraction(area CellRect, text []TextRun) float64 {
 // box comes from: the box IS the bounding box of the drawn ink. So a line the box
 // merely reached over sticks out of it — the edge that touches the line was set by
 // a stroke, not by the line — while a label set inside the artwork has ink beyond
-// it on the side that fixes that edge, and is therefore wholly inside. Measured
-// over both whole documents, every one of the 25 trims the old rule made falls
-// cleanly on one side of that test:
+// it on the side that fixes that edge, and is therefore wholly inside. What the
+// test drops, measured over both whole documents, is every trim that cut a printed
+// callout and no trim that excluded a line of prose:
 //
 //	                                    old rule   reaching lines only
 //	columns manual, trims made            13            6
@@ -626,7 +626,14 @@ func textFraction(area CellRect, text []TextRun) float64 {
 // The six prose lines are page 1's cover title block and the one line of body text
 // above the process diagram on each of pages 52-56, and they are excluded either
 // way. The seven that stop being cut are »click« on pages 16, 24 (twice), 26 and 36
-// (twice) and "1,8 l"/"max. 30° C" on page 28.
+// (twice) and "1,8 l"/"max. 30° C" on page 28. The sequential manual loses one trim
+// of its twelve, on page 53, and one other stops short of a label: page 545's box
+// held its right edge at x=245, through the leader line running out to "QR コード",
+// and now stops at 285 where the Wi-Fi caption genuinely reaches in.
+//
+// End to end with `manualbox verify`, figures cut off by their crop fall from 15 to
+// 3 on the columns manual and from 71 to 70 on the sequential one, with the figure
+// count, the pages carrying figures and the blank-band count unmoved on both.
 //
 // The figure-overlaps-text count that used to be quoted here cannot show this and
 // is not quoted any more: it counts any run of five runes or more, so a picture
