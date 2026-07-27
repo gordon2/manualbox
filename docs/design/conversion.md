@@ -258,11 +258,43 @@ path for a photographed or scanned manual, which neither fixture is. And a calle
 wants both tables and figures pays `pdftocairo` twice for the same page; that is
 accepted for now and recorded rather than optimised.
 
-**Clip paths are not read, and that is the real cost of the vector route.** A figure's
-box is a path's *unclipped* extent, so neighbouring drawings merge — page 42 returns 3
-figures for 4 printed, page 16 returns 1 for 3 — and a figure can reach over adjacent
-text. Trimming to the drawn content takes that overlap from 19 of 46 figures to 8. The
-proper fix is for the SVG reader to keep the `clip-path` attribute it currently drops.
+**Clip paths ARE read now, and it was the largest visible defect in the output.** This
+section previously recorded the opposite as an accepted cost. A figure's box was a
+path's *unclipped* extent, so drawings merged and were cropped through their own
+artwork. The verifier put a number on it — 22 of 46 figures and 74 of 163 cut off — and
+`clip.go` now resolves each shape's effective clip and intersects the path's extent
+with it. Measured end to end with `manualbox verify`:
+
+| | columns manual | sequential manual |
+|---|---|---|
+| figures | 46 → **59** | 163 → **168** |
+| pages carrying figures | 27 → 27 | 23 → 23 |
+| cut off by their own crop | 22 → **15** | 74 → **71** |
+| carrying a blank band | 4 → **0** | 6 → **2** |
+
+The count rises while the page count does not, which is what tells a split from newly
+admitted furniture: page 42 returns its four printed drawings where it returned three,
+page 22 three for three, and page 16 **four for four** — that page prints four framed
+panels, not the three an earlier version of this document twice claimed.
+
+It also fixed a table: page 38 draws a frame edge to y=268.7 while the paint stops at
+y=239.06, and those 30 units of phantom rule were closing a cell. Verified against a
+432 dpi render. All five ground-truth cell counts are unchanged.
+
+Two simplifications, stated: a clip is reduced to its **bounding box**, which can only
+ever make a figure's box smaller than the unclipped extent and never wrongly larger; and
+an unresolvable reference or an `objectBoundingBox` clip means *no clip*, which is the
+old recorded wrongness rather than a guess that could erase a picture.
+
+**The residual cut figures are not the clip — they are `trimToPicture`**, a patch
+written for the cause the clip removed. With trimming off the columns manual's cut
+figures fall from 15 to **2** and the sequential's from 71 to 66, at the price of 6 and
+10 prose overlaps returning. Page 16 shows why: the label `»click«` sits *inside* the
+third panel's illustration and trimming takes the drawing's right third away to exclude
+it — a callout belonging to the picture, which `minTrimRunes` exists to protect and
+which escapes only because seven characters clears a floor set at four. Prose inside a
+figure is redundant, since the same words are already a block; a cut drawing is lossy.
+That is being resolved separately.
 
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
