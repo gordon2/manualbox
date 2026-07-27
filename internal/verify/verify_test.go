@@ -216,12 +216,14 @@ func TestJoinsFireOnEachShape(t *testing.T) {
 }
 
 func TestJoinsQuietOnCleanText(t *testing.T) {
-	// A dash used as punctuation, a capital after it, and no doubled space. This is
-	// the case a shape-only check gets wrong.
+	// A dash used as punctuation and no doubled space. Two of these hang directly
+	// off a letter — "230V- 50" and "Typ M- Amfibia" — which is what makes them the
+	// case the shape gets wrong: only the digit and the capital after the space say
+	// they are not a broken word.
+	const clean = "Spannungsversorgung: 230V- 50 Hz, Typ M- Amfibia, Modell 788/M - 2024"
 	in := verify.Input{
-		Blocks: []doc.Block{block(4, 0, 43, 443, 200,
-			"Spannungsversorgung: 230 V - 50 Hz, Modell 788/M - Amfibia")},
-		Text: []doc.Page{page(4, "Spannungsversorgung: 230 V - 50 Hz, Modell 788/M - Amfibia")},
+		Blocks: []doc.Block{block(4, 0, 43, 443, 200, clean)},
+		Text:   []doc.Page{page(4, clean)},
 	}
 	rep := verify.Inspect(in)
 	for _, k := range []verify.Kind{verify.KindJoinHyphen, verify.KindJoinGlued,
