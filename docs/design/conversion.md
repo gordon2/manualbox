@@ -427,6 +427,58 @@ no horizontal rule spans 428.1 to 450.2, so it bounds no cell — but any page-w
 column projection will find it and read the page as split at 440. A convincing
 divider that is neither a language boundary nor a table one.
 
+## What a free verifier found
+
+`internal/verify` and `manualbox verify` check a conversion against **`pdftotext`, a
+completely independent second extraction of the same bytes** — the block pipeline reads
+`pdftohtml`, so every page already has a free second opinion produced by different code.
+Five checks, every threshold measured against both manuals and quoted at its constant.
+No model, no tokens, runs in CI.
+
+What it reports today:
+
+| | column manual | sequential manual |
+|---|---|---|
+| coverage — did we drop content | **0 findings**, median 0.974 | **0 findings**, median 1.000 |
+| reading order | **0** | 37 over 26 pages |
+| figures clipped | **22 of 46** | **74 of 163** |
+| figures with a blank band | 4 | 6 |
+| hyphen-space joins | 276 blocks | 72 blocks |
+| words absent from the reference | 4 | 153 |
+| right-to-left reversed | none, no such script | 32 pages, 8,120 words |
+
+**Coverage is clean on both, which is the reassuring one:** nothing is being silently
+dropped. The least-covered page of either manual is 0.801, and that is the
+artifact-heavy front matter `usableRuns` deliberately filters.
+
+**Clipping is far more widespread than it looked.** 22 of 46 figures and 74 of 163 are
+cut off by their own crop — the clip-path limitation above, which had been recorded as a
+tidiness problem and is in fact the largest visible defect in the output. Cross-checked
+against a second, independent signal, whether the render's own paint reaches the crop
+edge: 22 of 22 agree on the column manual, 73 of 74 on the sequential one.
+
+**37 pages are read in columns rather than rows**, all one class: the routine-maintenance
+page of each language section lays its intervals out as an **unruled** grid, which the
+table detector cannot see. This is the unruled-table gap above, biting for real rather
+than hypothetically.
+
+**Thai is broken in the document, and neither tool is a reference for it.** The check
+flagged 142 absent words across pages 473-488. Investigating rather than trusting the
+label: `pdftohtml` returns U+FFFD for some Thai vowels — `ข้อมูลด้�นคว�มปลอดภัย` where the
+page prints `ข้อมูลด้านความปลอดภัย` — but `pdftotext` breaks *different* characters and
+breaks more of them, 34 against 21 on page 480 and 14 against 6 on page 484, and it
+mangles `สำาหรับ` into `สำ�หรับ` where `pdftohtml` gets it right. The PDF's Thai font has an
+incomplete character mapping and the two tools recover different partial subsets. So
+those findings are mostly the two tools disagreeing, not content we lost, and Thai
+cannot be repaired by preferring the other tool. It is a property of the document.
+
+**Two corrections to what is written above, from the same measurements.** The blank band
+on page 14 does not reproduce — its two photographs render with 0.0 and 2.5 units of
+margin. The real ones are page 46 figure 1, 64 units blank at the foot, and page 40
+figure 0, 36 at the left. And the sequential manual's conversion yields **163** figures
+rather than the 229 counted over the whole document, because 7 figure pages fall outside
+every region.
+
 ## Acceptance
 
 Not "it produces blocks". The column manual's German must come back as readable
