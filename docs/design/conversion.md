@@ -318,6 +318,49 @@ The three residual cut figures on the columns manual are pages 11 and 12, where 
 page-sized path cannot be attributed to one figure, and page 1, whose cover art genuinely
 runs behind the title block.
 
+**A drawing was also being served in pieces, which a user reported before any test
+caught it.** Page 524 of the sequential manual returned six boxes for four printed
+drawings, and one of them was *a hand* — part of the robot's underside, cut out and
+served as its own picture while still inside the parent.
+
+The cause was not a missing merge step. `clusterInk` joins *shapes* whose boxes meet, but
+a group's box is the union of its shapes and is far larger than any one of them, so two
+groups can share most of a rectangle while no shape of one touches a shape of the other.
+The same rule run again over the clustering's own output, to a fixpoint, closes it.
+
+| sequential manual | before | after |
+|---|---|---|
+| figures | 168 | **134** |
+| overlapping pairs | 53 | **0** |
+| wholly inside another | 7 | **0** |
+| cut off by their crop | 70 | **25** |
+
+The columns manual is identical in every number; it never had an overlapping pair at any
+threshold. Clipped falling to 25 is not a detector agreeing with itself: a piece of a
+drawing is genuinely crossed by the shapes of the piece beside it, so removing the split
+removes the crossing.
+
+**Any positive overlap merges; merely touching does not.** No fraction was chosen,
+because the measurement offers nothing for one to separate: the 53 pairs run from 1.00
+down to 0.01 with no gap, and every one, rendered and looked at, is a single printed
+drawing that clustered in pieces — at 0.91 the hand, at 0.57 a base station split at its
+waist, at 0.01 a water tank and the magnified detail its leader lines run to. The cases
+needing the opposite answer are untouched because their boxes do not overlap at all:
+page 524's two robot views are 23 units apart, page 522's two mop pads 46.
+
+**Containment alone would not have fixed the reported fault.** The hand is 90.8% inside
+its parent, not 100% — its pin pokes 4 units past the edge. A containment-only rule leaves
+that page at six boxes with the hand still served as a picture.
+
+**And the merge exposed a determinism bug.** The groups came out of a map, which is
+harmless while merging only grows a box, and is not once a threshold is involved: the
+same page returned between 194 and 200 figures across runs. Clustering now sorts into
+reading order before merging. That matters beyond a flaky test — these bytes go into a
+content-addressed store, so a box that moves means the same page yields different files.
+
+Two eye counts already in the repo were counting boxes rather than drawings and are
+corrected: a page recorded as 8 drawings prints 4, and one recorded as 8 prints 9.
+
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
 A scanned manual with no text layer needs OCR before any of this applies, and the
