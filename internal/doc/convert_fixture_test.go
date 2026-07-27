@@ -189,7 +189,8 @@ func TestConvertTheColumnManualForGerman(t *testing.T) {
 // Russian occupies 22 pages of this manual where 32 other languages get 16, and
 // the extra is an illustrated maintenance section. Page 533 was rendered and
 // read: the heading "Плановое обслуживание", prose about the charging contacts,
-// the waste tank and the vents, and eight line drawings.
+// the waste tank and the vents, and nine line drawings — the count here said eight
+// for a while, from a box overlay rather than from the print.
 //
 // The same document is then converted for German, which is the comparison that
 // makes the point: 16 pages and not one picture, from the same code, on the same
@@ -209,20 +210,32 @@ func TestConvertTheSequentialManualForRussian(t *testing.T) {
 	for i := range conv.Figures {
 		byPage[conv.Figures[i].Page]++
 	}
+	// Two of these four numbers were wrong, and they were wrong in the way a count
+	// taken off a box overlay is wrong: they counted boxes and called them drawings.
+	// Both pages were re-rendered and re-read once candidate boxes that overlap were
+	// merged.
+	//
+	// Page 525 prints FOUR drawings — the base station with its compartment open,
+	// the bottle being poured, the station again, and the water tank on the right —
+	// and returned eight, because each station had clustered in three pieces. Page
+	// 533 prints NINE and returned eight, of which one was a scrap: a 48x36 patch of
+	// the station's ribbed panel, wholly inside the station's own box, cropped and
+	// served as a picture of its own. It now returns seven. The two that are still
+	// missing are the small tank drawings at the top right, which no merge can
+	// recover — they are under the ink guard, and that is the honest state.
 	for _, c := range []struct{ page, figures int }{
-		{525, 8}, {529, 8}, {531, 7}, {533, 8},
+		{525, 4}, {529, 8}, {531, 7}, {533, 7},
 	} {
 		if byPage[c.page] != c.figures {
 			t.Errorf("page %d came back with %d figures, %d were counted on the render",
 				c.page, byPage[c.page], c.figures)
 		}
 	}
-	// 84, where it was 81 before the clip was read. The four pages counted off
-	// renders just above are unchanged at 8, 8, 7 and 8, so the three extra are
-	// splits elsewhere in the section rather than a page gaining a picture it does
-	// not print.
-	if len(conv.Figures) != 84 {
-		t.Errorf("%d figures over the Russian section, measured at 84", len(conv.Figures))
+	// 65, where it was 81 before the clip was read and 84 after. Pages 529 and 531
+	// are unchanged at 8 and 7, so what merging took out is pieces of drawings
+	// elsewhere in the section and not a page losing a picture it prints.
+	if len(conv.Figures) != 65 {
+		t.Errorf("%d figures over the Russian section, measured at 65", len(conv.Figures))
 	}
 
 	// Page 533's prose, from the render. The heading is what a reader looks for and
