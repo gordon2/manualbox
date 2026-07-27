@@ -268,7 +268,7 @@ with it. Measured end to end with `manualbox verify`:
 | | columns manual | sequential manual |
 |---|---|---|
 | figures | 46 → **59** | 163 → **168** |
-| pages carrying figures | 27 → 27 | 23 → 23 |
+| pages carrying figures | 27 → 27 | 20 → 20 |
 | cut off by their own crop | 22 → **15** | 74 → **71** |
 | carrying a blank band | 4 → **0** | 6 → **2** |
 
@@ -286,15 +286,37 @@ ever make a figure's box smaller than the unclipped extent and never wrongly lar
 an unresolvable reference or an `objectBoundingBox` clip means *no clip*, which is the
 old recorded wrongness rather than a guess that could erase a picture.
 
-**The residual cut figures are not the clip — they are `trimToPicture`**, a patch
-written for the cause the clip removed. With trimming off the columns manual's cut
-figures fall from 15 to **2** and the sequential's from 71 to 66, at the price of 6 and
-10 prose overlaps returning. Page 16 shows why: the label `»click«` sits *inside* the
-third panel's illustration and trimming takes the drawing's right third away to exclude
-it — a callout belonging to the picture, which `minTrimRunes` exists to protect and
-which escapes only because seven characters clears a floor set at four. Prose inside a
-figure is redundant, since the same words are already a block; a cut drawing is lossy.
-That is being resolved separately.
+**The residual cut figures were not the clip either — they were `trimToPicture`**, the
+patch written for the cause the clip removed, and it is now fixed rather than removed.
+It cut into drawings to exclude labels printed inside them: page 16's third panel lost
+its right third, arrow and hose tip, to exclude the label `»click«`.
+
+**A trim now only pulls in an edge that a text line actually reaches PAST**, and that
+rule follows from where the box comes from rather than being tuned. The box *is* the
+bounding box of the drawn ink, so a line the box merely reached over must stick out of
+it, while a label set inside the artwork cannot. Result: cut figures **15 → 3** on the
+columns manual and 71 → 70 on the sequential, with figures, pages and blocks all
+unmoved. Seven of the columns manual's thirteen bad trims go away and all six good ones
+stay — page 52 still loses the German prose line above its diagram, and now keeps the
+nozzle top and three labels the old rule amputated.
+
+**The obvious rule — a label inside a drawing has ink on more than one side — was tried
+and is wrong.** `»click«` on page 16 has ink on all four sides, but the same label on
+pages 24, 26 and 36 sits flush at a drawing's right edge with ink on only two, while
+page 1's `GEBRAUCHSANLEITUNG`, which is genuinely prose, also has ink on two. Those need
+opposite answers and that signal gives them the same one.
+
+**Two measurements here were misleading and are corrected.** "Figures overlapping prose"
+cannot judge this: it counts any run of five runes or more, so a picture keeping its own
+seven-rune `»click«` scores exactly like one swallowing a paragraph — it rises 9 → 14
+*because* the fix works, while the prose genuinely excluded stays at 6. And the fixture
+pin recording the smallest figure's short side as 128 units was measuring page 52's
+diagram **amputated by the trim**; the document's real smallest drawing is page 48's at
+130.4, which no trim ever touched.
+
+The three residual cut figures on the columns manual are pages 11 and 12, where a
+page-sized path cannot be attributed to one figure, and page 1, whose cover art genuinely
+runs behind the title block.
 
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
