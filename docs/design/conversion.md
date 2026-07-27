@@ -102,6 +102,13 @@ characters, while all 12 cells of page 57's table contain text. With both guards
 10 pages of the column manual, 170 of the sequential one — which is 34 languages
 times 5 table pages, exactly.
 
+**A figure is not a block, and `BlockFigure` stays unproduced.** A block's natural key
+is the page, the region's left edge and the index within that region — and a
+language-neutral figure has no region, so giving it one would either invent a key or
+collide with a real block's. Figures come back as their own list, and a reader merges
+the two by page and vertical position. `blocks.go` says `BlockFigure` is declared and
+never produced; that is still true and is now deliberate rather than pending.
+
 **Blocks are keyed naturally, so re-converting converges.** Same reasoning as
 `doc_regions`, and the same reason: a job handler can run twice. The key is the
 document, the page, the region's left edge and the block's index within it. A
@@ -132,7 +139,11 @@ from 4.09 s to **8.02 s**, and that is the honest price of reading a
 parallel-columns manual correctly.
 
 Converting the pages in scope is still separate, still after the gate, and still only
-over the pages asked for.
+over the pages asked for — with one cost this section also omitted: `Convert` pays
+**one `pdftohtml` pass over the whole document**, because the probe's `Result`
+deliberately does not carry the runs. That is why converting the sequential manual's
+German is 3.3 s for 16 pages while its Russian is 13.1 s for 22: the difference is 81
+figure renders, not pages.
 
 A 6.5x saving exists for that later pass and is not yet verified: one
 `pdftocairo -ps` call renders all 560 pages in 5.15 s where per-page SVG spawns take
@@ -169,12 +180,36 @@ would recover them.
 **Framed illustrations are geometrically identical to tables.** Only the text guard
 separates them, and a figure with a caption inside its frame would defeat it.
 
-**A picture that belongs to no language belongs to every language.** Decided by the
-user, and it settles what regions.md left open: language-neutral content — a diagram,
-a shared specification table, a figure spanning the full measure — is included in
-**every** language's conversion rather than assigned to one, duplicated by accident,
-or dropped. A reader of one language must not lose a diagram because the diagram has
-no language of its own.
+**A picture that belongs to no language belongs to every language — of the pages that
+language was already going to read.** Decided by the user, and it settles what
+regions.md left open: language-neutral content is included in **every** language's
+conversion rather than assigned to one or dropped. A reader must not lose a diagram
+because the diagram has no language of its own.
+
+**The scope of "every" is a page, not the document, and that is a deliberate limit
+with a measured cost.** The column manual sets pages 14 and 15 as a spread: page 14 is
+German and Polish *plus two photographs of the machine*, and page 15 is Russian,
+Ukrainian and Kazakh with **no pictures at all**. The same instructions in five
+languages, illustrated once. So the pictures serving all five sit physically on the
+German page, and a page-scoped rule cannot reach them from Russian:
+
+| household | figures from the column manual |
+|---|---|
+| German | 40, of which 38 neutral |
+| Polish | 41, of which 38 neutral |
+| **Russian** | **1** |
+
+Closing that automatically costs either every page's ink for every household — 68
+`pdftocairo` spawns where 52 were charged here, and 1,120 on the sequential manual to
+find its 3 pages of neutral figures — or a facing-page association, which would be a
+rule invented from one manual's binding.
+
+**Neither is being built, and the intended answer is different.** The user's direction:
+let a reader skim the original and choose pages to convert by hand — having found those
+photographs on page 14, ask for exactly them. That handles this case and every case
+like it, without a heuristic guessing at what a spread is, and it is the right shape
+for a feature that has to be honest about a document it has never seen. Unbuilt, and
+recorded here so nobody builds the expensive guess instead.
 
 **An earlier version of this section claimed the opposite of the truth and is
 corrected here.** It said the sequential manual's 229 figures were "every one in front
@@ -376,3 +411,16 @@ not only against counts.
 And the negative: no page of the column manual may contribute text from a language
 that was not asked for. That is the funnel's whole promise, and it is the one failure
 a reader would notice immediately.
+
+**Both halves are met, and both were checked against renders rather than against
+counts.** Column manual German: 432 blocks and 40 figures over 26 of 68 pages, with
+page 57's two troubleshooting tables arriving as 25 distinct cells and page 14's two
+photographs coming back neutral with the same digest in the German and the Polish
+conversion. Sequential manual German: 481 blocks over pages 23-38, and page 24
+compared against its render matches bullet for bullet — one heading and **12 list
+items against 12 printed**. Sequential Russian: 487 blocks and its 81 figures over
+pages 517-538, page 533's eight line drawings among them.
+
+The two blemishes on that page 24 comparison are the documented page-furniture
+limitation, not new: the printed `DE` badge arrives as a level-2 heading and the folio
+`18` as a paragraph. Nothing on one page separates those from content.
