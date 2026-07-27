@@ -1,4 +1,5 @@
 import type {
+  Conversion,
   Device,
   Doc,
   DocumentKind,
@@ -167,6 +168,22 @@ export const api = {
     request<void>(`/documents/${encodeURIComponent(id)}/decline`, { method: "POST" }),
 
   documentContentURL: (id: string) => `${BASE}/documents/${encodeURIComponent(id)}/content`,
+
+  /**
+   * What the conversion produced.
+   *
+   * `lang` is passed through when it is a string, including the empty string:
+   * `?lang=` is a real question — the content nothing could name — and not the
+   * absence of a filter. Omitting the argument asks for everything stored.
+   */
+  documentConversion: (id: string, lang?: string) => {
+    const query = lang === undefined ? "" : `?lang=${encodeURIComponent(lang)}`;
+    return request<Conversion>(`/documents/${encodeURIComponent(id)}/conversion${query}`);
+  },
+
+  /** The PNG a figure was rendered to. The digest is the name and the content. */
+  documentFigureURL: (id: string, sha256: string) =>
+    `${BASE}/documents/${encodeURIComponent(id)}/figures/${encodeURIComponent(sha256)}`,
 };
 
 /**

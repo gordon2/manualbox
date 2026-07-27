@@ -3,9 +3,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, subscribeToJobs } from "../api/client";
 import type { Device, Doc, Gate, GateLanguage } from "../api/types";
 import { Alert, Button, Card } from "../ui";
+import type { ReaderLanguage } from "./Reader";
 
 /** One device: what it is, and the manuals belonging to it. */
-export function DeviceDetail({ device, onBack }: { device: Device; onBack: () => void }) {
+export function DeviceDetail({
+  device,
+  onBack,
+  onRead,
+}: {
+  device: Device;
+  onBack: () => void;
+  /** Open the reader. The languages come from the gate, which is already loaded here. */
+  onRead: (doc: Doc, languages: ReaderLanguage[]) => void;
+}) {
   const [documents, setDocuments] = useState<Doc[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +69,12 @@ export function DeviceDetail({ device, onBack }: { device: Device; onBack: () =>
         ) : (
           <ul className="mt-3 space-y-3">
             {documents.map((document) => (
-              <DocumentCard key={document.id} document={document} onChanged={reload} />
+              <DocumentCard
+                key={document.id}
+                document={document}
+                onChanged={reload}
+                onRead={onRead}
+              />
             ))}
           </ul>
         )}
@@ -135,8 +150,26 @@ const stateLabels: Record<Doc["state"], string> = {
   failed: "failed",
 };
 
-function DocumentCard({ document, onChanged }: { document: Doc; onChanged: () => void }) {
+function DocumentCard({
+  document,
+  onChanged,
+  onRead,
+}: {
+  document: Doc;
+  onChanged: () => void;
+  onRead: (doc: Doc, languages: ReaderLanguage[]) => void;
+}) {
   const [gate, setGate] = useState<Gate | null>(null);
+
+  // Which languages the reader may ask for. The gate's in-scope list is exactly what
+  // approving converted — approve takes no language argument for that reason — so it
+  // is the right list, and it costs no extra request because the gate is already here.
+  //
+  // Ordered biggest first, the same way the gate lists them, so the reader opens on
+  // the language most of the document is in rather than on whichever sorts first.
+  const languages: ReaderLanguage[] = gate
+    ? bySize(gate.inScope).map((run) => ({ lang: run.lang, name: run.name }))
+    : [];
 
   useEffect(() => {
     if (!document.probedAt) {
@@ -167,14 +200,27 @@ function DocumentCard({ document, onChanged }: { document: Doc; onChanged: () =>
           >
             {stateLabels[document.state]}
           </span>
-          <a
-            className="ml-auto shrink-0 text-xs text-accent"
-            href={api.documentContentURL(document.id)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Original
-          </a>
+          <div className="ml-auto flex shrink-0 items-center gap-3">
+            {/* Only a converted document has a reader. `converting` gets one too,
+                because the reader is where the progress belongs once you have asked
+                for it — and it fills in by itself when the job finishes. */}
+            {document.state === "ready" || document.state === "converting" ? (
+              <button
+                className="text-xs text-accent"
+                onClick={() => onRead(document, languages)}
+              >
+                Read
+              </button>
+            ) : null}
+            <a
+              className="text-xs text-accent"
+              href={api.documentContentURL(document.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Original
+            </a>
+          </div>
         </div>
 
         {document.lastError ? (

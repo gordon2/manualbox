@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, subscribeToJobs } from "../api/client";
-import type { Device, Instance, Job, JobState, User } from "../api/types";
+import type { Device, Doc, Instance, Job, JobState, User } from "../api/types";
 import { Button, Card, Wordmark } from "../ui";
 import { DeviceDetail } from "./DeviceDetail";
 import { Devices } from "./Devices";
+import { Reader, type ReaderLanguage } from "./Reader";
 
 export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => void }) {
   const [instance, setInstance] = useState<Instance | null>(null);
@@ -13,6 +14,11 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
   // Navigation is a single piece of state rather than a router: there are two
   // screens, and a dependency to move between them would not earn its place yet.
   const [openDevice, setOpenDevice] = useState<Device | null>(null);
+  // The reader is the third, and it is deliberately held here rather than inside
+  // DeviceDetail: it takes the whole page, including the space the activity list
+  // occupies, and a screen cannot hide its own parent's sections. Closing it falls
+  // back to the device that is still open underneath.
+  const [reading, setReading] = useState<{ doc: Doc; languages: ReaderLanguage[] } | null>(null);
 
   const reloadJobs = useCallback(async () => {
     try {
@@ -71,39 +77,54 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
       </header>
 
       <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
-        {openDevice ? (
-          <DeviceDetail device={openDevice} onBack={() => setOpenDevice(null)} />
+        {reading ? (
+          <Reader
+            doc={reading.doc}
+            deviceName={openDevice ? openDevice.name : "Back"}
+            languages={reading.languages}
+            onBack={() => setReading(null)}
+          />
         ) : (
           <>
-            <Devices onOpen={setOpenDevice} />
-            {instance ? <Capabilities instance={instance} /> : null}
+            {openDevice ? (
+              <DeviceDetail
+                device={openDevice}
+                onBack={() => setOpenDevice(null)}
+                onRead={(doc, languages) => setReading({ doc, languages })}
+              />
+            ) : (
+              <>
+                <Devices onOpen={setOpenDevice} />
+                {instance ? <Capabilities instance={instance} /> : null}
+              </>
+            )}
+
+            <section>
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-display text-lg text-ink">Activity</h2>
+                <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+                  <span
+                    aria-hidden
+                    className={`inline-block size-1.5 rounded-full ${streamLive ? "bg-accent" : "bg-ink-faint"}`}
+                  />
+                  {streamLive ? "live" : "reconnecting"}
+                </span>
+              </div>
+
+              {jobs.length === 0 ? (
+                <Card className="mt-3 px-4 py-8 text-center text-sm text-ink-faint">
+                  No background jobs yet.
+                </Card>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {jobs.map((job) => (
+                    <JobRow key={job.id} job={job} onChanged={reloadJobs} />
+                  ))}
+                </ul>
+              )}
+            </section>
           </>
         )}
-
-        <section>
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-lg text-ink">Activity</h2>
-            <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-              <span
-                aria-hidden
-                className={`inline-block size-1.5 rounded-full ${streamLive ? "bg-accent" : "bg-ink-faint"}`}
-              />
-              {streamLive ? "live" : "reconnecting"}
-            </span>
-          </div>
-
-          {jobs.length === 0 ? (
-            <Card className="mt-3 px-4 py-8 text-center text-sm text-ink-faint">
-              No background jobs yet.
-            </Card>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {jobs.map((job) => (
-                <JobRow key={job.id} job={job} onChanged={reloadJobs} />
-              ))}
-            </ul>
-          )}
-        </section>
       </main>
     </div>
   );

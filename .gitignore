@@ -20,6 +20,10 @@ config.local.yaml
 /web/node_modules/
 /web/dist/
 /web/.vite/
+# Where `vite build --ssr reader-check.tsx` puts its bundle. See reader-check.tsx:
+# it renders the reader to HTML on the command line, because there is no browser
+# automation here.
+/web/.reader-check/
 *.tsbuildinfo
 
 # go
