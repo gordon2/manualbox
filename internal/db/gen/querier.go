@@ -47,6 +47,12 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteBlob(ctx context.Context, sha256 string) error
 	DeleteDevice(ctx context.Context, id string) error
+	// Replacing a document's blocks wholesale is how a re-conversion stays honest,
+	// and it is required rather than merely tidy: a region that converted to 12
+	// blocks and now converts to 9 would otherwise keep rows at idx 9, 10 and 11,
+	// which a reader renders as three paragraphs of the previous run's text.
+	DeleteDocBlocks(ctx context.Context, documentID string) error
+	DeleteDocFigures(ctx context.Context, documentID string) error
 	DeleteDocLangs(ctx context.Context, documentID string) error
 	// Replacing one signal's view wholesale is how a re-probe stays honest: a run
 	// that no longer exists must disappear rather than linger from the previous
@@ -101,6 +107,22 @@ type Querier interface {
 	// ListDevices. CONTRIBUTING.md: an "IS NULL OR =" filter defeats sqlc's type
 	// inference and reads worse than two explicit queries.
 	ListDevicesByLocation(ctx context.Context, locationID *string) ([]Device, error)
+	// Reading order across the whole document: down the pages, then left to right
+	// across each, then in order within a region. A whole-page region sorts first on
+	// its page because its region_x0 is 0.
+	ListDocBlocks(ctx context.Context, documentID string) ([]DocBlock, error)
+	// The funnel's own query: one household's language, and nothing else. A German
+	// reader of the columns manual gets the German column of each page rather than
+	// the page, which conversion.md measures as a fifth of the work.
+	//
+	// Blocks whose language was never established have lang = '' and are therefore
+	// NOT returned by any language's query. That is deliberate rather than an
+	// oversight: passing '' asks for exactly those, which is how the unnamed content
+	// of a document stays reachable instead of becoming invisible.
+	ListDocBlocksByLang(ctx context.Context, arg ListDocBlocksByLangParams) ([]DocBlock, error)
+	ListDocBlocksForPage(ctx context.Context, arg ListDocBlocksForPageParams) ([]DocBlock, error)
+	ListDocFigures(ctx context.Context, documentID string) ([]DocFigure, error)
+	ListDocFiguresForPage(ctx context.Context, arg ListDocFiguresForPageParams) ([]DocFigure, error)
 	ListDocLangs(ctx context.Context, documentID string) ([]DocLang, error)
 	ListDocLangsBySource(ctx context.Context, arg ListDocLangsBySourceParams) ([]DocLang, error)
 	ListDocPages(ctx context.Context, documentID string) ([]DocPage, error)
@@ -137,6 +159,11 @@ type Querier interface {
 	RetryJob(ctx context.Context, arg RetryJobParams) error
 	SetDocumentState(ctx context.Context, arg SetDocumentStateParams) error
 	SetSetting(ctx context.Context, arg SetSettingParams) error
+	// What a conversion cost and covered, for the pipeline to report without reading
+	// every block back. Every aggregate is wrapped in CAST(... AS INTEGER): without
+	// it sqlc cannot infer an aggregate's type in SQLite and emits interface{},
+	// pushing a type assertion onto every caller.
+	SummarizeDocBlocks(ctx context.Context, documentID string) ([]SummarizeDocBlocksRow, error)
 	// The language map as shown to the user: one row per language in the reconciled
 	// view, with its page total and whether any of its runs are disputed.
 	//
@@ -167,6 +194,39 @@ type Querier interface {
 	// Blobs are content-addressed, so re-adding identical bytes is a no-op rather
 	// than a conflict. That is what makes uploading the same manual twice cheap.
 	UpsertBlob(ctx context.Context, arg UpsertBlobParams) error
+	// Queries over doc_blocks and doc_figures: what a conversion produced. See
+	// 00005_doc_blocks.sql for the schema's reasoning and docs/design/conversion.md
+	// for the contract.
+	//
+	// THIS FILE MUST STAY PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
+	// (pinned in tools/go.mod) mixes up character and byte offsets when it cuts
+	// statements out of a file, so one non-ASCII character anywhere above corrupts
+	// every statement after it -- silently, in the dangerous case: `make sqlc` exits
+	// 0, the Go compiles, the linter passes, and the statement fails at PREPARE time
+	// inside a background job against a user's database. The full measurement is in
+	// the header of docregions.sql; TestQueryFilesAreASCII is the cause-side guard
+	// and TestDocBlockQueriesExecute the symptom-side one.
+	//
+	// Columns are listed explicitly rather than with SELECT *, so that adding a
+	// column later cannot silently change every caller's row shape.
+	// Upsert on the natural key (document_id, page, region_x0, idx), because a
+	// conversion job may run twice and must converge on the same rows rather than
+	// duplicating them.
+	//
+	// Every non-key column is updated, kind and lang included. Nothing about a
+	// block's classification is in the key, so a paragraph that a better heading rule
+	// promotes to a heading is the same block updated in place -- see the note above
+	// the primary key in 00005_doc_blocks.sql.
+	//
+	// This is belt and braces beside the delete SaveConversion does first, and it
+	// cannot be the whole story: a re-conversion that produces FEWER blocks in a
+	// region would otherwise leave the tail of the previous run behind at higher
+	// indices, where it reads as content.
+	UpsertDocBlock(ctx context.Context, arg UpsertDocBlockParams) error
+	// Upsert on (document_id, page, idx). A figure has no region and no language in
+	// its key, because conversion.md settles that a picture belonging to no language
+	// belongs to every language.
+	UpsertDocFigure(ctx context.Context, arg UpsertDocFigureParams) error
 	UpsertDocLang(ctx context.Context, arg UpsertDocLangParams) error
 	// Upsert on the natural key, because a probe job may run twice and must converge
 	// on the same rows rather than duplicating them.

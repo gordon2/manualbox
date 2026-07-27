@@ -24,6 +24,42 @@ type Device struct {
 	UpdatedAt   int64
 }
 
+type DocBlock struct {
+	DocumentID string
+	Page       int64
+	RegionX0   int64
+	Idx        int64
+	Kind       string
+	Level      int64
+	Text       string
+	Lang       string
+	X0         float64
+	X1         float64
+	Y0         float64
+	Y1         float64
+	Lines      int64
+	Chars      int64
+	Note       string
+	CreatedAt  int64
+}
+
+type DocFigure struct {
+	DocumentID   string
+	Page         int64
+	Idx          int64
+	X0           float64
+	Y0           float64
+	X1           float64
+	Y1           float64
+	Ink          int64
+	TextFraction float64
+	Dpi          int64
+	PixelWidth   int64
+	PixelHeight  int64
+	BlobSha256   string
+	CreatedAt    int64
+}
+
 type DocLang struct {
 	DocumentID  string
 	Source      string
