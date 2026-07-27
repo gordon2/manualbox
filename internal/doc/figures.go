@@ -78,15 +78,23 @@ import (
 // three, page 22 three for three, and page 16 four for four — which the render
 // settles and conversion.md had wrong twice over, since that page prints four
 // panels rather than the three it records. Both documents keep the same number of
-// pages carrying figures, 27 and 23, which is what says these are splits rather
-// than newly admitted furniture.
+// pages carrying figures, which is what says these are splits rather than newly
+// admitted furniture — 27 and 23, counted over what [FindFigures] returns for every
+// page. Note the level: the table above is what `manualbox verify` converts, and
+// conversion keeps 168 of the sequential manual's 238 figures, landing on 20 of
+// those 23 pages. Both counts are pinned, in TestGuardSweep and in verify's
+// fixture tests respectively.
 //
-// The residual counts are not the clip. On the columns manual all 15 are
-// [trimToPicture] cutting into a drawing that has a label at its edge — with
-// trimming off the same measurement is 2 — and on the sequential manual they are
-// leader lines on its crowded diagram pages, where a line more than half inside
-// one figure's box belongs to the drawing beside it. See the note on
-// [trimToPicture].
+// The residual counts were not the clip either, and most of the columns manual's
+// have since gone: 15 of them were [trimToPicture] cutting into a drawing that had
+// a label at its edge, and teaching the trim to leave a label the artwork encloses
+// alone took that document to 3 and the sequential one to 70. What remains is three
+// classes, none of them the clip. Pages 11 and 12 of the columns manual report one
+// shape crossing out of 2,741, which is a page-sized path the geometric matching in
+// `internal/verify` cannot attribute; page 1 is the cover, whose artwork genuinely
+// runs behind the title block the trim excludes; and the sequential manual's 70 are
+// leader lines on its crowded diagram pages, where a line more than half inside one
+// figure's box belongs to the drawing beside it. See the note on [trimToPicture].
 //
 // Nothing here emits a block and nothing here writes to the blob store. This file
 // answers only "where are the pictures, and what are their bytes"; the digest is
@@ -599,7 +607,7 @@ func textFraction(area CellRect, text []TextRun) float64 {
 // page 16 has ink on all four sides, but the same label on pages 24, 26 and 36 sits
 // at the drawing's right edge and has ink only to its left and below — while page
 // 1's "GEBRAUCHSANLEITUNG", which is prose the box reached over, also has ink on two
-// sides. The counts are in TestTrimKeepsALabelTheArtworkSurrounds' header.
+// sides. Those four readings are the cases in TestTrimOnlyPullsOffALineItReachedOver.
 //
 // What does separate them is containment, and it follows from where a candidate's
 // box comes from: the box IS the bounding box of the drawn ink. So a line the box
@@ -958,13 +966,14 @@ func (w *inkWalker) add(m matrix, clip clipBox, sub []point, stroked bool) {
 // manual, and 2 of those — 22 and 44 — are the grids of framed illustrations this
 // file exists to find.
 //
-// **A picture can still be cut by its own labels.** Not the clip any more — that is
-// read — but [trimToPicture], which pulls an edge in off a line of four runes or
-// more. Page 16 figure 2 of the columns manual is the case: the printed panel runs
-// to x=288 and carries the label »click« at its right, so the box stops at 209 and
-// the crop loses the right third of the drawing. 15 of that document's 59 figures
-// are cut this way against 2 with trimming off, and the trade is measured in the
-// note on [trimToPicture] rather than decided here.
+// **A picture can still be cut by a caption printed over its artwork.** Not by its
+// own labels any more: [trimToPicture] leaves a line the artwork encloses alone, and
+// page 16 figure 2 of the columns manual — the case that used to lose its right
+// third to the label »click« — now returns whole, which took that document from 15
+// figures cut to 3. What is left is the opposite arrangement, where the drawing
+// really does run under the text: page 1's cover art continues behind the title
+// block, so excluding the titles cuts it, and that figure is one of the 3. Nothing
+// here can have both, because both are one rectangle.
 //
 // **Page furniture repeated in the same place is not identified as such.** The
 // ink guard rejects every logo and badge in these two documents because they are

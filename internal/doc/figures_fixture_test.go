@@ -97,7 +97,7 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		maxTextOfReal float64
 	}{
 		// The columns manual: 59 figures on 27 of 68 pages, 3 to 4 on the pages of
-		// framed drawings. Its smallest figure's short side is 128 units — this
+		// framed drawings. Its smallest figure's short side is 130 units — this
 		// document draws nothing small, which is why the size floor decides nothing
 		// on it at any value from 10 to 120.
 		//
@@ -106,7 +106,18 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		// the page count does not, which is what tells a split from a new find.
 		// Its least-inked figure falls from 28 shapes to 26 for the same reason — a
 		// merged cluster held both drawings' shapes.
-		{"thomas-drybox-amfibia", 27, 59, 128, 26, 4, 0.09},
+		//
+		// Two of these moved when trimToPicture stopped cutting a drawing away from
+		// its own labels, and both moved because the old numbers were measuring the
+		// cut rather than the document. The smallest side was 128, which was page
+		// 52's process diagram amputated to 128.9 units tall; the real smallest
+		// drawing is page 48's second panel at 130.4, and no trim has ever touched
+		// it. The text ceiling rises from 9% to 10% for the same reason: the most
+		// texted accepted figure is now page 53's Polish process diagram at 9.9%,
+		// which keeps the three-line label block printed inside it. That is still
+		// far under maxFigureTextFraction's 15%, which is what this bound is for,
+		// and page 57's rejected tables are still at 37-39%.
+		{"thomas-drybox-amfibia", 27, 59, 130, 26, 4, 0.10},
 		// The sequential manual: 238 figures on 23 of 560 pages, and up to 34 on one
 		// page — its front matter carries two pages that are nothing but grids of
 		// small diagrams. Every figure in it is in the front matter or the back

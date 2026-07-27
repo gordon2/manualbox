@@ -109,6 +109,18 @@ func report(t *testing.T, rep *verify.Report) {
 	}
 }
 
+// figurePages is how many distinct pages carry a figure. Counted rather than
+// derived from the figure count because the two move independently: a geometry
+// change that splits one drawing into two raises the figures and not the pages,
+// while one that admits page furniture raises both.
+func figurePages(conv *doc.Conversion) int {
+	seen := make(map[int]bool, len(conv.Figures))
+	for i := range conv.Figures {
+		seen[conv.Figures[i].Page] = true
+	}
+	return len(seen)
+}
+
 // TestCheckTheColumnManual is the parallel-columns fixture: 68 pages, five
 // languages sharing most of them, 59 figures.
 func TestCheckTheColumnManual(t *testing.T) {
@@ -148,9 +160,10 @@ func TestCheckTheColumnManual(t *testing.T) {
 		t.Errorf("glued words or doubled spaces: %d, was 0", got)
 	}
 
-	// The figure geometry. Both of these were the clip-path limitation
-	// conversion.md recorded, and reading the clip took them from 4 blank bands and
-	// 22 clipped to 0 and 15 while the figure count rose from 46 to 59.
+	// The figure geometry, in two steps. Both of these were the clip-path limitation
+	// conversion.md recorded; reading the clip took them from 4 blank bands and 22
+	// clipped to 0 and 15 while the figure count rose from 46 to 59, and narrowing
+	// trimToPicture to lines the box had reached over took the 15 to 3.
 	//
 	// Zero is asserted on the band because that check reads the RENDERED PIXELS and
 	// so is independent of the geometry that produced them: it is the one number
@@ -158,12 +171,22 @@ func TestCheckTheColumnManual(t *testing.T) {
 	if got := rep.Count(verify.KindFigureBand); got != 0 {
 		t.Errorf("blank bands: %d figure(s), was 4 before the clip and 0 after", got)
 	}
-	// The 15 that remain are not the clip. Every one is a figure whose box
-	// trimToPicture pulled in off a label at its edge — page 16 figure 2 is the
-	// measured case — and with trimming off the same count is 2. See the note on
-	// doc's trimToPicture, which records the trade rather than taking it.
-	if got := rep.Count(verify.KindFigureClipped); got != 15 {
-		t.Errorf("clipped figures: %d of 59, was 22 of 46 before the clip", got)
+	// The 3 that remain are three different things and none is the trim cutting a
+	// drawing away from its own label. Pages 11 and 12 report one and two shapes
+	// crossing out of 2,741 — a page-sized path this package's geometric matching
+	// cannot attribute, and the same 2 that stand with trimming switched off
+	// entirely. Page 1 is the cover, whose art really does continue behind the
+	// title block the trim excludes; that one is a genuine trade and it is taken
+	// deliberately, because the alternative is a cover crop full of headline type.
+	if got := rep.Count(verify.KindFigureClipped); got != 3 {
+		t.Errorf("clipped figures: %d of 59, was 22 of 46 before the clip and 15 "+
+			"while the trim cut labels off", got)
+	}
+	// The pages carrying figures, which is what says a change to the geometry split
+	// or merged pictures rather than admitting or losing them. 27 since the clip was
+	// read, and the trim change did not move it.
+	if got := figurePages(conv); got != 27 {
+		t.Errorf("figures land on %d page(s), was 27", got)
 	}
 
 	// Reading order is clean, including on the parts pages whose callouts scatter
@@ -242,8 +265,21 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	if got := rep.Count(verify.KindFigureBand); got != 2 {
 		t.Errorf("blank bands: %d figure(s), was 6 before the clip and 2 after", got)
 	}
-	if got := rep.Count(verify.KindFigureClipped); got != 71 {
-		t.Errorf("clipped figures: %d of 168, was 74 of 163 before the clip", got)
+	// 70 since trimToPicture stopped pulling an edge in off a label the artwork
+	// encloses, which on this document is worth exactly one figure — page 523's,
+	// where the trim used to cut 18 units off the top for a caption beside it. That
+	// this barely moves is the same reading as above: these are leader lines, not
+	// trimming.
+	if got := rep.Count(verify.KindFigureClipped); got != 70 {
+		t.Errorf("clipped figures: %d of 168, was 74 of 163 before the clip "+
+			"and 71 while the trim cut labels off", got)
+	}
+	// 20, and the 23 that doc/figures.go's header quotes is a different count at a
+	// different level: doc finds 238 figures over 23 pages, and conversion keeps the
+	// 168 that fall inside a language region, which land on 20 of those pages. Both
+	// are right and they are not the same number.
+	if got := figurePages(conv); got != 20 {
+		t.Errorf("figures land on %d page(s), was 20", got)
 	}
 
 	// The one reading-order class either manual has: the routine-maintenance page

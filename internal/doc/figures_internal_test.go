@@ -25,6 +25,11 @@ import (
 // column trimmed off instead of being thrown away whole, which is the better of the
 // two outcomes. What is left is one cluster in 275 across both documents.
 //
+// Narrowing the trim to lines the box has reached over did not move that: the trims
+// it stopped making are the ones that cut a label out of the middle of a drawing,
+// and a drawing keeping its own label is nowhere near [maxFigureTextFraction]. The
+// counts below are the same on both documents before and after.
+//
 // Reading the clip moved both totals — 46 to 59 figures on the columns manual and
 // 229 to 238 on the sequential one, because drawings that had been merged into a
 // neighbour are now separate — and moved neither verdict: the guard still decides
@@ -259,6 +264,98 @@ func TestGuardSweep(t *testing.T) {
 
 func withInk(g figureGuards, v int) figureGuards      { g.minInk = v; return g }
 func withSize(g figureGuards, v float64) figureGuards { g.minWidth, g.minHeight = v, v; return g }
+
+// TestTrimOnlyPullsOffALineItReachedOver drives [trimToPicture] with the four
+// arrangements measured on the columns manual, at their real coordinates, so the
+// rule is pinned without a PDF.
+//
+// The four are the whole argument for the rule and each one is a page:
+//
+//	page 16 fig 2  »click« printed inside the panel, artwork on all four sides
+//	page 24 fig 0  the same label at the drawing's RIGHT EDGE, no artwork past it
+//	page 52 fig 0  a line of body text above the diagram, reaching in from outside
+//	page 1  fig 0  the cover title block, reaching in from outside AND above
+//
+// Page 24 is why the rule is containment and not ink on more than one side: that
+// »click« has ink only to its left and below, exactly like page 1's title, and the
+// two must come out opposite ways. What separates them is that one is inside the box
+// and the other is not.
+func TestTrimOnlyPullsOffALineItReachedOver(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		area CellRect
+		text []TextRun
+		want CellRect
+	}{{
+		// The label sits at 209-238 within a panel running to 288. It used to cost
+		// the drawing everything past x=209.
+		name: "a label the panel encloses is left alone",
+		area: CellRect{42.8, 466.5, 288.4, 643.4},
+		text: []TextRun{{X: 209, Y: 530, Width: 29, Height: 17, Text: "»click«"}},
+		want: CellRect{42.8, 466.5, 288.4, 643.4},
+	}, {
+		// The same label flush against the drawing's right edge, inside it by half a
+		// unit. Ink cannot tell this from prose; containment can.
+		name: "a label at the very edge is still inside",
+		area: CellRect{42.8, 197.0, 288.4, 373.0},
+		text: []TextRun{{X: 262, Y: 304, Width: 25, Height: 14, Text: "»click«"}},
+		want: CellRect{42.8, 197.0, 288.4, 373.0},
+	}, {
+		// One line of German body text ending just inside the diagram's top edge.
+		// The top comes down off it and nothing else moves.
+		name: "a line of prose reaching in from above is trimmed off",
+		area: CellRect{323.1, 379.3, 582.5, 567.5},
+		text: []TextRun{
+			{X: 323, Y: 363, Width: 31, Height: 17, Text: "erzielen:"},
+			// The diagram's own labels, which used to go with it.
+			{X: 357, Y: 471, Width: 37, Height: 13, Text: "Absaugen und"},
+			{X: 390, Y: 554, Width: 60, Height: 13, Text: "Lösen und Auswaschen"},
+		},
+		want: CellRect{323.1, 380.0, 582.5, 567.5},
+	}, {
+		// The cover: the whole title block, five lines stepping down and to the
+		// right out of the art. The cheaper edge is taken each round, which is why
+		// this needs all five rather than a sample — the order they come off in is
+		// the behaviour.
+		name: "the cover title block is trimmed off two edges",
+		area: CellRect{37.7, 324.0, 663.0, 819.2},
+		text: []TextRun{
+			{X: 55, Y: 301, Width: 387, Height: 24,
+				Text: "29924_Saugerbeschriftungen_DryBoxAmfibia.ind"},
+			{X: 534, Y: 321, Width: 163, Height: 34, Text: "GEBRAUCHSANLEITUNG"},
+			{X: 568, Y: 354, Width: 152, Height: 34, Text: "INSTRUKCJA OBSŁUGI"},
+			{X: 602, Y: 386, Width: 248, Height: 34, Text: "РУКОВОДСТВО ПО ЭКСПЛУАТАЦИИ"},
+			{X: 636, Y: 418, Width: 201, Height: 34, Text: "ІНСТРУКЦІЯ З ЕКСПЛУАТАЦІЇ"},
+		},
+		want: CellRect{37.7, 355.0, 568.0, 819.2},
+	}, {
+		// The floor under the rule: a run of three runes is never trimmed for, even
+		// when it does reach over the edge. Page 11's diagram numbers its parts 1 to
+		// 39 and several sit against the frame.
+		name: "a short run is not trimmed for even when it reaches over",
+		area: CellRect{100, 100, 300, 300},
+		text: []TextRun{{X: 60, Y: 150, Width: 50, Height: 14, Text: "12"}},
+		want: CellRect{100, 100, 300, 300},
+	}, {
+		// And the cap above it, which the two rules enforce together: the line reaches
+		// over the LEFT edge only, so the left edge is the only one that may move, and
+		// moving it past a third of the side is refused. The candidate is left whole
+		// for the text guard to reject rather than whittled into a plausible picture.
+		// Before the reach rule this trimmed the top instead — an edge the line never
+		// crossed — and that is what "whittled" meant.
+		name: "no edge moves by more than a third of its side",
+		area: CellRect{100, 100, 300, 300},
+		text: []TextRun{{X: 0, Y: 150, Width: 200, Height: 14, Text: "a whole line of prose"}},
+		want: CellRect{100, 100, 300, 300},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trimToPicture(tc.area, tc.text)
+			if got != tc.want {
+				t.Errorf("trimToPicture(%v) = %v, expected %v", tc.area, got, tc.want)
+			}
+		})
+	}
+}
 
 // TestPNGSizeReadsTheHeader covers the one piece of byte-level parsing here
 // without a PDF, including the two malformed cases that would otherwise be stored
