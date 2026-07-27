@@ -80,21 +80,40 @@ import (
 // panels rather than the three it records. Both documents keep the same number of
 // pages carrying figures, which is what says these are splits rather than newly
 // admitted furniture — 27 and 23, counted over what [FindFigures] returns for every
-// page. Note the level: the table above is what `manualbox verify` converts, and
-// conversion keeps 168 of the sequential manual's 238 figures, landing on 20 of
+// page.
+//
+// **A candidate whose box overlaps another's is a piece of it.** Reading the clip
+// split drawings that had been merged; it also revealed that some of them had been
+// in pieces all along, because a group's box is the union of its shapes and can
+// cover a neighbouring group entirely without any shape of the two touching. See
+// [mergeOverlapping], which is the second pass that fixes it, and what it was worth
+// end to end:
+//
+//	                              columns manual   sequential manual
+//	figures                         59 -> 59         168 -> 134
+//	figures cut off by their crop    3 -> 3            70 -> 25
+//	figures with a blank band        0 -> 0             2 -> 2
+//
+// The columns manual does not move at all, at any merge threshold: it has no page
+// where two candidates overlap. On the sequential manual the pages carrying figures
+// again do not move, and the clipped count falls by two thirds, because a piece of a
+// drawing is crossed by the shapes of the piece beside it.
+//
+// Note the level: the tables above are what `manualbox verify` converts, and
+// conversion keeps 134 of the sequential manual's 195 figures, landing on 20 of
 // those 23 pages. Both counts are pinned, in TestGuardSweep and in verify's
 // fixture tests respectively.
 //
 // The residual counts were not the clip either, and most of the columns manual's
 // have since gone: 15 of them were [trimToPicture] cutting into a drawing that had
 // a label at its edge, and teaching the trim to leave a label the artwork encloses
-// alone took that document to 3 and the sequential one to 70. What remains is three
-// classes, none of them the clip. Pages 11 and 12 of the columns manual report one
-// shape crossing out of 2,741, which is a page-sized path the geometric matching in
-// `internal/verify` cannot attribute; page 1 is the cover, whose artwork genuinely
-// runs behind the title block the trim excludes; and the sequential manual's 70 are
-// leader lines on its crowded diagram pages, where a line more than half inside one
-// figure's box belongs to the drawing beside it. See the note on [trimToPicture].
+// alone took that document to 3. What remains is three classes, none of them the
+// clip. Pages 11 and 12 of the columns manual report one shape crossing out of
+// 2,741, which is a page-sized path the geometric matching in `internal/verify`
+// cannot attribute; page 1 is the cover, whose artwork genuinely runs behind the
+// title block the trim excludes; and the sequential manual's 25 are leader lines on
+// its crowded diagram pages, where a line more than half inside one figure's box
+// belongs to the drawing beside it. See the note on [trimToPicture].
 //
 // Nothing here emits a block and nothing here writes to the blob store. This file
 // answers only "where are the pictures, and what are their bytes"; the digest is
@@ -642,18 +661,32 @@ func boxOverlap(a, b CellRect) float64 {
 // axisOverlap is the share of the shorter of two intervals that lies inside the
 // other.
 func axisOverlap(a0, a1, b0, b1 float64) float64 {
+	// A zero-length interval has no share to take, so the question becomes whether
+	// its one point lies inside the other — the same reading [verify.overlap1D]
+	// gives a shape with no thickness. Asked before the width test below, because
+	// an interval of zero length overlaps nothing by measure.
+	if a1 <= a0 {
+		return inside(a0, b0, b1)
+	}
+	if b1 <= b0 {
+		return inside(b0, a0, a1)
+	}
 	in := math.Min(a1, b1) - math.Max(a0, b0)
 	if in <= 0 {
-		// Touching exactly is not overlapping. Cairo emits a drawing's parts as
-		// separate paths that abut, and the shape-level pass has already joined
-		// everything that touches.
+		// Touching exactly is not overlapping. The shape-level pass has already
+		// joined everything whose boxes meet, so a second pass that merged on
+		// contact would only undo its own answer.
 		return 0
 	}
-	short := math.Min(a1-a0, b1-b0)
-	if short <= 0 {
-		return 1 // a degenerate axis lying inside the other interval
+	return in / math.Min(a1-a0, b1-b0)
+}
+
+// inside reports 1 when a point lies within an interval and 0 when it does not.
+func inside(p, lo, hi float64) float64 {
+	if p >= lo && p <= hi {
+		return 1
 	}
-	return in / short
+	return 0
 }
 
 // contains reports whether inner sits wholly inside outer.

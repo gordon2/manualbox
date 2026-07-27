@@ -202,9 +202,9 @@ func TestCheckTheColumnManual(t *testing.T) {
 func TestCheckTheSequentialManual(t *testing.T) {
 	conv, rep := checked(t, "dreame-l40-ultra")
 
-	if len(conv.Blocks) != 15951 || len(conv.Figures) != 168 {
+	if len(conv.Blocks) != 15951 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 15951 and 168", len(conv.Blocks), len(conv.Figures))
+			"was 15951 and 134", len(conv.Blocks), len(conv.Figures))
 	}
 
 	if got := rep.Count(verify.KindCoverage); got != 0 {
@@ -253,33 +253,32 @@ func TestCheckTheSequentialManual(t *testing.T) {
 		t.Errorf("glued words: %d, was 3", got)
 	}
 
-	// 2 blank bands where there were 6 before the clip was read, and 71 clipped
-	// where there were 74 — barely moved, and that is the honest reading of this
-	// document rather than a disappointment to explain away. Its residual findings
-	// are on the crowded diagram pages (521-531), where a leader line more than half
-	// inside one small figure's box is drawn for the drawing beside it, so what they
-	// report is the geometric matching this package has to do without knowing which
-	// shapes doc assigned to which figure. Page 522 was rendered and read: 13
-	// figures over about eight printed drawings, each crop a sensible picture with
-	// leader-line stubs reaching its edge.
+	// 2 blank bands where there were 6 before the clip was read. Merging candidate
+	// boxes that overlap did not move this, which is worth stating, because a
+	// merged box is bigger than either of its parts and could easily have arrived
+	// with empty space in it: it does not, because the parts overlap.
 	if got := rep.Count(verify.KindFigureBand); got != 2 {
 		t.Errorf("blank bands: %d figure(s), was 6 before the clip and 2 after", got)
 	}
-	// 70 since trimToPicture stopped pulling an edge in off a label the artwork
-	// encloses, which on this document is worth exactly one figure: page 545 figure
-	// 5, whose box used to stop at x=245 and cut the leader line running out to the
-	// label "QR コード" at 245-272. It now stops at 285, where the Wi-Fi caption
-	// really does reach in from outside. That one figure is the whole difference,
-	// and that is the same reading as above — this document's clipped figures are
-	// leader lines between crowded drawings, not trimming.
-	if got := rep.Count(verify.KindFigureClipped); got != 70 {
-		t.Errorf("clipped figures: %d of 168, was 74 of 163 before the clip "+
-			"and 71 while the trim cut labels off", got)
+	// 25, down from 70, and this is where merging overlapping candidates pays off
+	// twice. The residual findings of this document were never the trim and never
+	// the clip: they were the crowded diagram pages 521-531, where a drawing had
+	// clustered in pieces and each piece's box was crossed by the shapes of the
+	// piece beside it. Merging the pieces removes the crossing along with the
+	// duplicate picture. What is left is 25 on 13 pages, which is the leader-line
+	// case this package has to guess at, matching a shape to a figure by geometry
+	// because doc.Figure carries how many shapes it holds and not which.
+	if got := rep.Count(verify.KindFigureClipped); got != 25 {
+		t.Errorf("clipped figures: %d of 134, was 74 of 163 before the clip, "+
+			"71 while the trim cut labels off, and 70 of 168 before overlapping "+
+			"candidates were merged", got)
 	}
 	// 20, and the 23 that doc/figures.go's header quotes is a different count at a
-	// different level: doc finds 238 figures over 23 pages, and conversion keeps the
-	// 168 that fall inside a language region, which land on 20 of those pages. Both
-	// are right and they are not the same number.
+	// different level: doc finds 195 figures over 23 pages, and conversion keeps the
+	// 134 that fall inside a language region, which land on 20 of those pages. Both
+	// are right and they are not the same number. The page count did not move when
+	// the figure count fell from 168 to 134, which is what says those 34 were pieces
+	// of pictures already found rather than pictures lost.
 	if got := figurePages(conv); got != 20 {
 		t.Errorf("figures land on %d page(s), was 20", got)
 	}

@@ -3,6 +3,7 @@ package doc_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -117,8 +118,15 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		// which keeps the three-line label block printed inside it. That is still
 		// far under maxFigureTextFraction's 15%, which is what this bound is for,
 		// and page 57's rejected tables are still at 37-39%.
+		//
+		// Merging candidate boxes that overlap moved nothing here at all, and that
+		// is a measurement rather than an omission: this document has no page where
+		// two candidates overlap, at any merge threshold from 0 to 1. Every number
+		// on this row is the same before and after, which is what says the merge
+		// pass cannot lose a picture on the document whose pictures were counted by
+		// eye. See mergeOverlapping in figures.go.
 		{"thomas-drybox-amfibia", 27, 59, 130, 26, 4, 0.10},
-		// The sequential manual: 238 figures on 23 of 560 pages, and up to 34 on one
+		// The sequential manual: 195 figures on 23 of 560 pages, and up to 31 on one
 		// page — its front matter carries two pages that are nothing but grids of
 		// small diagrams. Every figure in it is in the front matter or the back
 		// matter: the 34 language sections print prose and ruled tables and no
@@ -127,8 +135,21 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		// a language-scoped conversion of this document would show a reader no
 		// pictures at all.
 		//
-		// 229 before the clip, on the same 23 pages.
-		{"dreame-l40-ultra", 23, 238, 20, 28, 34, 0.06},
+		// 229 before the clip and 238 after, on the same 23 pages. 195 since
+		// candidate boxes that overlap are merged: 43 of those 238 were pieces of a
+		// drawing that had already been found, and the page count does not move,
+		// which is what tells a merge from a lost picture. Page 522 was rendered and
+		// counted by eye — 9 printed drawings, 13 figures before and 9 after — and so
+		// was page 524, which returned the hand out of its own drawing as a separate
+		// picture and now returns 4 boxes for its 4 drawings.
+		//
+		// Three of the columns below move with it, all in the same direction and for
+		// the same reason: the smallest and leanest candidates were fragments, and
+		// they are inside something else now. The smallest side rises from 20 units
+		// to 22, the least-inked figure from 28 shapes to 30, and the most-texted
+		// accepted figure from 6.0% to 6.3% — a merged box is larger, so a caption
+		// printed beside the drawing covers more of it.
+		{"dreame-l40-ultra", 23, 195, 22, 30, 31, 0.07},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, pages := rulesFixture(t, tc.name)
@@ -347,6 +368,58 @@ func TestEveryFigureOfTheColumnsManualRenders(t *testing.T) {
 	if largest > 1<<20 {
 		t.Errorf("largest figure is %d KB; the largest measured was 353 KB and "+
 			"maxFigurePNGBytes was set from it", largest/1024)
+	}
+}
+
+// TestNoFigureOverlapsAnotherOnEitherManual is the property the merge pass exists
+// to establish, asserted over both whole documents rather than on the page the
+// fault was reported on.
+//
+// A picture served twice is the worst thing this stage can do — a reader gets the
+// drawing and then a scrap of the same drawing as if it were a second picture — and
+// it cannot be caught by a count, because the count of a document nobody has looked
+// at is unfalsifiable. This can be: no figure's box may share any area with
+// another's on the same page.
+//
+// Before the merge pass the columns manual had 0 overlapping pairs and the
+// sequential one 53, of which 7 were one box wholly inside another. The strict
+// containment census is kept separate because it was the case the report named.
+func TestNoFigureOverlapsAnotherOnEitherManual(t *testing.T) {
+	for _, name := range []string{"thomas-drybox-amfibia", "dreame-l40-ultra"} {
+		t.Run(name, func(t *testing.T) {
+			path, pages := rulesFixture(t, name)
+			var overlapping, nested int
+			for i := range pages {
+				figs := areasOf(t, path, &pages[i])
+				for a := range figs {
+					for b := range figs {
+						if a == b {
+							continue
+						}
+						x := math.Min(figs[a].Rect.X1, figs[b].Rect.X1) -
+							math.Max(figs[a].Rect.X0, figs[b].Rect.X0)
+						y := math.Min(figs[a].Rect.Y1, figs[b].Rect.Y1) -
+							math.Max(figs[a].Rect.Y0, figs[b].Rect.Y0)
+						if a < b && x > 0 && y > 0 {
+							overlapping++
+							t.Errorf("page %d: figures %d and %d overlap\n    %s\n    %s",
+								pages[i].No, a, b, describe(&figs[a]), describe(&figs[b]))
+						}
+						if figs[a].Rect.X0 >= figs[b].Rect.X0 && figs[a].Rect.X1 <= figs[b].Rect.X1 &&
+							figs[a].Rect.Y0 >= figs[b].Rect.Y0 && figs[a].Rect.Y1 <= figs[b].Rect.Y1 {
+							nested++
+						}
+					}
+				}
+			}
+			t.Logf("%s: %d overlapping pair(s), %d figure(s) wholly inside another",
+				name, overlapping, nested)
+			if nested != 0 {
+				t.Errorf("%d figure(s) sit wholly inside another; a box inside a box "+
+					"is a fragment of that drawing, served to a reader as a second picture",
+					nested)
+			}
+		})
 	}
 }
 

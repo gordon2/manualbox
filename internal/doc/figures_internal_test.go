@@ -262,6 +262,74 @@ func TestGuardSweep(t *testing.T) {
 	}
 }
 
+// TestMergeThresholdSweep is the evidence behind [figureMergeOverlap], and the
+// evidence is that there is nothing for a threshold to separate.
+//
+// It sweeps how much of the smaller of two candidate boxes may lie inside the other
+// before they are read as one picture, from 1 — which disables the pass, since no
+// overlap can exceed it — down to 0, and prints the count over each whole document.
+// Two things are asserted rather than only printed.
+//
+// The first is that the parallel-columns manual does not move at any value. It has
+// no page where two candidates overlap, so this whole change is the other document's
+// and the manual whose pictures were counted by eye cannot lose one to it.
+//
+// The second is that the sequential manual sits on a plateau at the bottom of the
+// range rather than on a cliff: 0, 0.01, 0.05 and 0.1 give 195, 194, 196 and 195
+// figures. That is the claim the value rests on. The 53 overlapping pairs on that
+// document run 1.00, 0.96, 0.91 … 0.11, 0.10, 0.01 with no gap, every one of them
+// was rendered as a crop of the two boxes' union and looked at, and every one is a
+// single printed drawing that clustered in pieces — so a threshold anywhere in that
+// range would be deciding a case that does not exist, and the counts say the same
+// thing from the other side.
+//
+// The counts are NOT monotonic in the threshold and that is expected rather than a
+// fault: merging happens before the guards, so two candidates that were each under
+// [minFigureInk] can merge into one that passes, and a document can gain a figure by
+// merging. The sequential manual does, at 0.75.
+func TestMergeThresholdSweep(t *testing.T) {
+	for _, name := range []string{"thomas-drybox-amfibia", "dreame-l40-ultra"} {
+		t.Run(name, func(t *testing.T) {
+			pages, ink := loadFigureInk(t, name)
+			count := func(v float64) int {
+				g := defaultGuards
+				g.mergeOverlap = v
+				var n int
+				for i := range pages {
+					n += len(findFigures(ink[i], &pages[i], g))
+				}
+				return n
+			}
+			off := count(1)
+			base := count(figureMergeOverlap)
+			t.Logf("%s: %d figures with the merge off, %d at the default", name, off, base)
+			for _, v := range []float64{0.999, 0.9, 0.75, 0.5, 0.25, 0.1, 0.05, 0.01, 0} {
+				t.Logf("  mergeOverlap=%-5.3g -> %d figures", v, count(v))
+			}
+
+			if name == "thomas-drybox-amfibia" {
+				for _, v := range []float64{0, 0.25, 0.5, 0.999} {
+					if got := count(v); got != off {
+						t.Errorf("at %.3f this document gives %d figures against %d with "+
+							"the merge off; it has no overlapping candidates and must not move",
+							v, got, off)
+					}
+				}
+			}
+			lo, hi := base, base
+			for _, v := range []float64{0.01, 0.05, 0.1} {
+				got := count(v)
+				lo, hi = min(lo, got), max(hi, got)
+			}
+			if hi-lo > 2 {
+				t.Errorf("between 0 and 0.1 the count ranges over %d..%d; the default "+
+					"is on a cliff, and it was chosen because there is no case in that "+
+					"range for a threshold to decide", lo, hi)
+			}
+		})
+	}
+}
+
 func withInk(g figureGuards, v int) figureGuards      { g.minInk = v; return g }
 func withSize(g figureGuards, v float64) figureGuards { g.minWidth, g.minHeight = v, v; return g }
 
@@ -485,6 +553,154 @@ func TestFiguresAreInReadingOrder(t *testing.T) {
 		}
 		if figs[i].Index != i {
 			t.Errorf("figure at position %d carries index %d", i, figs[i].Index)
+		}
+	}
+}
+
+// TestAFragmentDrawnInsideADrawingIsNotItsOwnPicture is the fault the user
+// reported, at the coordinates it was reported at.
+//
+// Page 524 of the sequential manual draws a hand holding a pin over the robot's
+// underside. The hand's strokes touch none of the robot's, so the shape-level pass
+// clusters it alone, and it was served as a picture of its own: a duplicate scrap
+// of the drawing it came out of. The two boxes are the measured ones, x=279-412
+// y=134-256 for the robot and x=375-416 y=146-184 for the hand — which is 90.8% of
+// the hand inside the robot and NOT containment. The pin pokes 4 units past the
+// robot's right edge, which is why a containment test alone would not have fixed
+// the case it was reported on.
+func TestAFragmentDrawnInsideADrawingIsNotItsOwnPicture(t *testing.T) {
+	page := &PageRuns{No: 524, Width: 918, Height: 631}
+
+	// The robot, drawn as chains of overlapping strokes along the top, the bottom
+	// and the left of x=279-412 y=134-256. Deliberately open on the right between
+	// y=146 and y=184, so no shape of the robot is anywhere near the hand.
+	ink := chainX(279, 412, 134, 140, 7)
+	ink = append(ink, chainX(279, 412, 250, 256, 7)...)
+	ink = append(ink, chainY(134, 256, 279, 285, 7)...)
+	// The hand: a chain of its own, dense enough to clear the ink guard by itself —
+	// which is what made it a picture — reaching 4 units past the robot's right edge
+	// and touching nothing the robot drew.
+	hand := chainY(146, 184, 375, 416, 1.5)
+	if len(hand) < minFigureInk {
+		t.Fatalf("the hand is %d shapes; it has to pass the ink guard alone", len(hand))
+	}
+	ink = append(ink, hand...)
+
+	figs := FindFigures(ink, page)
+	if len(figs) != 1 {
+		t.Fatalf("found %d figures, expected the drawing and its hand to be one", len(figs))
+	}
+	// The merged box is the union, so the parent keeps everything it had and gains
+	// only what the fragment reached past it.
+	if got := figs[0].Rect; got != (CellRect{279, 134, 416, 256}) {
+		t.Errorf("rect = %v, expected the union x=279-416 y=134-256", got)
+	}
+	if figs[0].Ink != len(ink) {
+		t.Errorf("ink = %d, expected all %d shapes counted inside the merged box",
+			figs[0].Ink, len(ink))
+	}
+}
+
+// TestBoxesThatOnlyTouchAreNotMerged is the other side of the rule, and it is what
+// keeps two drawings printed side by side apart.
+//
+// Exactly touching is not overlapping: the shape-level pass has already joined
+// everything whose boxes meet, so a second pass that merged on contact would only
+// undo its own answer. The gaps that carry two real drawings apart on these
+// documents are much wider than this — page 524's two halves are 23 units apart and
+// page 522's two mop pads 46 — so this pins the boundary at its tightest.
+func TestBoxesThatOnlyTouchAreNotMerged(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		boxes []CellRect
+		want  int
+	}{
+		{"sharing a vertical edge",
+			[]CellRect{{100, 100, 200, 200}, {200, 100, 300, 200}}, 2},
+		{"sharing a horizontal edge",
+			[]CellRect{{100, 100, 200, 200}, {100, 200, 200, 300}}, 2},
+		{"meeting at a corner",
+			[]CellRect{{100, 100, 200, 200}, {200, 200, 300, 300}}, 2},
+		{"a unit apart",
+			[]CellRect{{100, 100, 200, 200}, {201, 100, 300, 200}}, 2},
+		// Overlapping on one axis only is not overlapping: two drawings printed
+		// side by side share a horizontal band and are still two drawings.
+		{"overlapping on one axis only",
+			[]CellRect{{100, 100, 200, 200}, {201, 150, 300, 250}}, 2},
+		{"overlapping by one unit on both axes",
+			[]CellRect{{100, 100, 200, 200}, {199, 199, 300, 300}}, 1},
+	} {
+		got := mergeOverlapping(append([]CellRect(nil), tc.boxes...), figureMergeOverlap)
+		if len(got) != tc.want {
+			t.Errorf("%s: %d box(es), expected %d — %v", tc.name, len(got), tc.want, got)
+		}
+	}
+}
+
+// TestMergingRunsToAFixpoint covers the case one pass cannot: a merged box is
+// bigger than either of its parts and can reach a third that neither part reached.
+func TestMergingRunsToAFixpoint(t *testing.T) {
+	// Three boxes on a diagonal, each overlapping only the next. Built out of
+	// order, because the merge must not depend on the order they arrive in.
+	boxes := []CellRect{{280, 280, 380, 380}, {100, 100, 200, 200}, {190, 190, 290, 290}}
+	got := mergeOverlapping(boxes, figureMergeOverlap)
+	if len(got) != 1 {
+		t.Fatalf("%d boxes, expected the chain to collapse to one: %v", len(got), got)
+	}
+	if got[0] != (CellRect{100, 100, 380, 380}) {
+		t.Errorf("box = %v, expected the whole chain x=100-380 y=100-380", got[0])
+	}
+}
+
+// chainX lays overlapping strokes along a horizontal line from lo to hi, ending
+// exactly on hi, so that they cluster into one shape group. A picture's strokes
+// meet, which is what [clusterInk] turns on, and a hand-built test that forgets
+// that measures nothing.
+func chainX(lo, hi, y0, y1, step float64) []Ink {
+	var ink []Ink
+	for x := lo; x < hi; x += step {
+		end := x + step + 1
+		if end > hi {
+			end = hi
+		}
+		ink = append(ink, Ink{Rect: CellRect{x, y0, end, y1}, Stroked: true})
+	}
+	return ink
+}
+
+// chainY is [chainX] down the page.
+func chainY(lo, hi, x0, x1, step float64) []Ink {
+	var ink []Ink
+	for y := lo; y < hi; y += step {
+		end := y + step + 1
+		if end > hi {
+			end = hi
+		}
+		ink = append(ink, Ink{Rect: CellRect{x0, y, x1, end}, Stroked: true})
+	}
+	return ink
+}
+
+// TestBoxOverlapOnADegenerateAxis pins the case an area ratio cannot answer: a
+// single hairline clusters alone and its box has zero height.
+func TestBoxOverlapOnADegenerateAxis(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b CellRect
+		want float64
+	}{
+		{"a flat rule inside a box", CellRect{10, 50, 90, 50}, CellRect{0, 0, 100, 100}, 1},
+		{"a flat rule half inside", CellRect{50, 50, 150, 50}, CellRect{0, 0, 100, 100}, 0.5},
+		{"a flat rule above the box", CellRect{10, 150, 90, 150}, CellRect{0, 0, 100, 100}, 0},
+		{"touching along an edge", CellRect{100, 0, 200, 100}, CellRect{0, 0, 100, 100}, 0},
+		{"one box inside the other", CellRect{10, 10, 20, 20}, CellRect{0, 0, 100, 100}, 1},
+	} {
+		if got := boxOverlap(tc.a, tc.b); got != tc.want {
+			t.Errorf("%s: overlap = %.3f, expected %.3f", tc.name, got, tc.want)
+		}
+		if got := boxOverlap(tc.b, tc.a); got != tc.want {
+			t.Errorf("%s, the other way round: overlap = %.3f, expected %.3f",
+				tc.name, got, tc.want)
 		}
 	}
 }
