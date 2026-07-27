@@ -13,12 +13,18 @@ const (
 	// minGluedPart is how long each half of a suspected glued word must be before
 	// the split is believed.
 	//
-	// Without a floor the check finds a split in almost any long word — German
-	// "Anwendungsfall" contains "an", and if the page happens to print "an"
-	// elsewhere the word reports itself. Measured on the column manual's
-	// every-language conversion, over the words absent from pdftotext: at 2 runes
-	// the check reports 12 glued words, at 3 it reports 6, at 4 it reports 4 and
-	// loses "imGerät". 3 is where precision stops costing recall.
+	// Without a floor the check reads any two-letter prefix as a word. Swept over
+	// both manuals, as words reported:
+	//
+	//	floor 2   5 column / 3 sequential
+	//	floor 3   0 / 3
+	//	floor 4   0 / 1
+	//
+	// The five the column manual reports at 2 are the check running backwards: the
+	// block holds "трубка" as one word and it is `pdftotext` that split it, into
+	// "труб" and "ка", so the split it finds is the other tool's rather than ours. 3
+	// removes all five and keeps both of the sequential manual's Thai cases; 4 loses
+	// two of the three.
 	minGluedPart = 3
 )
 
@@ -41,8 +47,15 @@ const (
 // Ausschalten" is correct prose and "Gehäusede- ckel" is a broken word, and both
 // are a letter, a hyphen, a space and a lowercase letter. Nothing on the page
 // separates them without a lexicon — a line-break hyphen is recognisable only from
-// where the line broke, and a block has deliberately removed that. So this fires
-// on both, the excerpt says which, and no filter pretends otherwise.
+// where the line broke, and a block has deliberately removed that. So this fires on
+// both, the excerpt says which, and no filter pretends otherwise.
+//
+// Measured: 276 blocks of the column manual carrying 313 such hyphens, and 72 blocks
+// of the sequential one carrying 79. Of the first 25 read by eye, 22 are line-break
+// hyphenation ("Polster- möbel", "эксклю- зивное") and 3 are elision ("Vor- oder",
+// "Elektro- und"), so the shape is mostly right and cannot be made entirely right.
+// Requiring a lowercase letter after the space is what keeps the punctuation dash out:
+// without it the same pass reports "230 V - 50 Hz" on every specification page.
 //
 // The glued sub-check needs the second opinion and is skipped without it: a word
 // is believed to be two words only when the page prints both of them separately.

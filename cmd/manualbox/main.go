@@ -70,6 +70,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdServe(ctx, rest, stdout, stderr)
 	case "doctor":
 		return cmdDoctor(ctx, rest, stdout)
+	case "verify":
+		return cmdVerify(ctx, rest, stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "manualbox %s (%s)\n", version, commit)
 		return nil
@@ -91,6 +93,7 @@ Usage:
 Commands:
   serve      Run the web server and background workers
   doctor     Report configuration and which optional tools are available
+  verify     Convert a PDF and report what is wrong with the conversion
   version    Print the version
   help       Show this help
 
@@ -99,6 +102,10 @@ Flags (serve, doctor):
 
 Flags (doctor):
   -redact          Replace your home directory with ~, for pasting into a bug report
+
+Flags (verify):
+  -limit <n>       How many findings of each kind to print (default 20)
+  -all             Print every finding
 
 Configuration comes from defaults, then the config file, then MANUALBOX_*
 environment variables. Run "manualbox doctor" to see what was resolved.

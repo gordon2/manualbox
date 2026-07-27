@@ -38,7 +38,27 @@ const (
 	// and little else. The sequential manual prints a two-letter language badge at
 	// x=27-41 below the running head on 110 pages, and that badge is a block: it is
 	// disjoint from the heading above it and lower down the page, which is the
-	// violation's exact shape.
+	// violation's exact shape. The column manual's parts pages do the same with
+	// numbered callouts scattered around a diagram.
+	//
+	// Swept over both manuals, as findings (column / sequential):
+	//
+	//	              chars>=0    chars>=8   chars>=16   chars>=24
+	//	gap>=0        67 / 687    0 / 71      0 / 37      0 / 11
+	//	gap>=12       61 / 662    0 / 70      0 / 37      0 / 11
+	//	gap>=20       58 / 326    0 / 69      0 / 36      0 / 11
+	//
+	// A floor of 8 runes already removes every one of the column manual's 67, all of
+	// which are a callout number or a folio. 16 is chosen over 8 because the 34 the
+	// sequential manual loses between them are the short interval labels of the same
+	// grid its 37 remaining findings name, so nothing new is lost, and because a
+	// block of interleaved prose is a printed line or more — the page-62 case
+	// conversion.md describes runs 40 to 80 runes.
+	//
+	// What survives at the defaults is one real class, and its concentration is what
+	// makes it believable: 37 findings on 27 pages, one routine-maintenance page per
+	// language section, where an unruled grid of intervals — invisible to the table
+	// detector by conversion.md's own account — is read in columns.
 	minOrderChars = 16
 )
 
@@ -77,8 +97,9 @@ var defaultOrderGuards = orderGuards{
 // that reading down every question and then down every answer was the limitation
 // row-major reading fixed. Row-major is exactly this check's violation shape — cell
 // (r,c) to (r,c+1) is disjoint and level — so a table page would report one finding
-// per cell. Measured on the column manual: including table cells reports 179
-// findings on its 10 table pages, all of them correct row-major reading.
+// per cell. Measured: including table cells takes the column manual from 0 findings
+// to 207 and the sequential one from 686 to 3,158, and every added one is correct
+// row-major reading.
 func checkOrder(blocks []doc.Block) []Finding {
 	return checkOrderWith(blocks, defaultOrderGuards)
 }

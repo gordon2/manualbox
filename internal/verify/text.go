@@ -17,71 +17,86 @@ const (
 	// minCoverage is how little of `pdftotext`'s text a page's blocks may hold
 	// before the page is reported as having dropped content.
 	//
-	// The honest baseline is well below 1 and that is not a defect. Blocks are
-	// built from [doc.usableRuns], which drops sub-legible production artifacts —
-	// the column manual's text layer carries an InDesign filename slug and an
-	// export timestamp 260 times each — and `pdftotext` reports every one of them.
-	// It also reports rotated text, which that filter drops, and page furniture
-	// living outside any region.
+	// The honest baseline is below 1 and that is not a defect. Blocks are built from
+	// doc's usableRuns, which drops sub-legible production artifacts — the column
+	// manual's text layer carries an InDesign filename slug and an export timestamp
+	// 260 times each, 8% of its runs — and `pdftotext` reports every one of them. It
+	// also reports rotated text, which that filter drops, and furniture outside any
+	// region. So the question is not "is it 1" but "is it what a correct conversion
+	// scores".
 	//
-	// Measured, per page, over every language of both manuals:
+	// Measured per page over every language of both manuals:
 	//
-	//	column manual   median 0.96, min 0.34 (page 1, the cover), 4 of 68 below 0.80
-	//	sequential      median 0.98, min 0.00 (blank pages), 21 of 560 below 0.80
+	//	column manual   66 pages judged: median 0.974, min 0.801 (page 5), then
+	//	                0.802, 0.858, 0.859, 0.871; 8 pages under 0.90, 0 under 0.80
+	//	sequential     552 pages judged: median 1.000, min 0.952 (page 189),
+	//	                0 pages under 0.95
 	//
-	// 0.80 is chosen because the distribution has a gap there: on the column
-	// manual the pages below it are the cover and three pages of framed
-	// illustrations whose captions are rotated, and every page of prose scores
-	// above 0.90. A tighter bound would report the cover of every manual, which is
-	// a page nobody reads; a looser one would admit losing a fifth of a page of
-	// prose, which is the defect this check exists for.
-	minCoverage = 0.80
+	// So a correct conversion of these two documents floors at 0.80, and the pages
+	// that get there are the artifact-heavy front matter the filter is for. 0.75
+	// leaves that floor about six points of headroom while still reporting a page
+	// that lost a quarter of itself. Set at 0.80 it would report page 5 of the column
+	// manual on a thousandth of a point, which is a threshold pinned to one page.
+	//
+	// A ratio slightly ABOVE 1 is also normal — the sequential manual's maximum is
+	// 1.003 — because a block joins a hyphenated word that `pdftotext` leaves broken
+	// across two lines, and the join is one character shorter than the break.
+	minCoverage = 0.75
 
 	// minCoverageText is how much text a page needs before its ratio is judged.
 	// A page holding a folio and a language badge scores whatever those two runs
-	// happen to do, and 34 of the sequential manual's pages are that page. The
-	// same floor [doc.MinTextChars] sets, and for the same reason.
+	// happen to do; one page of the sequential manual is that page. The same floor
+	// [doc.MinTextChars] sets, and for the same reason.
 	minCoverageText = 50
 
-	// minTokenRunes is how long a word must be to be compared.
+	// minTokenRunes is how long a word must be to enter the comparison.
 	//
-	// One-rune tokens are bullets, folios and list markers, and the two extractions
-	// legitimately disagree about them: `pdftohtml` reports a printed bullet as
-	// U+2022 where `pdftotext` writes it as a hyphen or drops it. Measured on the
-	// column manual, comparing single runes as well raises the miss rate from 0.4%
-	// to 3.1% and every added miss is punctuation.
+	// It barely moves the numbers and it is still worth having. Measured over the
+	// left-to-right pages of both manuals, the share of block words absent from
+	// `pdftotext` runs 1.84% / 1.95% / 1.98% on the column manual at a floor of 1, 2
+	// and 3 runes, and 0.47% / 0.45% / 0.48% on the sequential one. What the floor
+	// removes is 1,756 of the column manual's 31,450 tokens, and they are bullets,
+	// folios, list markers and unit letters — tokens on which the two tools
+	// legitimately disagree (a printed bullet arrives as U+2022 from one and a hyphen
+	// from the other) and which carry no evidence either way. 2 keeps every word.
 	minTokenRunes = 2
 
-	// maxInventedShare is how many of a block's words may be absent from
-	// `pdftotext`'s reading of the same page before the block is reported.
+	// maxInventedShare and minInventedTokens are how much of a block may be absent
+	// from `pdftotext` before the block is reported.
 	//
-	// Not zero, and the measurement says why. A block legitimately misses a word
-	// when the two tools break a line differently: `pdftohtml` reports a run
-	// ending in a soft hyphen that `pdftotext` joins, and a ligature or a
-	// combining mark can normalise differently between them. Measured over both
-	// manuals with every language converted, on pages whose script reads left to
-	// right:
+	// Not zero, and the measurement says why: 1.95% of the column manual's words and
+	// 0.45% of the sequential one's are absent from a CORRECT conversion, because the
+	// two tools break lines and normalise combining marks differently. Reporting
+	// every one of them is 280 and 322 blocks of noise.
 	//
-	//	column manual   14,061 tokens, 47 absent (0.33%), worst block 1 of 3
-	//	sequential      99,927 tokens, 288 absent (0.29%), worst block 2 of 4
+	// Swept together over both manuals, as blocks reported:
 	//
-	// The absences are concentrated in short blocks, which is why this is a share
-	// with a floor rather than a share alone: 0.34 admits one word missing from a
-	// three-word block and reports two missing from six.
-	maxInventedShare = 0.34
-
-	// minInventedTokens is how many words must be absent before a block is
-	// reported at all, whatever the share. A one-word block whose one word is
-	// absent is 100% invented and is almost always a bullet or a unit symbol.
+	//	share > 0.00   231 column / 190 sequential
+	//	share > 0.10   113 / 179
+	//	share > 0.20    17 / 169
+	//	share > 0.34     4 / 153
+	//	share > 0.50     0 / 118
+	//
+	// 0.34 is where the column manual stops reporting anything but real faults: its
+	// remaining 4 are table cells where the two tools disagree about where a Cyrillic
+	// or Kazakh word divides. It is deliberately not pushed to 0.50, because the
+	// sequential manual's 153 findings at 0.34 are real — its Thai section arrives
+	// with words broken at a vowel — and a threshold chosen to silence one document
+	// would hide a defect in the other.
+	//
+	// The floor of 2 absent words is what keeps a one-word block from reporting
+	// itself at 100%: a unit symbol or a bullet is a block, and one absent word out
+	// of one is not evidence.
+	maxInventedShare  = 0.34
 	minInventedTokens = 2
 
-	// rtlShare is how much of a page's text must be right-to-left before the page
-	// is reported as [KindRightToLeft] instead of block by block.
+	// rtlShare is how much of a page's words must be right-to-left before the page is
+	// reported as [KindRightToLeft] rather than block by block.
 	//
-	// Measured on the sequential manual's Hebrew and Arabic sections: their pages
-	// run 0.62 to 0.94 right-to-left by token, the rest being Latin part numbers
-	// and digits, while no left-to-right page of either manual exceeds 0.02. 0.5
-	// sits in the middle of a gap two orders wide.
+	// Measured: 32 pages of the sequential manual are 0.65 to 1.00 right-to-left by
+	// word — its Hebrew and Arabic sections, the rest of each page being Latin part
+	// numbers — and every other page of either manual is exactly 0.000. 0.5 sits in
+	// the middle of that, and nothing between 0.05 and 0.6 changes the answer.
 	rtlShare = 0.5
 )
 
@@ -94,7 +109,7 @@ const (
 // would compare a layout against a reflow.
 //
 // The ratio is expected to be below 1 for real reasons, which is why [minCoverage]
-// is 0.80 and not 1: see its measurement.
+// is 0.75 and not 1: see its measurement.
 func checkCoverage(in Input, scope []int) ([]PageCoverage, []Finding) {
 	blocks := make(map[int]int, len(scope))
 	for i := range in.Blocks {
