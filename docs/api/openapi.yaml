@@ -321,6 +321,121 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /documents/{documentID}/approve:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [documents]
+      summary: Authorise the conversion the gate described
+      description: |
+        The moment the user agrees to spend, and the opposite of `decline`. The
+        document moves to `converting` and a `doc.convert` job is queued; progress
+        arrives on the existing job event stream.
+
+        **There is no request body, and there must not be one.** The scope
+        converted is the household's configured reading languages, which is what the
+        gate showed the user. Accepting a language list here would let the thing
+        approved differ from the thing shown, which is the one promise the funnel
+        makes.
+
+        Refused with `invalid` when there is nothing honest to convert: the document
+        has not been read yet, it is password-protected, it has no text layer and so
+        needs OCR, or none of its languages are ones this household reads. A refusal
+        does not move the document.
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [document]
+                properties:
+                  document: { type: object, description: The document, now in `converting`. }
+                  jobId: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /documents/{documentID}/conversion:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [documents]
+      summary: The readable blocks and the pictures a conversion produced
+      description: |
+        Deliberately not served from `/content`, which is the stored original byte
+        for byte and stays that way — that path is the "own your data" promise at
+        its most literal. Overloading it would mean either content negotiation,
+        which is invisible in a URL so the derived view could not be linked, or a
+        query parameter that silently changes the response from bytes to JSON.
+
+        Figures come back as their own list rather than as blocks of kind `figure`,
+        because a language-neutral picture has no region and so no natural key. A
+        reader merges the two by page and vertical position. Each figure's bytes are
+        at `/documents/{documentID}/figures/{sha256}`.
+      parameters:
+        - name: lang
+          in: query
+          required: false
+          description: |
+            One language, as a BCP-47 tag. Returns that language's blocks together
+            with its own pictures **and every picture belonging to no language** — a
+            reader must not lose a diagram because the diagram has no language of
+            its own.
+
+            Omitting the parameter returns everything stored, which is already only
+            what the household's scope charged for. Passing it empty is a third,
+            real question: the content nothing could name, which no other language's
+            answer contains.
+          schema: { type: string, examples: [de] }
+      responses:
+        "200":
+          description: The conversion
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Conversion" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /documents/{documentID}/figures/{sha256}:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+      - name: sha256
+        in: path
+        required: true
+        description: The figure's digest, as `Figure.sha256` reports it.
+        schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+    get:
+      tags: [documents]
+      summary: One rendered figure's PNG
+      description: |
+        Addressed by digest because the content is the name: the ETag is exact and
+        the bytes are immutable for ever.
+
+        The digest is checked against this document's own figures rather than handed
+        to the blob store directly. The store holds every original anyone has
+        uploaded, so a route that opened any digest a caller named would serve
+        another household's manual to whoever could guess a hash.
+      responses:
+        "200":
+          description: The PNG
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -393,7 +508,7 @@ components:
         kind:
           type: string
           description: What the job does.
-          examples: [convert, ocr, translate, extract]
+          examples: [doc.probe, doc.convert]
         state: { $ref: "#/components/schemas/JobState" }
         priority: { type: integer, description: Higher runs first. }
         progress: { type: number, minimum: 0, maximum: 1 }
@@ -554,7 +669,7 @@ components:
         deviceId: { type: string }
         filename: { type: string }
         kind: { type: string, enum: [manual, receipt, warranty, photo, other] }
-        state: { type: string, enum: [uploaded, probing, awaiting_scope, declined, ready, failed] }
+        state: { type: string, enum: [uploaded, probing, awaiting_scope, declined, converting, ready, failed] }
         probed: { type: boolean }
         pages: { type: integer }
         encrypted: { type: boolean }
@@ -610,6 +725,101 @@ components:
         maxPagesAuto: { type: integer }
         cost: { $ref: "#/components/schemas/CostEstimate" }
         summary: { type: string, description: One line, characters-led, for a person to read. }
+
+    Block:
+      type: object
+      description: |
+        One piece of readable content, in document order, with the original's page
+        number kept so a reader can say "page 47" and mean what the paper means.
+
+        Keyed naturally on the document, the page, the region's left edge and the
+        index within that region, so re-converting converges rather than inserting a
+        parallel set — and so extraction has stable block IDs to cite.
+      required: [page, regionX0, index, kind, text, x0, x1, y0, y1, lines, chars]
+      properties:
+        page: { type: integer, description: 1-based PDF page. }
+        regionX0:
+          type: integer
+          description: |
+            The left edge of the language region this block was read from, rounded
+            because it is part of the key. The block's own box is not rounded,
+            because nothing keys on it.
+        index: { type: integer, description: Position within the region, from 0. }
+        kind:
+          type: string
+          enum: [heading, paragraph, list-item, table, figure]
+          description: |
+            `figure` is declared and never produced, deliberately: a
+            language-neutral picture has no region, so a figure block would either
+            invent a key or collide with a real block's. Pictures come back as their
+            own list.
+        level: { type: integer, description: Heading level, 1 for the most prominent. 0 for anything else. }
+        text: { type: string }
+        lang: { type: string, description: The region's language, empty where none was established. }
+        name: { type: string, description: "`lang` for a person to read: German, not de." }
+        x0: { type: number }
+        x1: { type: number }
+        y0: { type: number }
+        y1: { type: number }
+        lines: { type: integer }
+        chars: { type: integer, description: Runes, not bytes. }
+        note: { type: string, description: Why the block was read the way it was, for inspecting a misreading. }
+
+    Figure:
+      type: object
+      description: |
+        One illustration, rendered to PNG.
+
+        There is no language field, and that is the contract rather than an omission:
+        a picture belonging to no language belongs to every language, so a reader
+        scoped to German selects German's own pictures plus every neutral one instead
+        of selecting pictures by language.
+
+        The pictures in a manual are not the images in the file. `pdfimages` yields
+        zero illustrations across all 628 pages of both measured fixtures — every one
+        of them is vector — so a figure is found from what the page draws and its
+        bytes come from rendering the crop.
+      required: [page, index, x0, y0, x1, y1, ink, textFraction, dpi, pixelWidth, pixelHeight, sha256]
+      properties:
+        page: { type: integer }
+        index: { type: integer, description: Position in the page's reading order, from 0. Not a document-wide figure number. }
+        x0: { type: number }
+        y0: { type: number }
+        x1: { type: number }
+        y1: { type: number }
+        ink: { type: integer, description: How many drawn shapes it holds — the shape guard's evidence, kept rather than reduced to the verdict. }
+        textFraction: { type: number, description: How much of its area is covered by text — the text guard's evidence, which is what separates a table from a grid of framed illustrations. }
+        dpi: { type: integer }
+        pixelWidth: { type: integer, description: Read back out of the PNG rather than computed. }
+        pixelHeight: { type: integer }
+        sha256:
+          type: string
+          description: |
+            The blob store's name for the PNG, which is also the PNG's digest. Fetch
+            the bytes at `/documents/{documentID}/figures/{sha256}`.
+
+    Conversion:
+      type: object
+      description: |
+        A document's converted content: the ordered blocks and the pictures.
+      required: [documentId, state, blocks, figures]
+      properties:
+        documentId: { type: string }
+        state:
+          type: string
+          enum: [uploaded, probing, awaiting_scope, declined, converting, ready, failed]
+          description: |
+            Present because no count can distinguish "converted and empty" from "not
+            converted". A document that has not been through the gate has no blocks,
+            and that is not the claim that it has no content.
+        lang: { type: string, description: Echoed back only when the request filtered to one language. }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/Block" }
+        figures:
+          type: array
+          items: { $ref: "#/components/schemas/Figure" }
+        lastError: { type: string, description: Why the conversion failed, when `state` is `failed`. }
 
 security:
   - sessionCookie: []

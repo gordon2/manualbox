@@ -275,3 +275,88 @@ export interface Gate {
   cost: { available: boolean; chars: number; reason?: string };
   summary: string;
 }
+
+// --- M1: what the conversion produced ---
+
+/**
+ * What a block is. `figure` is declared and never produced, deliberately: a
+ * figure's natural key would have to invent a region left edge or collide with a
+ * real block's, so pictures come back as their own list and a reader merges the two
+ * by page and vertical position.
+ */
+export type BlockKind = "heading" | "paragraph" | "list-item" | "table" | "figure";
+
+/**
+ * One piece of readable content, in document order.
+ *
+ * `regionX0` is an integer because that is what is stored and what a block joins to
+ * a region on; the block's own box is unrounded, because nothing keys on it and a
+ * caller drawing it over a 108 dpi render wants what was measured.
+ */
+export interface Block {
+  page: number;
+  regionX0: number;
+  index: number;
+  kind: BlockKind;
+  /** The heading level, 1 for the most prominent. 0, and so absent, for anything else. */
+  level?: number;
+  text: string;
+  /** The region's language, absent where none was established. */
+  lang?: string;
+  /** `lang` for a person to read: "Ukrainian", not "uk". */
+  name?: string;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  lines: number;
+  chars: number;
+  note?: string;
+}
+
+/**
+ * One illustration.
+ *
+ * There is no language field, and that is the contract rather than an omission: a
+ * picture belonging to no language belongs to every language. Asking for a language
+ * on the conversion endpoint returns that language's own pictures plus every
+ * neutral one.
+ *
+ * The pictures in a manual are not the images in the file — every illustration in
+ * both measured fixtures is vector — so `sha256` names a PNG rendered from the crop,
+ * fetchable at `/documents/{id}/figures/{sha256}`.
+ */
+export interface Figure {
+  page: number;
+  index: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** How many drawn shapes the figure holds: the shape guard's evidence, kept. */
+  ink: number;
+  /** How much of its area is covered by text: the text guard's evidence. */
+  textFraction: number;
+  dpi: number;
+  pixelWidth: number;
+  pixelHeight: number;
+  /** The blob store's name for the PNG, which is also the PNG's digest. */
+  sha256: string;
+}
+
+/**
+ * A document's converted content.
+ *
+ * `state` is here because no count can distinguish "converted and empty" from "not
+ * converted": a document that has not been through the gate has no blocks, and that
+ * is not the claim that it has no content.
+ */
+export interface Conversion {
+  documentId: string;
+  state: DocumentState;
+  /** Present only when the request filtered to one language. `""` asks for the unnamed content. */
+  lang?: string;
+  blocks: Block[];
+  figures: Figure[];
+  lastError?: string;
+}
