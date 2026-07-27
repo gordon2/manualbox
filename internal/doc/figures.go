@@ -566,15 +566,33 @@ func clusterInk(ink []Ink, overlap float64) []CellRect {
 	for _, r := range boxes {
 		out = append(out, r)
 	}
-	out = mergeOverlapping(out, overlap)
 	// Down then across, which is the reading order [DetectColumns] establishes for
 	// text and the order a figure has to take its place in.
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Y0 != out[j].Y0 {
-			return out[i].Y0 < out[j].Y0
+	byReadingOrder := func(a, b CellRect) bool {
+		if a.Y0 != b.Y0 {
+			return a.Y0 < b.Y0
 		}
-		return out[i].X0 < out[j].X0
-	})
+		return a.X0 < b.X0
+	}
+	// Sorted BEFORE the merge as well as after, and that is correctness rather than
+	// tidiness: the groups come out of a map, so their order is random.
+	//
+	// At the shipped threshold of zero the order cannot change the answer, and the
+	// reason is worth stating because it is what makes that value safe: merging only
+	// ever grows a box, so it can never destroy an intersection, and the result is
+	// the connected components of "these two boxes intersect" however they are
+	// visited. Above zero that stops holding — a merged box is wider, so the smaller
+	// box's SHARE of it falls, and a merge can put a pair below the threshold that
+	// was above it. Measured: with the boxes left in map order, TestMergeThresholdSweep
+	// returned 195, 197 and 196 figures at 0.01, 0.05 and 0.1 in one pass and 194 to
+	// 200 in the next, in the same run. These are the pictures a reader is served out
+	// of a content-addressed store, so the sweep has to be reproducible too.
+	//
+	// Reading order is used because it is already the order this function ends in;
+	// nothing depends on which order it is, only that it is always the same one.
+	sort.Slice(out, func(i, j int) bool { return byReadingOrder(out[i], out[j]) })
+	out = mergeOverlapping(out, overlap)
+	sort.Slice(out, func(i, j int) bool { return byReadingOrder(out[i], out[j]) })
 	return out
 }
 
@@ -619,31 +637,45 @@ func clusterInk(ink []Ink, overlap float64) []CellRect {
 // TestMergeThresholdSweep re-runs it.
 //
 // Repeated to a fixpoint, because a merged box is larger and can reach a third
-// group. That cannot run away: each round strictly reduces the number of boxes,
-// so it terminates, and measured over both documents the deepest page needs three
-// rounds.
+// group that neither part reached. That cannot run away: every round but the last
+// removes at least one box, so it terminates.
+//
+// The result depends on the order the boxes are considered in — absorbing B into A
+// can make a box that reaches C where absorbing C into B first need not reach A —
+// so the order is fixed by the caller and this pass preserves it. See [clusterInk].
 func mergeOverlapping(boxes []CellRect, overlap float64) []CellRect {
+	gone := make([]bool, len(boxes))
 	for {
 		merged := false
-		for i := 0; i < len(boxes); i++ {
+		for i := range boxes {
+			if gone[i] {
+				continue
+			}
 			for j := i + 1; j < len(boxes); j++ {
-				if boxOverlap(boxes[i], boxes[j]) <= overlap {
+				if gone[j] || boxOverlap(boxes[i], boxes[j]) <= overlap {
 					continue
 				}
 				boxes[i] = CellRect{
 					math.Min(boxes[i].X0, boxes[j].X0), math.Min(boxes[i].Y0, boxes[j].Y0),
 					math.Max(boxes[i].X1, boxes[j].X1), math.Max(boxes[i].Y1, boxes[j].Y1),
 				}
-				boxes[j] = boxes[len(boxes)-1]
-				boxes = boxes[:len(boxes)-1]
-				j--
+				gone[j] = true
 				merged = true
 			}
 		}
 		if !merged {
-			return boxes
+			break
 		}
 	}
+	// Compacted in place, keeping the order the boxes arrived in. The order is what
+	// makes the answer reproducible; see the note in [clusterInk].
+	out := boxes[:0]
+	for i := range boxes {
+		if !gone[i] {
+			out = append(out, boxes[i])
+		}
+	}
+	return out
 }
 
 // boxOverlap is how much of the smaller box lies inside the larger, 1 when one

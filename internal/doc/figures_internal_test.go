@@ -654,6 +654,57 @@ func TestMergingRunsToAFixpoint(t *testing.T) {
 	}
 }
 
+// TestFindFiguresIsReproducible is here because it was not, and it is asserted at a
+// threshold the shipped one does not use, on purpose.
+//
+// [clusterInk] collects its groups in a map, so they come out in a random order. At
+// [figureMergeOverlap]'s zero that cannot matter — merging only grows a box, so it
+// never destroys an intersection, and the answer is the connected components of the
+// overlap relation whatever order they are visited in. Above zero it matters a
+// great deal, because a merged box is wider and the smaller box's share of it falls:
+// TestMergeThresholdSweep, with the boxes left in map order, reported 195, 197 and
+// 196 figures at 0.01, 0.05 and 0.1 and then 194 to 200 for the same three
+// thresholds later in the same run.
+//
+// So this drives the merge at 0.5, where the order decides the outcome, and pins
+// that twenty runs agree. Reproducibility is not a nicety here: these bytes go into
+// a content-addressed store, and a page that clusters differently on a re-run stores
+// the same picture twice.
+func TestFindFiguresIsReproducible(t *testing.T) {
+	page := &PageRuns{No: 1, Width: 892, Height: 850}
+	g := defaultGuards
+	g.mergeOverlap = 0.5
+
+	// A row of overlapping corners of different sizes, which is the arrangement
+	// where a merge can drop a later pair below the threshold.
+	var ink []Ink
+	for i := range 8 {
+		x := 100 + float64(i)*55
+		y := 100 + float64(i)*9
+		w := 60 + float64(i)*12
+		ink = append(ink, chainX(x, x+w, y, y+5, 5)...)
+		ink = append(ink, chainY(y, y+w, x, x+5, 5)...)
+	}
+
+	first := findFigures(ink, page, g)
+	if len(first) < 2 {
+		t.Fatalf("the arrangement collapsed to %d figure(s); it has to leave several "+
+			"for the order to decide between", len(first))
+	}
+	for range 20 {
+		got := findFigures(ink, page, g)
+		if len(got) != len(first) {
+			t.Fatalf("%d figures on one run and %d on another", len(first), len(got))
+		}
+		for i := range got {
+			if got[i].Rect != first[i].Rect {
+				t.Fatalf("figure %d is %v on one run and %v on another",
+					i, first[i].Rect, got[i].Rect)
+			}
+		}
+	}
+}
+
 // chainX lays overlapping strokes along a horizontal line from lo to hi, ending
 // exactly on hi, so that they cluster into one shape group. A picture's strokes
 // meet, which is what [clusterInk] turns on, and a hand-built test that forgets
