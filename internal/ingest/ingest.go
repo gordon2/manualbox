@@ -62,6 +62,7 @@ func New(d Deps) *Service {
 // Register wires the pipeline's handlers into a worker pool.
 func (s *Service) Register(pool *jobs.Pool) {
 	pool.Register(JobProbe, s.handleProbe)
+	pool.Register(JobConvert, s.handleConvert)
 }
 
 // EnqueueProbe queues the free stages for a document.
@@ -179,12 +180,18 @@ func (s *Service) progressNote(res *doc.Result) string {
 
 // probeFailed marks a document as failed once no further attempt will be made,
 // and returns the error so the queue can retry until then.
-//
-// Without this a document whose job exhausts its attempts stays in "probing"
-// forever, and the UI truthfully reports what the row says — "reading…" — while
-// nothing is reading it. The failure has to be recorded where the user is looking,
-// not only in the job row.
 func (s *Service) probeFailed(ctx context.Context, job *jobs.Job, documentID string, cause error) error {
+	return s.jobFailed(ctx, job, documentID, cause)
+}
+
+// jobFailed records a permanent failure on the document itself, and returns the
+// error so the queue can retry until the attempts are gone.
+//
+// Without this a document whose job exhausts its attempts stays in "probing" or
+// "converting" forever, and the UI truthfully reports what the row says —
+// "reading…" — while nothing is reading it. The failure has to be recorded where
+// the user is looking, not only in the job row.
+func (s *Service) jobFailed(ctx context.Context, job *jobs.Job, documentID string, cause error) error {
 	if job.Attempts >= job.MaxAttempts {
 		// Deliberately not ctx: on a cancelled context this write is the last
 		// chance to leave an explanation behind.

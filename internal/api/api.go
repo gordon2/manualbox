@@ -141,6 +141,14 @@ func (s *Server) routes() {
 			r.Get("/documents/{documentID}/languages", s.handleDocumentLanguages)
 			r.Get("/documents/{documentID}/content", s.handleDocumentContent)
 			r.Post("/documents/{documentID}/decline", s.handleDeclineDocument)
+			// The other half of the decision. Approving is what authorises the
+			// first work in the pipeline that is not free.
+			r.Post("/documents/{documentID}/approve", s.handleApproveDocument)
+
+			// What the conversion produced. Deliberately not served from
+			// /content, which is the original bytes and stays that way.
+			r.Get("/documents/{documentID}/conversion", s.handleDocumentConversion)
+			r.Get("/documents/{documentID}/figures/{sha256}", s.handleDocumentFigure)
 		})
 	})
 

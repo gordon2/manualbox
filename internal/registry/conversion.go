@@ -375,6 +375,81 @@ func (s *Service) Figures(ctx context.Context, documentID string) ([]Figure, err
 	return figuresFrom(rows), nil
 }
 
+// figureRegionSlack is how far a figure may reach past a region's edge and still
+// count as inside it. The same one unit doc.Convert allows, and it has to be the
+// same: this is the read-side half of the attribution that file made at write
+// time, so a different tolerance would give a reader a different set of pictures
+// than the conversion decided on.
+const figureRegionSlack = 1.0
+
+// FiguresByLang returns the illustrations belonging to one language: every figure
+// inside one of that language's own regions, plus every figure inside no named
+// region of its page.
+//
+// The second half is the rule docs/design/conversion.md settles — a picture that
+// belongs to no language belongs to every language — and it is why doc_figures has
+// no language column to select on. The attribution is therefore worked out here
+// from the stored regions, which is the same input and the same test doc.Convert's
+// `attribute` applied when it decided which figures to keep at all.
+//
+// Deriving it rather than storing it is what makes a mixed household correct. A
+// household reading German and Ukrainian stores the union of both languages'
+// figures, so asking for German by page would hand a reader the pictures out of
+// the Ukrainian column of every page the two share. Asking geometrically gives
+// German the 40 figures the conversion attributed to German, which is the number
+// conversion.md records.
+//
+// Passing "" asks for the figures belonging to no named language at all, which is
+// the only way those stay reachable on a document whose regions were never named.
+func (s *Service) FiguresByLang(ctx context.Context, documentID, lang string) ([]Figure, error) {
+	figures, err := s.Figures(ctx, documentID)
+	if err != nil {
+		return nil, err
+	}
+	regions, err := s.Regions(ctx, documentID)
+	if err != nil {
+		return nil, err
+	}
+
+	byPage := make(map[int][]int, len(regions))
+	for i := range regions {
+		byPage[regions[i].Page] = append(byPage[regions[i].Page], i)
+	}
+
+	want := doc.BaseLanguage(lang)
+	out := make([]Figure, 0, len(figures))
+	for i := range figures {
+		f := &figures[i]
+		// The neutral case is the second arm, and it is the whole rule: a reader of
+		// German gets the 2 figures inside a German column AND the 38 belonging to no
+		// column, which is the 40 conversion.md records. Matching only the first arm
+		// would leave a reader of a parallel-columns manual with almost no pictures.
+		if got := figureLang(f, regions, byPage[f.Page]); got == want || got == "" {
+			out = append(out, *f)
+		}
+	}
+	return out, nil
+}
+
+// figureLang names the language a figure sits inside, or "" for one sitting inside
+// no named region of its page — which includes a figure straddling two of them and
+// a figure on a page whose regions nothing could name.
+func figureLang(f *Figure, regions []Region, onPage []int) string {
+	for _, i := range onPage {
+		r := &regions[i]
+		if f.X0 < float64(r.X0)-figureRegionSlack || f.X1 > float64(r.X1)+figureRegionSlack {
+			continue
+		}
+		// An unnamed region is not a language, so a figure inside one has none
+		// either and falls through to the neutral rule. That is the stance
+		// everywhere: an unnamed region is a reportable state, never a language.
+		if base := doc.BaseLanguage(r.Lang); base != "" {
+			return base
+		}
+	}
+	return ""
+}
+
 // FiguresForPage returns one page's illustrations in reading order.
 func (s *Service) FiguresForPage(ctx context.Context, documentID string, page int) ([]Figure, error) {
 	rows, err := gen.New(s.db.Read()).ListDocFiguresForPage(ctx, gen.ListDocFiguresForPageParams{

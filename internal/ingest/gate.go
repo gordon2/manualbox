@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gordon2/manualbox/internal/doc"
+	"github.com/gordon2/manualbox/internal/jobs"
 	"github.com/gordon2/manualbox/internal/registry"
 )
 
@@ -597,4 +598,62 @@ func joinWords(words []string) string {
 // original is kept: declining is a decision about processing, never about storage.
 func (s *Service) Decline(ctx context.Context, documentID string) error {
 	return s.registry.SetDocumentState(ctx, documentID, registry.StateDeclined, "")
+}
+
+// Approve is Decline's opposite: the user has seen what the gate reported and
+// authorises the work. It moves the document to converting and queues the job.
+//
+// # What is approved is the scope the gate showed, not a scope the caller sends
+//
+// There is no language argument, and there must not be one. The gate rendered
+// this household's languages out of configuration and told the user what
+// converting them would involve; taking a different set from the request body
+// would let the thing approved differ from the thing shown, which is the one
+// promise the funnel makes. [Service.handleConvert] reads the same configuration
+// again for the same reason.
+//
+// Refusals are up front rather than left to produce an empty conversion. A
+// document that says "ready" with no blocks reads as an empty manual, and a user
+// who authorised spending on a scan deserves to be told it needs OCR rather than
+// shown nothing.
+func (s *Service) Approve(ctx context.Context, documentID string) (*jobs.Job, error) {
+	g, err := s.Gate(ctx, documentID)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case !g.Probed:
+		return nil, fmt.Errorf("%w: this document has not been read yet, so there is "+
+			"nothing to approve", registry.ErrInvalid)
+	case g.Encrypted:
+		return nil, fmt.Errorf("%w: this document is password-protected, so its pages "+
+			"cannot be read", registry.ErrInvalid)
+	case !g.HasTextLayer:
+		return nil, fmt.Errorf("%w: this document has no text layer — it is a scan, and "+
+			"reading it needs OCR", registry.ErrInvalid)
+	case len(g.InScope) == 0:
+		return nil, fmt.Errorf("%w: none of this document's languages are ones this "+
+			"household reads, so there is nothing in scope to convert", registry.ErrInvalid)
+	}
+
+	// The state moves before the job is queued, so a user who has just approved
+	// never sees the gate offer them the decision again while the queue picks the
+	// job up. The other order would race: a worker that started before this write
+	// would have its "ready" overwritten with "converting" and the document would
+	// sit converting for ever.
+	if err := s.registry.SetDocumentState(ctx, documentID, registry.StateConverting, ""); err != nil {
+		return nil, err
+	}
+	job, err := s.EnqueueConvert(ctx, documentID)
+	if err != nil {
+		// Put it back where it was, or the document is stuck in a state no job will
+		// ever leave.
+		if back := s.registry.SetDocumentState(ctx, documentID, g.State, ""); back != nil {
+			s.log.Error("restoring the document state after a failed enqueue failed",
+				"document", documentID, "state", g.State, "error", back)
+		}
+		return nil, err
+	}
+	return job, nil
 }
