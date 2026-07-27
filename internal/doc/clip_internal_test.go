@@ -13,10 +13,17 @@ import (
 // different count:
 //
 //	group-1  a clip defined in <defs> and applied inside a hoisted compositing
-//	         group, which is the trap rules.go's header records: the clip has to
-//	         be composed with the matrix of the reference that pulled the group
-//	         in, exactly as the shapes are. Resolving it in the wrong space puts
-//	         the clip 20 units to the right and the rule ends at 90 instead of 60.
+//	         group, which is the trap rules.go's header records. The two
+//	         translations cancel exactly, as they do in cairo's output, so what
+//	         this case pins is that the clip is found and applied through the
+//	         reference at all: walking <defs> from the top instead would shift the
+//	         clip and the rule together by (20, 10).
+//	scaled   a clip on a group whose own transform does NOT cancel, which is what
+//	         pins the composition itself. The clip admits x=10-30 in the group's
+//	         user space, and that space is scaled by two and shifted, so the rule
+//	         survives from x=20 to 60 in page units. Resolving the clip in page
+//	         space instead — the second of the two wrong answers rules.go records —
+//	         gives x=10-30 and a rule half the length in the wrong place.
 //	nested   two clips, one inside the other, on a rule that spans the page. The
 //	         effective clip is the intersection: reading only the inner one gives
 //	         x=50-150 and only the outer one x=20-120, where the answer is 50-120.
@@ -50,6 +57,9 @@ const clipSVG = `<?xml version="1.0" encoding="UTF-8"?>
 <clipPath id="clip-curved">
 <path clip-rule="nonzero" d="M 10 80 C 10 100, 90 100, 90 80 Z M 10 80 "/>
 </clipPath>
+<clipPath id="clip-scaled">
+<rect x="10" y="0" width="20" height="100"/>
+</clipPath>
 <clipPath id="clip-elsewhere">
 <rect x="150" y="0" width="40" height="40"/>
 </clipPath>
@@ -59,6 +69,9 @@ const clipSVG = `<?xml version="1.0" encoding="UTF-8"?>
 <g clip-path="url(#clip-inner)">
 <path fill="none" stroke-width="0.5" stroke-linecap="butt" stroke="rgb(0%, 0%, 0%)" stroke-opacity="1" d="M 0 60 L 200 60 "/>
 </g>
+</g>
+<g transform="translate(0, 10) scale(2, 1)" clip-path="url(#clip-scaled)">
+<path fill="none" stroke-width="0.5" stroke-linecap="butt" stroke="rgb(0%, 0%, 0%)" stroke-opacity="1" d="M 0 60 L 100 60 "/>
 </g>
 <g clip-path="url(#clip-curved)">
 <path fill="none" stroke-width="0.5" stroke-linecap="butt" stroke="rgb(0%, 0%, 0%)" stroke-opacity="1" d="M 0 90 L 200 90 "/>
@@ -80,10 +93,16 @@ func TestClipCutsAShapeToWhatIsPainted(t *testing.T) {
 	// [svgPointScale].
 	want := []CellRect{
 		// The hoisted group: the rule runs x=10-70 and the clip admits 0-40, so it
-		// is painted from 10 to 40. Composed in the wrong space it would reach 60.
+		// is painted from 10 to 40. Its two translations cancel, so this pins that
+		// the clip is followed into <defs> at all rather than how it is composed —
+		// the scaled case below pins that.
 		{X0: 15, Y0: 30, X1: 60, Y1: 30},
 		// Two nested clips intersect to x=50-120.
 		{X0: 75, Y0: 90, X1: 180, Y1: 90},
+		// The clip is read in the group's own space: x=10-30 there is x=20-60 on the
+		// page under translate(0,10) scale(2,1). Read in page space it would be
+		// x=10-30, which is 15-45 in output units.
+		{X0: 30, Y0: 105, X1: 90, Y1: 105},
 		// Inside the Bézier's bulge, so x=10-90 survives.
 		{X0: 15, Y0: 135, X1: 135, Y1: 135},
 	}
@@ -109,6 +128,7 @@ func TestARuleIsRecordedAtTheLengthItIsPainted(t *testing.T) {
 	want := []Rule{
 		{Dir: Horizontal, At: 30, Start: 15, End: 60},
 		{Dir: Horizontal, At: 90, Start: 75, End: 180},
+		{Dir: Horizontal, At: 105, Start: 30, End: 90},
 		{Dir: Horizontal, At: 135, Start: 15, End: 135},
 	}
 	if len(rules) != len(want) {
