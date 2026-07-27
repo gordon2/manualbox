@@ -56,9 +56,10 @@ const (
 	// conversion.md describes runs 40 to 80 runes.
 	//
 	// What survives at the defaults is one real class, and its concentration is what
-	// makes it believable: 37 findings on 27 pages, one routine-maintenance page per
-	// language section, where an unruled grid of intervals — invisible to the table
-	// detector by conversion.md's own account — is read in columns.
+	// makes it believable: 37 findings on 26 pages, the routine-maintenance page of
+	// one language section after another, where an unruled grid of intervals —
+	// invisible to the table detector by conversion.md's own account — is read in
+	// columns.
 	minOrderChars = 16
 )
 

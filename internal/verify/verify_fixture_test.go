@@ -203,9 +203,12 @@ func TestCheckTheSequentialManual(t *testing.T) {
 		t.Errorf("the right-to-left pages hold %d absent words, was 8120", rtl)
 	}
 
-	// The Thai section, which is a defect nothing had recorded: pdftohtml breaks a
-	// Thai run at a vowel and the block joins it with a space, so the words are not
-	// the words the page prints. 153 blocks, over its 16 Thai pages.
+	// A defect nothing had recorded, and this check is how it was found: 142 of these
+	// 153 blocks are on pages 473-488, the Thai section, where `pdftohtml -xml`
+	// returns an unmapped glyph for SARA AA (U+FFFD) that `pdftotext` maps correctly
+	// — so the block's words are broken where that vowel belongs, "ล้�งผ้�ถูพื้น"
+	// against the printed "ล้างผ้าถูพื้น". The other 11 are Latin pages where the two
+	// tools divide a hyphenated compound differently.
 	if got := rep.Count(verify.KindInvented); got != 153 {
 		t.Errorf("invented text: %d block(s), was 153", got)
 	}
@@ -231,8 +234,8 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	if got := rep.Count(verify.KindReadingOrder); got != 37 {
 		t.Errorf("reading order: %d finding(s), was 37", got)
 	}
-	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 25 {
-		t.Errorf("reading-order findings cover %d pages, was 27 — a class this "+
+	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 24 {
+		t.Errorf("reading-order findings cover %d pages, was 26 — a class this "+
 			"concentrated on one page per section is what makes it explainable", got)
 	}
 }
