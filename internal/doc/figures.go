@@ -205,6 +205,15 @@ const (
 	// the widest figure measured is 807 units on a 918-unit page, 0.88.
 	washFraction = 0.98
 
+	// figureMergeOverlap is how much of the smaller of two candidate boxes may lie
+	// inside the other before the two are read as one picture, as a fraction.
+	//
+	// Zero: any positive overlap merges, and a box that merely touches another does
+	// not. The measurement behind that — 53 overlapping pairs over both documents,
+	// every one of them a single drawing that clustered in pieces, and no pair
+	// anywhere that needs the opposite answer — is at [mergeOverlapping].
+	figureMergeOverlap = 0.0
+
 	// maxFigureClusterInk caps how many drawn shapes one page's clustering will
 	// consider, because the clustering is quadratic in them and a real page reaches
 	// six figures. Page 42 of the columns manual returns 165,759 shapes, 83,014 of
@@ -382,11 +391,16 @@ type figureGuards struct {
 	minWidth, minHeight float64
 	minInk              int
 	maxText             float64
+	// mergeOverlap is how much of the smaller of two candidate boxes may lie
+	// inside the other before they are read as one picture. See
+	// [mergeOverlapping] for why it is zero.
+	mergeOverlap float64
 }
 
 var defaultGuards = figureGuards{
 	minWidth: minFigureWidth, minHeight: minFigureHeight,
 	minInk: minFigureInk, maxText: maxFigureTextFraction,
+	mergeOverlap: figureMergeOverlap,
 }
 
 func findFigures(ink []Ink, page *PageRuns, g figureGuards) []Figure {
@@ -402,7 +416,7 @@ func findFigures(ink []Ink, page *PageRuns, g figureGuards) []Figure {
 	text := usableRuns(page.Runs, page.Width, page.Height, &dropped)
 
 	var out []Figure
-	for _, area := range clusterInk(drawn) {
+	for _, area := range clusterInk(drawn, g.mergeOverlap) {
 		if area.Width() < g.minWidth || area.Height() < g.minHeight {
 			continue
 		}
@@ -464,7 +478,7 @@ func onPageInk(ink []Ink, width, height float64) []Ink {
 // large enough to join a drawing to its own caption also joins two drawings 27
 // units apart. What holds a real picture together is that its strokes meet, and
 // they do.
-func clusterInk(ink []Ink) []CellRect {
+func clusterInk(ink []Ink, overlap float64) []CellRect {
 	n := len(ink)
 	parent := make([]int, n)
 	for i := range parent {
@@ -533,6 +547,7 @@ func clusterInk(ink []Ink) []CellRect {
 	for _, r := range boxes {
 		out = append(out, r)
 	}
+	out = mergeOverlapping(out, overlap)
 	// Down then across, which is the reading order [DetectColumns] establishes for
 	// text and the order a figure has to take its place in.
 	sort.Slice(out, func(i, j int) bool {
@@ -542,6 +557,103 @@ func clusterInk(ink []Ink) []CellRect {
 		return out[i].X0 < out[j].X0
 	})
 	return out
+}
+
+// mergeOverlapping joins candidate boxes that overlap into one, until none of
+// them does.
+//
+// This is [clusterInk]'s own rule applied to its own output, and the second pass
+// is needed because the first cannot see it. A group's box is the union of its
+// shapes and is far larger than any of them, so two groups can share most of a
+// rectangle while no shape of one touches a shape of the other — which is exactly
+// how the fault the user reported arises. Page 524 of the sequential manual draws
+// a hand holding a pin over the robot's underside; the hand's strokes reach none
+// of the robot's, so it clusters alone, and 90.8% of its box lies inside the
+// robot's. It was served as a separate picture: a duplicate scrap of the drawing
+// above it.
+//
+// # Why any overlap at all, and not a fraction of one
+//
+// A threshold is the obvious thing to want, and the measurement says there is
+// nothing for it to separate. Over both whole documents the parallel-columns
+// manual has NO overlapping pair of candidates at all — every change here is the
+// sequential manual's — and that document has 53, whose overlap as a fraction of
+// the smaller box runs 1.00, 0.96, 0.91, 0.91, 0.88 … 0.20, 0.19, 0.14, 0.11,
+// 0.10, 0.01 with no gap anywhere. Each was rendered as a crop of the two boxes'
+// union and looked at. Every one of the 53 is a single printed drawing that
+// clustered in pieces: at 0.91 the hand above, at 0.57 the base station of page
+// 522 split at its own waist, at 0.39 the station of page 5 and the wall socket
+// it is being plugged into, at 0.01 the water tank of page 522 and the magnified
+// detail circle its leader lines run to. Not one is two drawings that merely sit
+// close together, so no threshold in the range has a case to decide and every
+// value from 0 to 0.01 gives the same answer as containment plus 46 more merges
+// that a reader wants.
+//
+// Two drawings printed close together do exist on these pages and are not
+// affected, because their boxes do not overlap: the two mop pads of page 522 are
+// 46 units apart, and the two halves of page 524's top illustration 23. That is
+// the same fact [clusterInk] records about a gap tolerance, from the other side —
+// what does NOT hold a picture together is proximity.
+//
+// So the threshold is kept as a parameter and set to zero: any positive overlap
+// merges. It is a parameter because that sweep is the evidence, and
+// TestMergeThresholdSweep re-runs it.
+//
+// Repeated to a fixpoint, because a merged box is larger and can reach a third
+// group. That cannot run away: each round strictly reduces the number of boxes,
+// so it terminates, and measured over both documents the deepest page needs three
+// rounds.
+func mergeOverlapping(boxes []CellRect, overlap float64) []CellRect {
+	for {
+		merged := false
+		for i := 0; i < len(boxes); i++ {
+			for j := i + 1; j < len(boxes); j++ {
+				if boxOverlap(boxes[i], boxes[j]) <= overlap {
+					continue
+				}
+				boxes[i] = CellRect{
+					math.Min(boxes[i].X0, boxes[j].X0), math.Min(boxes[i].Y0, boxes[j].Y0),
+					math.Max(boxes[i].X1, boxes[j].X1), math.Max(boxes[i].Y1, boxes[j].Y1),
+				}
+				boxes[j] = boxes[len(boxes)-1]
+				boxes = boxes[:len(boxes)-1]
+				j--
+				merged = true
+			}
+		}
+		if !merged {
+			return boxes
+		}
+	}
+}
+
+// boxOverlap is how much of the smaller box lies inside the larger, 1 when one
+// contains the other.
+//
+// Measured per axis and multiplied, rather than as an area ratio, for the reason
+// [verify.overlapFraction] gives: a candidate can be degenerate. A single hairline
+// clusters alone and its box has zero height, so an area ratio divides by zero;
+// per axis the question becomes containment on that axis, which is the same
+// question asked of a shape with no thickness.
+func boxOverlap(a, b CellRect) float64 {
+	return axisOverlap(a.X0, a.X1, b.X0, b.X1) * axisOverlap(a.Y0, a.Y1, b.Y0, b.Y1)
+}
+
+// axisOverlap is the share of the shorter of two intervals that lies inside the
+// other.
+func axisOverlap(a0, a1, b0, b1 float64) float64 {
+	in := math.Min(a1, b1) - math.Max(a0, b0)
+	if in <= 0 {
+		// Touching exactly is not overlapping. Cairo emits a drawing's parts as
+		// separate paths that abut, and the shape-level pass has already joined
+		// everything that touches.
+		return 0
+	}
+	short := math.Min(a1-a0, b1-b0)
+	if short <= 0 {
+		return 1 // a degenerate axis lying inside the other interval
+	}
+	return in / short
 }
 
 // contains reports whether inner sits wholly inside outer.
