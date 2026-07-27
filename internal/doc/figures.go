@@ -766,7 +766,7 @@ func parseInk(data []byte) ([]Ink, error) {
 	// rules.go's header documents applies here identically, and a figure's box is
 	// wrong by the filter region's origin without it.
 	for _, kid := range doc.root.kids {
-		w.walkBody(kid, identity, 0)
+		w.walkBody(kid, identity, clipBox{}, 0)
 	}
 	return w.ink, nil
 }
@@ -780,14 +780,14 @@ type inkWalker struct {
 	visited map[visitKey]bool
 }
 
-func (w *inkWalker) walkBody(n *svgNode, m matrix, depth int) {
+func (w *inkWalker) walkBody(n *svgNode, m matrix, clip clipBox, depth int) {
 	if n.tag == "defs" {
 		return
 	}
-	w.walk(n, m, depth)
+	w.walk(n, m, clip, depth)
 }
 
-func (w *inkWalker) walk(n *svgNode, m matrix, depth int) {
+func (w *inkWalker) walk(n *svgNode, m matrix, clip clipBox, depth int) {
 	if depth > maxSVGDepth || strings.HasPrefix(n.id, "glyph-") {
 		return
 	}
@@ -801,17 +801,26 @@ func (w *inkWalker) walk(n *svgNode, m matrix, depth int) {
 	w.visited[key] = true
 
 	m = m.compose(parseTransform(n.transform))
+	// The element's clip narrows whatever it inherited, in the user space its own
+	// transform establishes. A clip admitting nothing means every shape below is
+	// invisible, so the subtree is abandoned rather than walked and discarded.
+	if box, ok := w.doc.clipAt(n.clip, m); ok {
+		clip = clip.intersect(box)
+		if clip.empty() {
+			return
+		}
+	}
 
 	if id, ok := refID(n.filter); ok {
 		for _, ref := range w.doc.filterRefs[id] {
 			if target := w.doc.byID[ref]; target != nil {
-				w.walk(target, m, depth+1)
+				w.walk(target, m, clip, depth+1)
 			}
 		}
 	}
 	if n.tag == "use" && strings.HasPrefix(n.href, "#") {
 		if target := w.doc.byID[n.href[1:]]; target != nil {
-			w.walk(target, m, depth+1)
+			w.walk(target, m, clip, depth+1)
 		}
 	}
 
@@ -820,20 +829,27 @@ func (w *inkWalker) walk(n *svgNode, m matrix, depth int) {
 	case n.tag == "path" && (painted(n.stroke) || painted(n.fill)):
 		stroked := painted(n.stroke)
 		for _, sub := range subpaths(n.d) {
-			w.add(m, sub, stroked)
+			w.add(m, clip, sub, stroked)
 		}
 	case n.tag == "rect" && painted(n.fill):
-		w.add(m, []point{
+		w.add(m, clip, []point{
 			{n.x, n.y}, {n.x + n.w, n.y}, {n.x + n.w, n.y + n.h}, {n.x, n.y + n.h},
 		}, false)
 	}
 
 	for _, kid := range n.kids {
-		w.walkBody(kid, m, depth+1)
+		w.walkBody(kid, m, clip, depth+1)
 	}
 }
 
-func (w *inkWalker) add(m matrix, sub []point, stroked bool) {
+// add records one shape's visible box: its geometric extent cut back to the clip
+// in force where it is drawn.
+//
+// A shape clipped away entirely is dropped rather than recorded with an empty
+// box, because a figure is recognised by how many shapes are inside it — see
+// [minFigureInk] — and counting ink the page never paints is the same error as
+// including it in the extent.
+func (w *inkWalker) add(m matrix, clip clipBox, sub []point, stroked bool) {
 	if len(sub) == 0 {
 		return
 	}
@@ -845,9 +861,11 @@ func (w *inkWalker) add(m matrix, sub []point, stroked bool) {
 		minX, maxX = math.Min(minX, x), math.Max(maxX, x)
 		minY, maxY = math.Min(minY, y), math.Max(maxY, y)
 	}
-	w.ink = append(w.ink, Ink{
-		Rect: CellRect{X0: minX, Y0: minY, X1: maxX, Y1: maxY}, Stroked: stroked,
-	})
+	box, visible := clip.apply(CellRect{X0: minX, Y0: minY, X1: maxX, Y1: maxY})
+	if !visible {
+		return
+	}
+	w.ink = append(w.ink, Ink{Rect: box, Stroked: stroked})
 }
 
 // What this deliberately does not solve, each measured rather than supposed.

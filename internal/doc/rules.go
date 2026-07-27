@@ -1000,16 +1000,24 @@ type svgNode struct {
 	stroke      string
 	fill        string
 	strokeWidth string
-	x, y, w, h  float64
-	kids        []*svgNode
+	// clip is the element's own `clip-path` attribute, unresolved. It is kept
+	// because a shape's box has to be its visible extent rather than its
+	// geometric one — see clip.go, which is where the reference is followed.
+	clip       string
+	x, y, w, h float64
+	kids       []*svgNode
 }
 
 // skippedTags are elements whose contents are never page ink: masking and
 // gradient machinery, embedded rasters, stylesheets. <filter> is deliberately
 // not here — it is not walked for ink either, but its feImage references are how
 // a hoisted compositing group is found again.
+//
+// <clipPath> is not here either, and used to be. Its contents are not ink, but
+// they are geometry a shape's box depends on, so it is read by [readClipPath]
+// into a rectangle instead of being skipped — see clip.go.
 var skippedTags = map[string]bool{
-	"mask": true, "clipPath": true, "linearGradient": true, "radialGradient": true,
+	"mask": true, "linearGradient": true, "radialGradient": true,
 	"pattern": true, "symbol": true, "image": true, "style": true,
 }
 
@@ -1022,6 +1030,11 @@ type svgDoc struct {
 	byID map[string]*svgNode
 	// filterRefs maps a filter's id to the ids its feImage children pull in.
 	filterRefs map[string][]string
+	// clips maps a <clipPath>'s id to the extent it admits, in its own user space.
+	// Kept unresolved for the reason clip.go's header gives: the same definition
+	// resolves to two different page rectangles depending on which reference
+	// pulled it in.
+	clips map[string]clipDef
 }
 
 // parseSVG reads cairo's SVG into a tree.
@@ -1044,6 +1057,7 @@ func parseSVG(data []byte) (*svgDoc, error) {
 		root:       &svgNode{tag: "#document"},
 		byID:       make(map[string]*svgNode),
 		filterRefs: make(map[string][]string),
+		clips:      make(map[string]clipDef),
 	}
 	stack := []*svgNode{doc.root}
 
@@ -1057,6 +1071,20 @@ func parseSVG(data []byte) (*svgDoc, error) {
 		}
 		switch v := tok.(type) {
 		case xml.StartElement:
+			// A <clipPath> becomes a rectangle rather than a subtree, and is
+			// consumed here so its children never reach the tree at all.
+			if v.Name.Local == "clipPath" {
+				id := attrValue(&v, "id")
+				def, err := readClipPath(dec, &v)
+				if err != nil {
+					return nil, err
+				}
+				// First declaration wins, matching how byID resolves a duplicate.
+				if _, seen := doc.clips[id]; !seen && id != "" {
+					doc.clips[id] = def
+				}
+				continue
+			}
 			node := &svgNode{tag: v.Name.Local}
 			for _, a := range v.Attr {
 				switch a.Name.Local {
@@ -1066,6 +1094,8 @@ func parseSVG(data []byte) (*svgDoc, error) {
 					node.transform = a.Value
 				case "filter":
 					node.filter = a.Value
+				case "clip-path":
+					node.clip = a.Value
 				case "href":
 					// Both the xlink form and the plain one; cairo writes xlink:href,
 					// but the plain attribute is the current spelling and costs nothing
@@ -1122,6 +1152,17 @@ func parseSVG(data []byte) (*svgDoc, error) {
 	return doc, nil
 }
 
+// attrValue reads one attribute off an element that is being consumed from the
+// stream rather than built into a node.
+func attrValue(e *xml.StartElement, name string) string {
+	for _, a := range e.Attr {
+		if a.Name.Local == name {
+			return a.Value
+		}
+	}
+	return ""
+}
+
 func collectByTag(n *svgNode, tag string) []*svgNode {
 	var out []*svgNode
 	if n.tag == tag {
@@ -1168,20 +1209,20 @@ func parseRules(data []byte) ([]Rule, error) {
 	// carries the matrix which cancels the definition's own — see the compositing
 	// group trap in this file's header.
 	for _, kid := range doc.root.kids {
-		w.walkBody(kid, identity, 0)
+		w.walkBody(kid, identity, clipBox{}, 0)
 	}
 	return dedupeRules(w.rules), nil
 }
 
 // walkBody walks a subtree, skipping <defs>, which walk enters by reference.
-func (w *ruleWalker) walkBody(n *svgNode, m matrix, depth int) {
+func (w *ruleWalker) walkBody(n *svgNode, m matrix, clip clipBox, depth int) {
 	if n.tag == "defs" {
 		return
 	}
-	w.walk(n, m, depth)
+	w.walk(n, m, clip, depth)
 }
 
-func (w *ruleWalker) walk(n *svgNode, m matrix, depth int) {
+func (w *ruleWalker) walk(n *svgNode, m matrix, clip clipBox, depth int) {
 	if depth > maxSVGDepth || strings.HasPrefix(n.id, "glyph-") {
 		return
 	}
@@ -1195,20 +1236,29 @@ func (w *ruleWalker) walk(n *svgNode, m matrix, depth int) {
 	w.visited[key] = true
 
 	m = m.compose(parseTransform(n.transform))
+	// The element's own clip narrows its ancestors' — resolved after its transform,
+	// which is the user space the clip is written in, and the same composition that
+	// keeps a hoisted compositing group's coordinates right.
+	if box, ok := w.doc.clipAt(n.clip, m); ok {
+		clip = clip.intersect(box)
+		if clip.empty() {
+			return
+		}
+	}
 
 	// A filtered group's real content was hoisted into <defs>; follow it carrying
 	// this element's matrix, which is what cancels the hoisted group's own.
 	if id, ok := refID(n.filter); ok {
 		for _, ref := range w.doc.filterRefs[id] {
 			if target := w.doc.byID[ref]; target != nil {
-				w.walk(target, m, depth+1)
+				w.walk(target, m, clip, depth+1)
 			}
 		}
 	}
 	if n.tag == "use" {
 		if strings.HasPrefix(n.href, "#") {
 			if target := w.doc.byID[n.href[1:]]; target != nil {
-				w.walk(target, m, depth+1)
+				w.walk(target, m, clip, depth+1)
 			}
 		}
 	}
@@ -1222,40 +1272,55 @@ func (w *ruleWalker) walk(n *svgNode, m matrix, depth int) {
 		width *= m.scale() * svgPointScale
 		for _, sub := range subpaths(n.d) {
 			for i := 0; i+1 < len(sub); i++ {
-				w.stroked(m, sub[i], sub[i+1], width)
+				w.stroked(m, clip, sub[i], sub[i+1], width)
 			}
 		}
 	case n.tag == "path" && n.fill != "" && n.fill != "none":
 		for _, sub := range subpaths(n.d) {
-			w.filled(m, sub)
+			w.filled(m, clip, sub)
 		}
 	case n.tag == "rect" && n.fill != "" && n.fill != "none":
-		w.filled(m, []point{
+		w.filled(m, clip, []point{
 			{n.x, n.y}, {n.x + n.w, n.y}, {n.x + n.w, n.y + n.h}, {n.x, n.y + n.h},
 		})
 	}
 
 	for _, kid := range n.kids {
-		w.walkBody(kid, m, depth+1)
+		w.walkBody(kid, m, clip, depth+1)
 	}
 }
 
 // stroked records a stroked segment if it is an axis-aligned rule.
-func (w *ruleWalker) stroked(m matrix, p, q point, width float64) {
+//
+// The clip is applied to the segment's own extent, so a rule drawn longer than
+// the window it is painted in is recorded at the length the page prints. It is
+// applied here rather than only in [inkWalker] because a rule that is clipped
+// away is not a printed line, and a cell boundary is read off where the rules
+// end — see [cellsOfTable]. Measured on the five ground-truth pages, every cell
+// count is unchanged, which says the tables of these two documents draw their
+// rules inside their clips.
+func (w *ruleWalker) stroked(m matrix, clip clipBox, p, q point, width float64) {
 	x0, y0 := m.apply(p.x, p.y)
 	x1, y1 := m.apply(q.x, q.y)
 	x0, y0, x1, y1 = x0*svgPointScale, y0*svgPointScale, x1*svgPointScale, y1*svgPointScale
+	box, visible := clip.apply(CellRect{
+		X0: math.Min(x0, x1), Y0: math.Min(y0, y1),
+		X1: math.Max(x0, x1), Y1: math.Max(y0, y1),
+	})
+	if !visible {
+		return
+	}
 	dx, dy := math.Abs(x1-x0), math.Abs(y1-y0)
 	switch {
-	case dy <= axisTolerance && dx >= minRuleLength:
+	case dy <= axisTolerance && box.Width() >= minRuleLength:
 		w.rules = append(w.rules, Rule{
 			Dir: Horizontal, At: (y0 + y1) / 2,
-			Start: math.Min(x0, x1), End: math.Max(x0, x1), Thickness: width,
+			Start: box.X0, End: box.X1, Thickness: width,
 		})
-	case dx <= axisTolerance && dy >= minRuleLength:
+	case dx <= axisTolerance && box.Height() >= minRuleLength:
 		w.rules = append(w.rules, Rule{
 			Dir: Vertical, At: (x0 + x1) / 2,
-			Start: math.Min(y0, y1), End: math.Max(y0, y1), Thickness: width,
+			Start: box.Y0, End: box.Y1, Thickness: width,
 		})
 	}
 }
@@ -1278,7 +1343,7 @@ func (w *ruleWalker) stroked(m matrix, p, q point, width float64) {
 // guessed — a document that rules its tables with filled slivers instead of
 // strokes is an ordinary thing for a designer to produce, and the next manual
 // gets no say in which of the two this code understands.
-func (w *ruleWalker) filled(m matrix, sub []point) {
+func (w *ruleWalker) filled(m matrix, clip clipBox, sub []point) {
 	if len(sub) > 6 || len(sub) < 2 {
 		return
 	}
@@ -1290,6 +1355,11 @@ func (w *ruleWalker) filled(m matrix, sub []point) {
 		minX, maxX = math.Min(minX, x), math.Max(maxX, x)
 		minY, maxY = math.Min(minY, y), math.Max(maxY, y)
 	}
+	box, visible := clip.apply(CellRect{X0: minX, Y0: minY, X1: maxX, Y1: maxY})
+	if !visible {
+		return
+	}
+	minX, minY, maxX, maxY = box.X0, box.Y0, box.X1, box.Y1
 	width, height := maxX-minX, maxY-minY
 	switch {
 	case width >= minRuleLength && height > 0 && height <= maxRuleThickness:
