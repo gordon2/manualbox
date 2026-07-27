@@ -269,6 +269,34 @@ that does not exist yet — SQLite has the extension compiled in and nothing use
 A scanned manual with no text layer needs OCR before any of this applies, and the
 tesseract binary is registered but called from nowhere.
 
+**RIGHT-TO-LEFT TEXT IS EXTRACTED BACKWARDS, and no amount of care in the view can
+fix it.** Found by building the reader, and it is a defect in the pipeline rather than
+a limitation of it.
+
+`pdftohtml -xml` — the tool every block, column and region reads from — returns a
+right-to-left line in **visual** order. Page 185 of the sequential manual, its Hebrew
+section, arrives as `שומיש תולבגה`; reversed rune for rune that is `הגבלות שימוש`,
+"usage restrictions", which is what the page prints. `pdftotext` on the same page
+returns the logical string correctly, wrapped in the bidi controls U+202B and U+202C.
+Arabic is worse: it arrives both reversed and unshaped, in isolated rather than
+presentation forms.
+
+No `dir` value repairs it. The bidi algorithm reorders a strong RTL run under either
+base direction, so `dir="rtl"` displays the mirrored letters and `dir="ltr"` displays
+the same mirrored letters flush left.
+
+And reversing in the view would be wrong twice over: it mangles the Latin words and
+digits these manuals mix into RTL prose, and it double-reverses the day the extraction
+is fixed. **The fix belongs in `internal/doc`** — either reverse an RTL run's runes at
+extraction, or take the order from `pdftotext`'s bidi-controlled output — and it is
+unbuilt. Until then the reader renders those sections with a warning naming the cause.
+
+Worth knowing what this does *not* break: the language signals are unaffected. The
+character-repertoire and script signals count characters, so order is irrelevant to
+them, and the printed page tag already strips bidi controls for the reason
+`stripFormatting` documents. It is the readable text, and therefore search and
+translation later, that is wrong.
+
 **Right-to-left is postponed for the app and built into the reader.** The frontend has
 no direction handling at all — no `dir` attribute, no logical properties, every margin
 physical — and converting the five existing screens is deliberately not being done.
