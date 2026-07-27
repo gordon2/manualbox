@@ -25,6 +25,11 @@ import (
 // column trimmed off instead of being thrown away whole, which is the better of the
 // two outcomes. What is left is one cluster in 275 across both documents.
 //
+// Reading the clip moved both totals — 46 to 59 figures on the columns manual and
+// 229 to 238 on the sequential one, because drawings that had been merged into a
+// neighbour are now separate — and moved neither verdict: the guard still decides
+// nothing on the columns manual and still decides page 53 alone on the other.
+//
 // So this test asserts the measured numbers rather than "the guard does something",
 // and the guard is kept on the reasoning [ruleWalker.filled] sets out: the shape it
 // handles — a ruled table with more parts than minFigureInk and cells full of
@@ -45,12 +50,12 @@ func TestWhatTheTextGuardIsStillWorth(t *testing.T) {
 		with, none int
 		pages      []int
 	}{
-		{"thomas-drybox-amfibia", 46, 46, nil},
+		{"thomas-drybox-amfibia", 59, 59, nil},
 		// Page 53 prints the French recycling label — a picture with a paragraph
 		// set inside it, 34.7% text, which is exactly the case the guard cannot
 		// tell from a table and the reason its remaining decision is a loss rather
 		// than a save.
-		{"dreame-l40-ultra", 229, 230, []int{53}},
+		{"dreame-l40-ultra", 238, 239, []int{53}},
 	} {
 		name := tc.name
 		t.Run(name, func(t *testing.T) {

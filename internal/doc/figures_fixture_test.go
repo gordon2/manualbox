@@ -56,11 +56,14 @@ func TestFiguresOfTheColumnsManualAreItsLineDrawings(t *testing.T) {
 	path, pages := rulesFixture(t, "thomas-drybox-amfibia")
 
 	// Counted off renders of the pages. Page 42 prints four framed drawings and
-	// returns three: the third and fourth are 27 units apart and a clipped path
-	// bridges them, which figures.go's header measures. Page 11 is one framed
+	// returns four, and page 22 three for three — both were one short until the
+	// clip was read, because a path drawn past its frame bridged the gap to the
+	// next drawing. Page 16 prints four panels and returns four, which is the case
+	// conversion.md recorded as "1 for 3" and had wrong twice over: it returned one
+	// figure, and the page prints four rather than three. Page 11 is one framed
 	// parts diagram with the loose accessory drawings inside the same frame.
 	want := map[int]int{
-		1: 1, 11: 1, 12: 1, 22: 2, 42: 3,
+		1: 1, 11: 1, 12: 1, 16: 4, 22: 3, 42: 4,
 		// The five ruled troubleshooting pages print no illustration at all, though
 		// each carries the two largest ink clusters in the document. Which guard
 		// rejects them is not the one it looks like — see
@@ -93,12 +96,18 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		mostOnAPage   int
 		maxTextOfReal float64
 	}{
-		// The columns manual: 46 figures on 27 of 68 pages, 2 to 3 on the pages of
+		// The columns manual: 59 figures on 27 of 68 pages, 3 to 4 on the pages of
 		// framed drawings. Its smallest figure's short side is 128 units — this
 		// document draws nothing small, which is why the size floor decides nothing
 		// on it at any value from 10 to 120.
-		{"thomas-drybox-amfibia", 27, 46, 128, 28, 3, 0.09},
-		// The sequential manual: 229 figures on 23 of 560 pages, and up to 33 on one
+		//
+		// It was 46 on the same 27 pages before the clip was read, and the extra 13
+		// are drawings that had been merged into a neighbour: the count rises where
+		// the page count does not, which is what tells a split from a new find.
+		// Its least-inked figure falls from 28 shapes to 26 for the same reason — a
+		// merged cluster held both drawings' shapes.
+		{"thomas-drybox-amfibia", 27, 59, 128, 26, 4, 0.09},
+		// The sequential manual: 238 figures on 23 of 560 pages, and up to 34 on one
 		// page — its front matter carries two pages that are nothing but grids of
 		// small diagrams. Every figure in it is in the front matter or the back
 		// matter: the 34 language sections print prose and ruled tables and no
@@ -106,7 +115,9 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 		// language-neutral content measured from the other side, and it is the reason
 		// a language-scoped conversion of this document would show a reader no
 		// pictures at all.
-		{"dreame-l40-ultra", 23, 229, 20, 28, 33, 0.06},
+		//
+		// 229 before the clip, on the same 23 pages.
+		{"dreame-l40-ultra", 23, 238, 20, 28, 34, 0.06},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, pages := rulesFixture(t, tc.name)
@@ -267,7 +278,7 @@ func TestRenderedFigureMatchesItsRectangle(t *testing.T) {
 }
 
 // TestEveryFigureOfTheColumnsManualRenders is where the size cap comes from, and
-// it is the only test that pays for every render: 46 figures, which is also the
+// it is the only test that pays for every render: 59 figures, which is also the
 // measurement of what a whole document's pictures cost.
 //
 // Set MANUALBOX_FIGURE_DIR to a scratch directory outside the repository to write
@@ -317,8 +328,8 @@ func TestEveryFigureOfTheColumnsManualRenders(t *testing.T) {
 	}
 	t.Logf("%d figures, %d KB in total, largest %d KB (%s)",
 		count, total/1024, largest/1024, largestName)
-	if count != 46 {
-		t.Errorf("rendered %d figures, expected 46", count)
+	if count != 59 {
+		t.Errorf("rendered %d figures, expected 59", count)
 	}
 	// The cap is two orders above the largest measured. If a figure ever gets
 	// within an order of it, the cap is the thing to revisit rather than this.

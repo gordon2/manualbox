@@ -110,13 +110,13 @@ func report(t *testing.T, rep *verify.Report) {
 }
 
 // TestCheckTheColumnManual is the parallel-columns fixture: 68 pages, five
-// languages sharing most of them, 46 figures.
+// languages sharing most of them, 59 figures.
 func TestCheckTheColumnManual(t *testing.T) {
 	conv, rep := checked(t, "thomas-drybox-amfibia")
 
-	if len(conv.Blocks) != 2180 || len(conv.Figures) != 46 {
+	if len(conv.Blocks) != 2180 || len(conv.Figures) != 59 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 2180 and 46", len(conv.Blocks), len(conv.Figures))
+			"was 2180 and 59", len(conv.Blocks), len(conv.Figures))
 	}
 
 	// No page loses text. The lowest score is page 5 at 0.80, which is a page of
@@ -148,12 +148,22 @@ func TestCheckTheColumnManual(t *testing.T) {
 		t.Errorf("glued words or doubled spaces: %d, was 0", got)
 	}
 
-	// The figure geometry, which is the clip-path limitation conversion.md records.
-	if got := rep.Count(verify.KindFigureBand); got != 4 {
-		t.Errorf("blank bands: %d figure(s), was 4", got)
+	// The figure geometry. Both of these were the clip-path limitation
+	// conversion.md recorded, and reading the clip took them from 4 blank bands and
+	// 22 clipped to 0 and 15 while the figure count rose from 46 to 59.
+	//
+	// Zero is asserted on the band because that check reads the RENDERED PIXELS and
+	// so is independent of the geometry that produced them: it is the one number
+	// here that cannot improve by the box and the ink agreeing with each other.
+	if got := rep.Count(verify.KindFigureBand); got != 0 {
+		t.Errorf("blank bands: %d figure(s), was 4 before the clip and 0 after", got)
 	}
-	if got := rep.Count(verify.KindFigureClipped); got != 22 {
-		t.Errorf("clipped figures: %d of 46, was 22", got)
+	// The 15 that remain are not the clip. Every one is a figure whose box
+	// trimToPicture pulled in off a label at its edge — page 16 figure 2 is the
+	// measured case — and with trimming off the same count is 2. See the note on
+	// doc's trimToPicture, which records the trade rather than taking it.
+	if got := rep.Count(verify.KindFigureClipped); got != 15 {
+		t.Errorf("clipped figures: %d of 59, was 22 of 46 before the clip", got)
 	}
 
 	// Reading order is clean, including on the parts pages whose callouts scatter
@@ -169,9 +179,9 @@ func TestCheckTheColumnManual(t *testing.T) {
 func TestCheckTheSequentialManual(t *testing.T) {
 	conv, rep := checked(t, "dreame-l40-ultra")
 
-	if len(conv.Blocks) != 15951 || len(conv.Figures) != 163 {
+	if len(conv.Blocks) != 15951 || len(conv.Figures) != 168 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 15951 and 163", len(conv.Blocks), len(conv.Figures))
+			"was 15951 and 168", len(conv.Blocks), len(conv.Figures))
 	}
 
 	if got := rep.Count(verify.KindCoverage); got != 0 {
@@ -220,11 +230,20 @@ func TestCheckTheSequentialManual(t *testing.T) {
 		t.Errorf("glued words: %d, was 3", got)
 	}
 
-	if got := rep.Count(verify.KindFigureBand); got != 6 {
-		t.Errorf("blank bands: %d figure(s), was 6", got)
+	// 2 blank bands where there were 6 before the clip was read, and 71 clipped
+	// where there were 74 — barely moved, and that is the honest reading of this
+	// document rather than a disappointment to explain away. Its residual findings
+	// are on the crowded diagram pages (521-531), where a leader line more than half
+	// inside one small figure's box is drawn for the drawing beside it, so what they
+	// report is the geometric matching this package has to do without knowing which
+	// shapes doc assigned to which figure. Page 522 was rendered and read: 13
+	// figures over about eight printed drawings, each crop a sensible picture with
+	// leader-line stubs reaching its edge.
+	if got := rep.Count(verify.KindFigureBand); got != 2 {
+		t.Errorf("blank bands: %d figure(s), was 6 before the clip and 2 after", got)
 	}
-	if got := rep.Count(verify.KindFigureClipped); got != 74 {
-		t.Errorf("clipped figures: %d of 163, was 74", got)
+	if got := rep.Count(verify.KindFigureClipped); got != 71 {
+		t.Errorf("clipped figures: %d of 168, was 74 of 163 before the clip", got)
 	}
 
 	// The one reading-order class either manual has: the routine-maintenance page

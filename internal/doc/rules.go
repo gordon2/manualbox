@@ -40,7 +40,7 @@ import (
 // cell can be drawn on the rendered page and looked at, which is how the counts
 // in docs/design/conversion.md were arrived at.
 //
-// Four properties of real cairo output shape this code, and every one of them
+// Five properties of real cairo output shape this code, and every one of them
 // was found by reading output that came back wrong first.
 //
 // **Glyph outlines are paths too.** Cairo writes each glyph as a filled path in
@@ -74,6 +74,15 @@ import (
 // the same x. So a cell boundary counts as present when a rule is drawn there,
 // or when the row rules above and below the cell both terminate there — see
 // [cellsOfTable].
+//
+// **A path is not drawn at its own length; it is drawn inside a clip.** Cairo
+// writes `clip-path` on the group and nests two of them around most page content,
+// so a stroke's extent in the file can run past what is painted. It is read by
+// clip.go and intersected in both walkers, and it is measured on page 38 of the
+// columns manual: that page's frame draws a left edge to y=268.7 where a 432 dpi
+// render shows the stroke ending at 238, and that 30 units of phantom rule was
+// closing a table cell on a page of framed illustrations. Every cell count of the
+// five ground-truth pages is unchanged by reading it.
 //
 // Nothing here knows what a block is. This file answers only "where are the
 // lines, and what cells do they enclose"; assembling a cell's text into readable

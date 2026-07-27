@@ -148,11 +148,17 @@ func TestConvertTheColumnManualForGerman(t *testing.T) {
 		t.Error("page 57's first question cell is missing")
 	}
 
-	// The pictures. 40 over this scope, and 38 of them from the shared picture
+	// The pictures. 53 over this scope, and 51 of them from the shared picture
 	// column — which the render of page 14 shows is a column of photographs
 	// belonging to neither text column.
-	if len(conv.Figures) != 40 {
-		t.Errorf("%d figures, measured at 40 for this scope", len(conv.Figures))
+	//
+	// It was 40 before the clip was read. The 13 extra are drawings that had been
+	// merged into the one above them: page 42 now returns its four printed panels
+	// and page 22 its three, both checked against renders. Page 14 still returns
+	// exactly its two photographs, which is the assertion below and what says the
+	// rise is a split rather than furniture getting through.
+	if len(conv.Figures) != 53 {
+		t.Errorf("%d figures, measured at 53 for this scope", len(conv.Figures))
 	}
 	p14 := 0
 	for i := range conv.Figures {
@@ -211,8 +217,12 @@ func TestConvertTheSequentialManualForRussian(t *testing.T) {
 				c.page, byPage[c.page], c.figures)
 		}
 	}
-	if len(conv.Figures) != 81 {
-		t.Errorf("%d figures over the Russian section; conversion.md measures 81", len(conv.Figures))
+	// 84, where it was 81 before the clip was read. The four pages counted off
+	// renders just above are unchanged at 8, 8, 7 and 8, so the three extra are
+	// splits elsewhere in the section rather than a page gaining a picture it does
+	// not print.
+	if len(conv.Figures) != 84 {
+		t.Errorf("%d figures over the Russian section, measured at 84", len(conv.Figures))
 	}
 
 	// Page 533's prose, from the render. The heading is what a reader looks for and

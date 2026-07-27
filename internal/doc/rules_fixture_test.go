@@ -184,12 +184,17 @@ func TestPage57IsTwoTablesWithNoOuterVerticals(t *testing.T) {
 	}
 }
 
-// TestFramedIllustrationsAreNotTables is the text guard, on the three pages that
-// need it. They are grids of boxed pictures: ruled in rows and columns, aligned,
-// and empty. Geometry passes them and only the words reject them.
+// TestFramedIllustrationsAreNotTables is the text guard, on the pages that need
+// it. They are grids of boxed pictures: ruled in rows and columns, aligned, and
+// empty. Geometry passes them and only the words reject them.
 func TestFramedIllustrationsAreNotTables(t *testing.T) {
 	path, pages := rulesFixture(t, "thomas-drybox-amfibia")
-	for _, no := range []int{22, 38, 44} {
+	// 38 was the third of these until the clip was read. Its frame's left edge is
+	// drawn 30 units past where it is painted, and that over-long rule was what
+	// closed a cell; clipped, the page does not pass the shape guard, so it can no
+	// longer test what happens after it. It still comes back as no table, which is
+	// asserted below for all three.
+	for _, no := range []int{22, 44} {
 		page := pageOf(t, pages, no)
 		rules, err := doc.ExtractRules(context.Background(), path, no)
 		if err != nil {
@@ -207,6 +212,17 @@ func TestFramedIllustrationsAreNotTables(t *testing.T) {
 			t.Errorf("page %d no longer passes the shape guard, so it no longer "+
 				"exercises the text guard", no)
 		}
+	}
+
+	// Page 38 keeps its half of the claim: still a grid of framed illustrations,
+	// still no table, now rejected by the shape guard instead.
+	page := pageOf(t, pages, 38)
+	rules, err := doc.ExtractRules(context.Background(), path, 38)
+	if err != nil {
+		t.Fatalf("ExtractRules page 38: %v", err)
+	}
+	if got := doc.FindRuledTables(rules, page); len(got) != 0 {
+		t.Errorf("page 38 came back as %d table(s) with %d cells", len(got), cellCount(got))
 	}
 }
 
@@ -253,8 +269,15 @@ func TestBothGuardsAreNeededOverTheWholeDocument(t *testing.T) {
 	}{
 		// Every page carries footer crop marks, so "has a ruled line" is the whole
 		// document and separates nothing.
-		{"thomas-drybox-amfibia", 68, 68, 13, 10,
-			"the 3 pages between the shape guard and the text guard are 22, 38 and 44"},
+		// 12 pass the shape guard where 13 did before the clip was read: page 38's
+		// frame has a left edge drawn 30 units longer than it is painted, and that
+		// over-long rule was closing a cell. Clipped to what the page prints, the
+		// page no longer looks like a table at all — checked against a 432 dpi
+		// render of x=85-145, y=150-290, where the stroke ends at y=238 and the
+		// unclipped extent ran to 268.7. The page's answer is unchanged either way:
+		// it is a grid of framed illustrations and produces no table.
+		{"thomas-drybox-amfibia", 68, 68, 12, 10,
+			"the 2 pages between the shape guard and the text guard are 22 and 44"},
 		// 170 is 34 languages times 5 table pages, exactly.
 		{"dreame-l40-ultra", 560, 226, 171, 170, "170 = 34 languages x 5 table pages"},
 	} {

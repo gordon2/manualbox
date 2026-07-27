@@ -59,24 +59,34 @@ import (
 // that pdftohtml writes the raster to a file beside the blob store unless it is
 // run with -i, which is why [ExtractRuns] passes -i.
 //
-// **A clip path is ignored, so an ink box can be larger than what is painted.**
-// This is the one real cost of the route and it has two effects, both measured.
+// **A shape's box is its visible extent, because the clip is read.** This was the
+// one real cost of the vector route and it is now paid: clip.go resolves each
+// shape's effective clip and [inkWalker.add] intersects the path's extent with it,
+// so a drawing whose artwork runs past its frame is recorded at the frame.
 //
-// Cairo writes `clip-path` on the group and parseSVG does not read it, so a drawing
-// whose artwork runs past its frame reports the unclipped extent. That extent
-// *merges neighbouring pictures*: on page 42 of the columns manual the third and
-// fourth drawings are 27 units apart, and a clipped path spanning y=543.8 to 706.7
-// bridges them, so they come back as one figure containing two. Page 16 returns one
-// figure holding three. A reader still sees every picture, in the right place and
-// the right order, which is why this is recorded rather than worked around.
+// What that was worth, measured end to end with `manualbox verify` on both
+// manuals:
 //
-// It also made figures *reach over the text beside them*: before [trimToPicture]
-// existed, 19 of the columns manual's 46 figures overlapped a line of five
-// characters or more, and the crop of page 18's first figure contained a slab of
-// German prose. Trimming brings that to 8 of 46 and 0 of the sequential manual's
-// 229. The proper fix is upstream and small — parseSVG would have to keep the
-// `clip-path` attribute and intersect it — and it belongs in rules.go, which owns
-// that walker.
+//	                              columns manual   sequential manual
+//	figures                         46 -> 59          163 -> 168
+//	figures cut off by their crop   22 -> 15           74 -> 71
+//	figures with a blank band        4 -> 0             6 -> 2
+//
+// The figure count rises because the unclipped extent *merged neighbouring
+// pictures*, and the pages that were counted by eye now agree with the print: page
+// 42 of the columns manual returns its four framed drawings where it returned
+// three, page 22 three for three, and page 16 four for four — which the render
+// settles and conversion.md had wrong twice over, since that page prints four
+// panels rather than the three it records. Both documents keep the same number of
+// pages carrying figures, 27 and 23, which is what says these are splits rather
+// than newly admitted furniture.
+//
+// The residual counts are not the clip. On the columns manual all 15 are
+// [trimToPicture] cutting into a drawing that has a label at its edge — with
+// trimming off the same measurement is 2 — and on the sequential manual they are
+// leader lines on its crowded diagram pages, where a line more than half inside
+// one figure's box belongs to the drawing beside it. See the note on
+// [trimToPicture].
 //
 // Nothing here emits a block and nothing here writes to the blob store. This file
 // answers only "where are the pictures, and what are their bytes"; the digest is
@@ -113,10 +123,10 @@ const (
 	//
 	// The sweep is in TestGuardSweep and says two things. On the columns manual the
 	// guard discriminates *nothing whatever*: every value from 10 to 120 returns the
-	// same 46 figures, because that document draws no picture smaller than 128 units
+	// same 59 figures, because that document draws no picture smaller than 128 units
 	// on its short side. On the sequential manual it is a smooth continuum with no
-	// step anywhere — 281 figures at 10, 229 at 20, 194 at 30, 157 at 40, 128 at 50,
-	// 93 at 60, 53 at 80, 16 at 120.
+	// step anywhere — 293 figures at 10, 238 at 20, 201 at 30, 161 at 40, 127 at 50,
+	// 93 at 60, 52 at 80, 15 at 120.
 	//
 	// So the value is chosen by looking at what falls out, and 40 was wrong. Page 5
 	// of the sequential manual is a grid of nine panels holding about thirty small
@@ -146,11 +156,12 @@ const (
 	// as that page's picture — and is exactly 1 shape.
 	//
 	// The value is chosen off the sweep in TestGuardSweep rather than off a gap,
-	// because there is no gap: the counts fall smoothly, 282 / 277 / 235 / 229 / 227
-	// on the sequential manual at 10 / 15 / 20 / 25 / 30. 25 is the one value in that
-	// range that is not on a step — five either side moves both documents by under
-	// 3%, where 20 gains 18% on a step down to 15 — and that stability is asserted
-	// rather than described.
+	// because there is no gap: the counts fall smoothly, 291 / 286 / 244 / 238 / 236
+	// on the sequential manual at 10 / 15 / 20 / 25 / 30. 25 is still the one value
+	// in that range that is not on a step — five either side moves both documents by
+	// under 3%, where 20 gains 20% on a step down to 15 — and that stability is
+	// asserted rather than described. Reading the clip moved every number in that
+	// sweep and moved neither the shape of it nor the value chosen.
 	minFigureInk = 25
 
 	// maxFigureTextFraction is how much of a candidate's area may be covered by
@@ -164,7 +175,7 @@ const (
 	// It is also, measured, nearly dead, and that is stated rather than left to be
 	// discovered. [trimToPicture] took most of its work: a candidate that has reached
 	// over a column of prose now has the prose trimmed off instead of being rejected
-	// whole, which is the better outcome. What is left is one decision in 275 figures
+	// whole, which is the better outcome. What is left is one decision in 297 figures
 	// across both documents — page 53 of the sequential manual, the French recycling
 	// label, which is a picture with a paragraph inside it and therefore a loss
 	// rather than a save. TestWhatTheTextGuardIsStillWorth holds both numbers.
@@ -553,14 +564,32 @@ func textFraction(area CellRect, text []TextRun) float64 {
 }
 
 // trimToPicture pulls a candidate's edges in off any line of text it has reached
-// over, and it is the direct remedy for the clip path this code cannot read.
+// over. It was written as the remedy for the clip this code could not read, and it
+// has outlived that cause — which makes it the one thing here whose keep is now a
+// judgement rather than a measurement.
 //
-// An ink box is the bounding box of a path's endpoints with no clip applied, so a
-// drawing whose artwork runs past its frame reports an extent the page never
-// paints — and on the columns manual that extent regularly reaches into the text
-// column beside the drawing. Measured before this existed: 19 of that document's 45
-// figures overlapped a line of five characters or more, and the crop of page 18's
-// first figure contained a slab of German prose and the printed D badge.
+// It was added because an ink box was a path's unclipped extent, so a drawing whose
+// artwork ran past its frame reached into the text column beside it: 19 of the
+// columns manual's 45 figures overlapped a line of five characters or more, and the
+// crop of page 18's first figure contained a slab of German prose and the printed D
+// badge. clip.go now cuts that box back to what the page paints, so the cause is
+// gone. What trimming is worth on top of it was measured over both whole documents,
+// as figures overlapping a line of five runes or more, and figures with ink of their
+// own crossing their box:
+//
+//	                        trimming on        trimming off
+//	columns manual, 59      9 over prose,      15 over prose,
+//	                        15 cut by the trim  2 cut
+//	sequential, 238         0 over prose,      10 over prose,
+//	                        101 crossing        96 crossing
+//
+// So it is not redundant and it is not free: it removes six prose overlaps on one
+// document and ten on the other, and it cuts into thirteen columns-manual drawings
+// that the clip alone would have returned whole — page 16 figure 2 loses its right
+// third to the label »click«. Which of those a reader minds more is a decision for
+// whoever owns the reader, not one to settle inside this function, so the behaviour
+// is left exactly as it was and the numbers are recorded here so the decision can
+// be taken on them.
 //
 // Only a run of [minTrimRunes] or more is trimmed away, which is the whole reason
 // this does not destroy a diagram: a callout number is one or two characters, and
@@ -874,17 +903,19 @@ func (w *inkWalker) add(m matrix, clip clipBox, sub []point, stroked bool) {
 // from a framed illustration by whether the cells hold words, and a blank form has
 // none: page 558 of the sequential manual prints two warranty-registration forms
 // whose labels sit only in the left column, and both come back as figures — 2 of
-// that document's 229. Excluding anything the ruled-table shape guard claims would
+// that document's 238. Excluding anything the ruled-table shape guard claims would
 // fix it and cost more than it saves, and that number is already recorded in
-// docs/design/conversion.md: the shape guard alone passes 13 pages of the columns
-// manual, and 3 of those — 22, 38 and 44 — are the grids of framed illustrations
-// this file exists to find.
+// docs/design/conversion.md: the shape guard alone passes 12 pages of the columns
+// manual, and 2 of those — 22 and 44 — are the grids of framed illustrations this
+// file exists to find.
 //
-// **Two pictures side by side can come back as one.** The clip-path limitation in
-// this file's header, from the other end: page 42 of the columns manual returns 3
-// figures for 4 printed drawings and page 16 returns 1 for 3. Nothing here can
-// split them, because the evidence that they are separate — the frame each is drawn
-// inside — is exactly the ink that joins them once the artwork inside overflows it.
+// **A picture can still be cut by its own labels.** Not the clip any more — that is
+// read — but [trimToPicture], which pulls an edge in off a line of four runes or
+// more. Page 16 figure 2 of the columns manual is the case: the printed panel runs
+// to x=288 and carries the label »click« at its right, so the box stops at 209 and
+// the crop loses the right third of the drawing. 15 of that document's 59 figures
+// are cut this way against 2 with trimming off, and the trade is measured in the
+// note on [trimToPicture] rather than decided here.
 //
 // **Page furniture repeated in the same place is not identified as such.** The
 // ink guard rejects every logo and badge in these two documents because they are
