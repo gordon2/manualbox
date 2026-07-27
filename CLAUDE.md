@@ -146,6 +146,19 @@ the same reason. A language under 1% of the text keeps a decimal and loses its
 emphasis rather than being filtered, which is what the 289 characters of Finnish in
 the columns manual need.
 
+**The gate has a second door, and conversion runs behind it.**
+`POST /documents/{id}/approve` is `decline`'s opposite: it moves the document to
+`converting` and queues `doc.convert`, which re-runs `doc.Analyze`, calls
+`doc.Convert` for the household's configured languages, and stores the result with
+`registry.SaveConversion` — the target state travelling as a parameter so `ready`
+lands in the same transaction as the blocks that justify it. There is no language
+argument anywhere on that path: the gate showed a specific scope, and approving must
+mean that scope. `GET /documents/{id}/conversion?lang=de` serves the blocks and
+figures, `GET /documents/{id}/figures/{sha256}` the PNG bytes; `/content` still serves
+the original, unchanged. Measured through the API: the column manual's German is 432
+blocks and 40 figures, the sequential manual's Russian 487 blocks and 81 figures over
+pages 517-538.
+
 Deliberately not built yet, each for a stated reason:
 
 - **The printed-index parser cannot read a contents page laid out in columns.** It

@@ -424,3 +424,49 @@ pages 517-538, page 533's eight line drawings among them.
 The two blemishes on that page 24 comparison are the documented page-furniture
 limitation, not new: the printed `DE` badge arrives as a level-2 heading and the folio
 `18` as a paragraph. Nothing on one page separates those from content.
+
+## What wiring it to the pipeline settled
+
+Conversion now runs as a job behind an approval, and three things only became
+measurable once it did.
+
+**The job pays for the probe a second time, and the cost section above understates
+it.** That section prices a conversion as "one `pdftohtml` pass over the whole
+document" because `Result` does not carry the runs. True, but incomplete: the
+handler does not have a `Result` at all. The probe stored its findings as rows, and
+`Convert` needs the object, so the job re-runs `Analyze`. Measured end to end
+through the API, on a clean database:
+
+| | analyze | convert | job, start to finish |
+|---|---|---|---|
+| sequential manual, Russian | 3.78 s | 14.58 s | **18.6 s** |
+| column manual, German + Ukrainian | 8.11 s | 17.07 s | **25.4 s** |
+
+So re-reading is 20% of one job and 32% of the other. It is bought deliberately
+rather than cached: `Analyze` is a pure function of the bytes, which is what makes
+the probe idempotent, and rebuilding a `Result` from `doc_pages` and `doc_regions`
+would be a second implementation of the same object, free to drift from the real one
+in ways nothing compares. The alternative worth having later is storing the `Result`
+whole, not reconstructing it.
+
+**A figure's language is derived on read, not stored.** `doc_figures` has no language
+column, which is the contract — a picture belonging to no language belongs to every
+language — and that is exactly why a household reading two languages cannot be served
+by page. The de+uk conversion of the column manual stores 41 figures; page-scoped
+filtering would hand a German reader the Ukrainian column's picture off every shared
+page. Applying the same geometric test `Convert` used, against the same stored
+regions, gives German **40** and Ukrainian **39**, overlapping in the 38 neutral ones
+— including page 14's two photographs, which arrive with identical digests in both.
+
+**The state has to be the transaction's, and reverting it proves so.** Setting the
+document to `ready` on its own handle before `SaveConversion`'s transaction leaves a
+document claiming to be readable after a save that rolled back — checked by making a
+block violate `page >= 1` and watching the row say `ready` with no blocks behind it.
+Calling `SetDocumentState` from *inside* the transaction is the deadlock the
+`saveFigures` header already measured; the state therefore travels as a parameter and
+is written on the transaction's own handle, last.
+
+Both fixtures came back at the numbers above through the real API: 432 German blocks
+with page 57's two tables as 25 cells, and 487 Russian blocks with 81 figures over
+pages 517-538, page 533's eight among them. Re-approving a `ready` document produced
+byte-identical JSON.
