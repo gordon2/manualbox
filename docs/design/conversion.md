@@ -169,20 +169,45 @@ would recover them.
 **Framed illustrations are geometrically identical to tables.** Only the text guard
 separates them, and a figure with a caption inside its frame would defeat it.
 
-**Language-neutral content still has no home, and measuring the pictures showed how
-much that costs.** regions.md left this open and conversion inherits it: a diagram or
-a specification table shared by all five languages belongs to a region only if it
-happens to sit inside one, and a picture spanning the full measure belongs to none.
+**A picture that belongs to no language belongs to every language.** Decided by the
+user, and it settles what regions.md left open: language-neutral content — a diagram,
+a shared specification table, a figure spanning the full measure — is included in
+**every** language's conversion rather than assigned to one, duplicated by accident,
+or dropped. A reader of one language must not lose a diagram because the diagram has
+no language of its own.
 
-The size of it, measured: the sequential manual has **229 figures on 23 of its 560
-pages, and every one is in front or back matter.** Its 34 language sections carry
-prose and ruled tables and not a single illustration. So a language-scoped conversion
-of that document shows a reader **no pictures at all** — which is not a bug in any of
-the code, it is the funnel doing exactly what it was told on a document whose pictures
-are shared by every language. The column manual is the opposite: 45 figures on 27 of
-68 pages, sitting inside the language columns where they belong.
+**An earlier version of this section claimed the opposite of the truth and is
+corrected here.** It said the sequential manual's 229 figures were "every one in front
+or back matter", so a language-scoped conversion of it would show no pictures at all.
+That was read off page numbers without checking which pages the language sections
+actually occupy, and it is wrong. Measured properly, over all 560 pages:
 
-That is a product decision rather than a technical one, and it is not taken here.
+| | |
+|---|---|
+| figures | 229 |
+| figure pages **inside** a language section | **20** |
+| figure pages outside one | 3 |
+| Russian | **81 figures** |
+| Japanese | **82 figures** |
+| the other 32 languages | none |
+
+So a Russian or Japanese reader of that manual gets a heavily illustrated section, and
+the other 32 get none — because those two sections genuinely carry illustrations and
+the rest genuinely do not. The lesson is narrower than the claim it replaces: figures
+outside a section are the exception here, not the rule.
+
+**Some languages have more content than others, and it must not be lost.** Russian
+occupies 22 pages of that manual and Japanese 21, where the other 32 languages get 16
+— the extra pages are an illustrated maintenance section that exists only in those
+two. PDF page 533 is an example: Russian prose with eight line drawings of the robot,
+the waste tank and the vents. Verified: those pages fall inside the stored Russian
+region span of 517-538, and their figures are found.
+
+No attempt is made to audit every language for such extras. The requirement is
+weaker and achievable: **whatever a household's own language contains must be read and
+processed, however unlike the other languages' sections it is.** Nothing may assume
+the sections are alike, and the 16-page assumption is exactly what would have hidden
+this.
 
 **The pictures in a manual are not the images in the file.** `pdfimages` — the
 obvious tool, registered in `extern` since before any of this — yields **zero
@@ -209,11 +234,16 @@ that does not exist yet — SQLite has the extension compiled in and nothing use
 A scanned manual with no text layer needs OCR before any of this applies, and the
 tesseract binary is registered but called from nowhere.
 
-**Nothing here renders right to left.** The reader is a separate slice, and the
-frontend has no direction handling at all — no `dir` attribute, no logical
-properties, every margin physical. That matters because this project's own pitch
-includes Hebrew and Arabic manuals, and retrofitting direction into a screen built
-with one-sided margins is worse than building it in.
+**Right-to-left is postponed for the app and built into the reader.** The frontend has
+no direction handling at all — no `dir` attribute, no logical properties, every margin
+physical — and converting the five existing screens is deliberately not being done.
+
+The reader is the exception, because for a *new* screen the cost is nil: Tailwind's
+logical utilities (`ms-`, `me-`, `ps-`, `pe-`, `text-start`, `text-end`) are the same
+length to type as the physical ones, and the block model already carries each block's
+language, so setting `dir` from it is one attribute. Writing it that way costs nothing
+today and saves rewriting the one screen where direction actually matters — this
+document's manuals include Hebrew and Arabic sections.
 
 ## Two corrections to what was already recorded
 
