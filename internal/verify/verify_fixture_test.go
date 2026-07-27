@@ -266,10 +266,12 @@ func TestCheckTheSequentialManual(t *testing.T) {
 		t.Errorf("blank bands: %d figure(s), was 6 before the clip and 2 after", got)
 	}
 	// 70 since trimToPicture stopped pulling an edge in off a label the artwork
-	// encloses, which on this document is worth exactly one figure — page 523's,
-	// where the trim used to cut 18 units off the top for a caption beside it. That
-	// this barely moves is the same reading as above: these are leader lines, not
-	// trimming.
+	// encloses, which on this document is worth exactly one figure: page 545 figure
+	// 5, whose box used to stop at x=245 and cut the leader line running out to the
+	// label "QR コード" at 245-272. It now stops at 285, where the Wi-Fi caption
+	// really does reach in from outside. That one figure is the whole difference,
+	// and that is the same reading as above — this document's clipped figures are
+	// leader lines between crowded drawings, not trimming.
 	if got := rep.Count(verify.KindFigureClipped); got != 70 {
 		t.Errorf("clipped figures: %d of 168, was 74 of 163 before the clip "+
 			"and 71 while the trim cut labels off", got)

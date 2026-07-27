@@ -621,7 +621,7 @@ func textFraction(area CellRect, text []TextRun) float64 {
 //	columns manual, trims made            13            6
 //	  ...of which cut a printed callout    7            0
 //	  lines of prose excluded              6            6
-//	sequential manual, trims made         12           10
+//	sequential manual, trims made         12           11
 //
 // The six prose lines are page 1's cover title block and the one line of body text
 // above the process diagram on each of pages 52-56, and they are excluded either
