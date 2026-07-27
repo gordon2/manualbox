@@ -223,8 +223,15 @@ func TestConvertTheSequentialManualForRussian(t *testing.T) {
 	// served as a picture of its own. It now returns seven. The two that are still
 	// missing are the small tank drawings at the top right, which no merge can
 	// recover — they are under the ink guard, and that is the honest state.
+	//
+	// Pages 522 and 524 are here because 524 is the page the fault was reported on.
+	// It prints four drawings — the robot from above with its side-brush inset, the
+	// robot's underside with the mop pads and the hand holding the pin, the robot on
+	// its base station, and the robot with the QR code beside the phone — and
+	// returned six, one of which was that hand, cropped out of the drawing behind it
+	// and served as a picture. Page 522 prints nine and returned thirteen.
 	for _, c := range []struct{ page, figures int }{
-		{525, 4}, {529, 8}, {531, 7}, {533, 7},
+		{522, 9}, {524, 4}, {525, 4}, {529, 8}, {531, 7}, {533, 7},
 	} {
 		if byPage[c.page] != c.figures {
 			t.Errorf("page %d came back with %d figures, %d were counted on the render",
