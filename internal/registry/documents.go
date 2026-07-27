@@ -26,6 +26,14 @@ const (
 	StateAwaitingScope = "awaiting_scope"
 	// StateDeclined means the user chose not to process it. The original is kept.
 	StateDeclined = "declined"
+	// StateConverting means a worker is turning the pages in scope into readable
+	// blocks. It is the first state past the gate, so reaching it means the user
+	// authorised the spend.
+	//
+	// The value has been in 00002's CHECK since the schema was written, with
+	// nothing setting it. [Service.SaveConversion] is what ends it; what begins it
+	// is the conversion job, which is not wired yet.
+	StateConverting = "converting"
 	// StateReady means nothing further will happen automatically.
 	StateReady = "ready"
 	// StateFailed means probing failed permanently.
