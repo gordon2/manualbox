@@ -43,10 +43,10 @@
 --      wholesale replace 00005 explains at length.
 --   2. The same function's upsert updates a block in place when the key is unchanged.
 --   3. documents ON DELETE CASCADE removes every block of a deleted document, and
---      NO GO CODE RUNS AT ALL. A delete-the-document handler that also had to
---      remember the index would be a rule nobody can see in the source they are
---      editing, and forgetting it leaves a search result pointing at a manual that
---      no longer exists.
+--      NO GO CODE RUNS AT ALL. Nothing calls DeleteDocBlocks and no handler is
+--      involved: deleting a device removes its documents, which removes their
+--      blocks, entirely inside SQLite. A rule that had to be remembered in Go on
+--      that path would be a rule nobody can see in the source they are editing.
 --
 -- Triggers cover all three by construction, and they run inside whatever
 -- transaction the write is already in, which is exactly what SaveConversion needs:
@@ -58,9 +58,27 @@
 -- the recursive_triggers setting, and manualbox does not set it. With
 -- foreign_keys(1) and recursive_triggers off -- the pragmas internal/db actually
 -- opens with -- deleting the document removed its rows from the index and FTS5's
--- 'integrity-check' passed. The control run says that check means something: with
--- the delete trigger dropped, the same cascade left the term findable and
--- 'integrity-check' reported "database disk image is malformed".
+-- 'integrity-check' passed.
+--
+-- WHAT GOES WRONG WITHOUT THE DELETE TRIGGER IS NOT WHAT IT LOOKS LIKE, and the
+-- first version of this comment had it wrong. It is NOT that a deleted manual stays
+-- findable: every search joins the index to doc_blocks, so an index entry whose row
+-- is gone joins to nothing and vanishes from the results by accident. Measured that
+-- way round, and it made the obvious control assertion pass over a corrupt index.
+--
+-- The real failure is worse and needs one more step. SQLite gives a new row
+-- max(rowid)+1, so deleting the highest block frees a rowid the next insert takes.
+-- The stale entry then points at a REAL row of a DIFFERENT document, and searching
+-- for a word from the deleted manual returns a confident hit naming another manual,
+-- another page, and text that does not contain the word. A wrong citation rather
+-- than a missing one, which is the failure this project can least afford, since a
+-- citation is what extraction will hang a maintenance schedule on.
+--
+-- Measured end to end, including the reuse: dropping the delete trigger makes
+-- 'integrity-check' report "database disk image is malformed" immediately, and the
+-- next insert makes a search for the deleted manual's word answer with the
+-- unrelated document's text. revertCheckTheDeleteTrigger in internal/db is that
+-- run, kept as a test.
 --
 -- ROWID STABILITY, THE ONE RISK THIS SHAPE CARRIES. An external content index joins
 -- on doc_blocks' rowid, and doc_blocks' primary key is composite, so its rowid is

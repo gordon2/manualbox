@@ -158,6 +158,12 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResults, er
 	res := &SearchResults{Query: text, Limit: limit, Mode: SearchSubstring, Hits: []Hit{}}
 	rq := gen.New(s.db.Read())
 
+	// One more than asked for, and the extra is thrown away. It is the only way to
+	// tell "these are the hits" from "these are the first hits": a result set of
+	// exactly the limit is ambiguous, and reporting it as truncated would put "there
+	// is more" on every complete answer that happens to fill the page.
+	fetch := int64(limit) + 1
+
 	var (
 		rows []gen.SearchBlocksRow
 		err  error
@@ -167,25 +173,25 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResults, er
 		if q.DocumentID != "" {
 			var narrowed []gen.SearchBlocksInDocumentRow
 			narrowed, err = rq.SearchBlocksInDocument(ctx, gen.SearchBlocksInDocumentParams{
-				Match: match, DocumentID: q.DocumentID, Limit: int64(limit),
+				Match: match, DocumentID: q.DocumentID, Limit: fetch,
 			})
 			rows = narrowRows(narrowed)
 		} else {
 			rows, err = rq.SearchBlocks(ctx, gen.SearchBlocksParams{
-				Match: match, Limit: int64(limit),
+				Match: match, Limit: fetch,
 			})
 		}
 	} else if q.DocumentID != "" {
 		var scanned []gen.SearchBlocksSubstringInDocumentRow
 		scanned, err = rq.SearchBlocksSubstringInDocument(ctx,
 			gen.SearchBlocksSubstringInDocumentParams{
-				Needle: text, DocumentID: q.DocumentID, Limit: int64(limit),
+				Needle: text, DocumentID: q.DocumentID, Limit: fetch,
 			})
 		rows = substringInDocumentRows(scanned)
 	} else {
 		var scanned []gen.SearchBlocksSubstringRow
 		scanned, err = rq.SearchBlocksSubstring(ctx, gen.SearchBlocksSubstringParams{
-			Needle: text, Limit: int64(limit),
+			Needle: text, Limit: fetch,
 		})
 		rows = substringRows(scanned)
 	}
@@ -193,8 +199,11 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResults, er
 		return nil, fmt.Errorf("registry: search %q: %w", text, err)
 	}
 
+	res.Truncated = len(rows) > limit
+	if res.Truncated {
+		rows = rows[:limit]
+	}
 	res.Hits = hitsFrom(rows)
-	res.Truncated = len(res.Hits) == limit
 	if len(res.Hits) == 0 {
 		n, err := rq.CountSearchableBlocks(ctx)
 		if err != nil {
