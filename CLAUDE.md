@@ -15,7 +15,8 @@ Read the relevant one first; do not re-derive it.
 | [docs/design/ingest.md](docs/design/ingest.md) | The funnel: how a 560-page, 34-language manual is reduced to the pages you actually read, before any model is called |
 | [docs/design/layouts.md](docs/design/layouts.md) | How a manual is arranged — sequential sections or parallel columns — and the one seam that varies |
 | [docs/design/regions.md](docs/design/regions.md) | Storing a language that is part of a page: the contract, what building it settled, and what it still does not solve |
-| [docs/design/conversion.md](docs/design/conversion.md) | The next change: turning a manual into readable blocks — reading order, headings, tables from ruled lines, and the five pages nothing can see |
+| [docs/design/conversion.md](docs/design/conversion.md) | Turning a manual into readable blocks — reading order, headings, tables from ruled lines, and the five pages nothing can see |
+| [docs/design/search.md](docs/design/search.md) | Finding the sentence you need: why the tokeniser is `trigram`, what that costs and what it cannot do, and why the index is kept by triggers |
 | [docs/design/language-detection.md](docs/design/language-detection.md) | The five language signals, what each costs and how accurate each is, and why the detector choice is still open |
 | [docs/design/providers.md](docs/design/providers.md) | Why a subscription CLI or local model comes before a metered key, and why a CLI adapter must batch a whole document |
 | [docs/design/privacy.md](docs/design/privacy.md) | What manualbox holds, ranked by how it actually leaks |
@@ -116,10 +117,10 @@ CI enforces these with a `hygiene` job. It is a grep, not a guarantee.
 
 ## Current state
 
-M0 and the first slice of M1 are done: registry, upload, and the free probe that
-reports what a document contains and then stops at the gate. Conversion,
-full-text search, export and the reader are still to come — see the roadmap in
-[README.md](README.md).
+M0 and most of M1's pipeline are done: registry, upload, the free probe that reports
+what a document contains and stops at the gate, conversion behind that gate, and
+full-text search over what it produced. The reader and export are still to come —
+see the roadmap in [README.md](README.md).
 
 **Regions are computed and stored.** A page can hold several languages, so the unit
 of the language map is a region rather than a page: `internal/doc/runs.go` reads
@@ -158,6 +159,23 @@ figures, `GET /documents/{id}/figures/{sha256}` the PNG bytes; `/content` still 
 the original, unchanged. Measured through the API: the column manual's German is 432
 blocks and 40 figures, the sequential manual's Russian 487 blocks and 81 figures over
 pages 517-538.
+
+**The blocks are indexed, and `GET /api/v1/search?q=` answers which manual says X.**
+FTS5 over `doc_blocks` with `content='doc_blocks'`, kept correct by three triggers
+because the third path that changes that table — `documents ON DELETE CASCADE` —
+runs no Go at all. A hit names the document, the device, the page and the language,
+and carries the block's natural key so it can cite the paragraph.
+
+The tokeniser was the one open question and it is measured, not argued:
+**`unicode61` finds nothing in Japanese and nothing in Thai**, because a whole CJK or
+Thai run is one token, so the index is `trigram remove_diacritics 1` — 880 KB against
+270 KB over the 3,122-block corpus of both manuals. Its named limitation is that no
+query under three characters is in the index at all, which is a real hole in Chinese
+and Japanese, so those are answered by an `instr` scan instead and the response's
+`mode` says which path ran. Verified through the API on both real manuals: German,
+Russian, Japanese and Thai all find a real word; **Hebrew only backwards**, because
+the stored Hebrew is in visual order — that is extraction's problem, not the index's.
+The whole measurement is [docs/design/search.md](docs/design/search.md).
 
 Deliberately not built yet, each for a stated reason:
 

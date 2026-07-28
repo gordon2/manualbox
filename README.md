@@ -9,8 +9,10 @@ Self-hosted. Free. MIT. Single binary, SQLite, no external services required, an
 
 > ⚠️ Early development. You can create an account, add devices, and upload a manual — manualbox
 > reads it locally and tells you what it contains, in which languages, before anything is
-> converted or sent anywhere. **It stops there for now:** conversion, search, the reader and
-> export are still to come. See the [Roadmap](#roadmap).
+> converted or sent anywhere. Approve it and the pages you read are converted to blocks, and
+> `GET /api/v1/search?q=` finds the sentence you need across every manual in the house.
+> **It stops there for now:** the reader screen, the search screen and export are still to
+> come. See the [Roadmap](#roadmap).
 
 ## Try it
 
@@ -76,7 +78,7 @@ Then it gets out of the way: notifications where you already look, and a calenda
 | | |
 |---|---|
 | **M0** ✅ | Skeleton: config, SQLite + migrations, blob store, job queue, auth, API, frontend shell, Docker, CI |
-| **M1** | Registry ✅, document probe and language map ✅, then conversion, reader, full-text search, **export** — see [ingest](docs/design/ingest.md) and [layouts](docs/design/layouts.md) |
+| **M1** | Registry ✅, document probe and language map ✅, conversion ✅, full-text search ✅, then the reader and **export** — see [ingest](docs/design/ingest.md), [conversion](docs/design/conversion.md) and [search](docs/design/search.md) |
 | **M2** | Maintenance: schedules, battery charge cycles, service log, notifications, ICS calendar feed |
 | **M3** | Translation: per-block, glossary, translation memory, side-by-side, post-editing |
 | **M4** | Extraction: maintenance plans with citations, printable per-device cheat sheets, error-code lookup |
