@@ -43,6 +43,10 @@ type DocBlock struct {
 	CreatedAt  int64
 }
 
+type DocBlocksFt struct {
+	Text string
+}
+
 type DocFigure struct {
 	DocumentID   string
 	Page         int64

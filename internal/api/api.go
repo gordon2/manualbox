@@ -122,6 +122,10 @@ func (s *Server) routes() {
 			r.Get("/jobs/{jobID}", s.handleGetJob)
 			r.Post("/jobs/{jobID}/cancel", s.handleCancelJob)
 
+			// Across every converted manual, because "which manual says X" is the
+			// question. Narrowed to one with ?documentId=.
+			r.Get("/search", s.handleSearch)
+
 			r.Get("/locations", s.handleListLocations)
 			r.Post("/locations", s.handleCreateLocation)
 
