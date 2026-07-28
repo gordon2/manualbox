@@ -100,6 +100,24 @@ export function SearchHits({
   if (error) return <Alert>{error}</Alert>;
   if (!results) return null;
 
+  return <SearchResultsView results={results} onOpen={onOpen} opening={opening} />;
+}
+
+/**
+ * One response, rendered — separated from the fetch for the same reason
+ * [ReaderPages] is: it takes only data, so it can be handed a real response and
+ * rendered without a browser or a server. The screenshots that checked this screen
+ * were taken that way.
+ */
+export function SearchResultsView({
+  results,
+  onOpen,
+  opening,
+}: {
+  results: Results;
+  onOpen: (hit: SearchHit) => void;
+  opening: string | null;
+}) {
   if (results.hits.length === 0) {
     return <NothingFound results={results} />;
   }
@@ -160,12 +178,16 @@ function Hit({
             <span className="ms-auto shrink-0 text-xs text-ink-faint">{label(hit)}</span>
           </div>
 
+          {/* The snippet is printed exactly as it arrived. The server already marks
+              its own elision — a 484-character block comes back as
+              "...ische Saugkraftregulierung ... auf MA..." — so adding an ellipsis of
+              this screen's own put two in a row, which a screenshot showed and a
+              typecheck could not. */}
           <p
             dir={dirOf(hit.lang)}
             className="mt-1.5 line-clamp-3 text-pretty text-start text-[15px] leading-relaxed text-ink"
           >
             {hit.snippet}
-            {excerpted(hit) ? <span className="text-ink-faint"> …</span> : null}
           </p>
 
           <p className="mt-1.5 truncate text-xs text-ink-faint">
@@ -191,17 +213,6 @@ function label(hit: SearchHit): string {
 }
 
 /**
- * Whether the snippet is an excerpt rather than the whole block.
- *
- * `chars` is the block's length in runes, so the snippet has to be counted the same
- * way: half a real manual is Cyrillic, Greek or CJK, where a string's `length` counts
- * UTF-16 units and would make a complete block look truncated.
- */
-function excerpted(hit: SearchHit): boolean {
-  return hit.chars > [...hit.snippet].length;
-}
-
-/**
  * How the query was answered, and whether the list is complete.
  *
  * Both notices are unconditional facts about this response rather than warnings, so
@@ -213,8 +224,8 @@ function Notices({ results }: { results: Results }) {
   return (
     <div className="space-y-1.5">
       <p className="text-sm text-ink-faint">
-        {results.hits.length.toLocaleString()}
-        {results.truncated ? " of more" : ""} {results.hits.length === 1 ? "result" : "results"}
+        {results.truncated ? "The first " : ""}
+        {results.hits.length.toLocaleString()} {results.hits.length === 1 ? "result" : "results"}
         {results.mode === "index" ? ", best match first" : ""}
       </p>
 

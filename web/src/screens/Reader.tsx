@@ -241,10 +241,14 @@ function Progress({ conversion }: { conversion: Conversion }) {
 /**
  * The converted document itself, separated from the screen around it.
  *
- * Separate because this is the part worth rendering without a browser: there is no
- * browser automation on this machine, so the closest thing to looking at the page is
- * handing this a real document's blocks and reading the HTML that comes out. It takes
- * only data and needs no fetch, which is what makes that possible.
+ * Separate because this is the part worth rendering without a fetch: hand it a real
+ * document's blocks and read the HTML that comes out, or point a headless browser at
+ * that HTML and look at the page. It takes only data, which is what makes both
+ * possible — the screen around it is behind a session.
+ *
+ * (An earlier version of this comment said there is no browser automation on this
+ * machine. There is: Chrome is installed, screenshots headlessly with `--screenshot`,
+ * and can be driven over the DevTools protocol with no dependency at all.)
  */
 export function ReaderPages({
   pages,

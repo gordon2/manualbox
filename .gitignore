@@ -20,10 +20,11 @@ config.local.yaml
 /web/node_modules/
 /web/dist/
 /web/.vite/
-# Where `vite build --ssr reader-check.tsx` puts its bundle. See reader-check.tsx:
-# it renders the reader to HTML on the command line, because there is no browser
-# automation here.
+# Where `vite build --ssr reader-check.tsx` and `search-check.tsx` put their
+# bundles. Both render a screen to HTML on the command line, which is what a
+# headless browser is then pointed at to take a screenshot of an authenticated page.
 /web/.reader-check/
+/web/.search-check/
 *.tsbuildinfo
 
 # go

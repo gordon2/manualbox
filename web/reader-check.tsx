@@ -1,12 +1,13 @@
 /**
  * Render the reader to HTML and read what comes out.
  *
- * There is no browser automation on this machine, so this is the substitute: hand
- * the real screen a real document's conversion JSON, render it with
- * react-dom/server, and print the text and structure a person should see. It caught
- * three things a green typecheck did not — a list marker printed twice, a table's
- * columns mirrored the wrong way, and a figure landing after the paragraph that
- * introduces it.
+ * The screen is behind a session, so this is how it is looked at: hand the real screen
+ * a real document's conversion JSON, render it with react-dom/server, and print the
+ * text and structure a person should see — or feed the `--html` output to a headless
+ * browser with the compiled stylesheet, which is how the search screen was checked.
+ * It caught three things a green typecheck did not — a list marker printed twice, a
+ * table's columns mirrored the wrong way, and a figure landing after the paragraph
+ * that introduces it.
  *
  * Usage, from web/:
  *   npx vite build --ssr reader-check.tsx --outDir .reader-check --logLevel error
