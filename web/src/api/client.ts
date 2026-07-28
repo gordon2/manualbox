@@ -12,6 +12,7 @@ import type {
   LanguageRun,
   LanguageSource,
   Location,
+  SearchResults,
   Session,
   SetupStatus,
   User,
@@ -179,6 +180,22 @@ export const api = {
   documentConversion: (id: string, lang?: string) => {
     const query = lang === undefined ? "" : `?lang=${encodeURIComponent(lang)}`;
     return request<Conversion>(`/documents/${encodeURIComponent(id)}/conversion${query}`);
+  },
+
+  /**
+   * Which manual says this, and where.
+   *
+   * The query is sent exactly as typed: the endpoint has no pattern language, so no
+   * character here needs escaping beyond the URL encoding URLSearchParams does. An
+   * empty or whitespace-only query is a 400 from the server rather than an empty
+   * result set, so callers must not send one — see SearchResults for the difference
+   * between "no manual says that" and "nothing has been converted yet".
+   */
+  search: (q: string, options: { documentId?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams({ q });
+    if (options.documentId) params.set("documentId", options.documentId);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    return request<SearchResults>(`/search?${params}`);
   },
 
   /** The PNG a figure was rendered to. The digest is the name and the content. */

@@ -57,7 +57,7 @@ if (args.includes("--shell")) {
     renderToStaticMarkup(
       <Reader
         doc={doc}
-        deviceName="Wet and dry vacuum"
+        backTo="Wet and dry vacuum"
         languages={[
           { lang: "de", name: "German" },
           { lang: "uk", name: "Ukrainian" },

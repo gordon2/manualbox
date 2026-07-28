@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, subscribeToJobs } from "../api/client";
-import type { Device, Doc, Instance, Job, JobState, User } from "../api/types";
-import { Button, Card, Wordmark } from "../ui";
+import type { Device, Doc, Instance, Job, JobState, SearchHit, User } from "../api/types";
+import { Alert, Button, Card, Wordmark } from "../ui";
 import { DeviceDetail } from "./DeviceDetail";
 import { Devices } from "./Devices";
-import { Reader, type ReaderLanguage } from "./Reader";
+import { Reader, readerLanguages, type ReaderLanguage } from "./Reader";
+import { SearchBox, SearchHits } from "./Search";
+
+/**
+ * What the reader is showing, and what it goes back to.
+ *
+ * `backTo` is carried rather than derived, because the reader is now reached two ways:
+ * from a device, and from a search hit that may belong to a device that is not open.
+ * A back link reading "← Wet and dry vacuum" that returned to a list of search results
+ * would be a lie about where it goes.
+ */
+interface Reading {
+  doc: Doc;
+  languages: ReaderLanguage[];
+  backTo: string;
+  startLang?: string | undefined;
+  startPage?: number | undefined;
+}
 
 export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => void }) {
   const [instance, setInstance] = useState<Instance | null>(null);
@@ -18,7 +35,16 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
   // DeviceDetail: it takes the whole page, including the space the activity list
   // occupies, and a screen cannot hide its own parent's sections. Closing it falls
   // back to the device that is still open underneath.
-  const [reading, setReading] = useState<{ doc: Doc; languages: ReaderLanguage[] } | null>(null);
+  const [reading, setReading] = useState<Reading | null>(null);
+  // A submitted query, which is the fourth screen. It sits above the device list
+  // rather than replacing it in the same slot, because search spans the household:
+  // "which manual says X" is asked by someone who does not know which device to open,
+  // so it cannot live inside one.
+  const [query, setQuery] = useState("");
+  // Following a hit needs the document and its languages, neither of which is in the
+  // hit, so it is two requests and can fail while the user waits.
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   const reloadJobs = useCallback(async () => {
     try {
@@ -52,6 +78,42 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
     };
   }, [reloadJobs]);
 
+  /**
+   * Take a hit to the page it names.
+   *
+   * A hit carries the ids but not the document itself, and the reader needs the
+   * document for its title and page count and the gate for the languages it may ask
+   * for — the same list DeviceDetail hands it. Both are fetched here rather than
+   * joined into the search response, which docs/design/search.md keeps deliberately
+   * flat.
+   */
+  async function openHit(hit: SearchHit) {
+    setOpening(hit.documentId);
+    setOpenError(null);
+    try {
+      const [{ documents }, gate] = await Promise.all([
+        api.documents(hit.deviceId),
+        api.documentGate(hit.documentId),
+      ]);
+      const doc = documents.find((candidate) => candidate.id === hit.documentId);
+      if (!doc) {
+        setOpenError("That manual is no longer there. Search again to see what is.");
+        return;
+      }
+      setReading({
+        doc,
+        languages: readerLanguages(gate),
+        backTo: `Results for “${query}”`,
+        startLang: hit.lang,
+        startPage: hit.page,
+      });
+    } catch (cause) {
+      setOpenError(cause instanceof ApiError ? cause.message : "Could not open that manual.");
+    } finally {
+      setOpening(null);
+    }
+  }
+
   async function signOut() {
     try {
       await api.logout();
@@ -80,17 +142,28 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
         {reading ? (
           <Reader
             doc={reading.doc}
-            deviceName={openDevice ? openDevice.name : "Back"}
+            backTo={reading.backTo}
             languages={reading.languages}
+            startLang={reading.startLang}
+            startPage={reading.startPage}
             onBack={() => setReading(null)}
           />
         ) : (
           <>
-            {openDevice ? (
+            <section className="space-y-3">
+              <SearchBox query={query} onSearch={setQuery} />
+              {openError ? <Alert>{openError}</Alert> : null}
+              {query ? <SearchHits query={query} onOpen={openHit} opening={opening} /> : null}
+            </section>
+
+            {/* A query takes over the page. The library is still one click away — the
+                box empties — and leaving the device list under 25 hits would bury it
+                and the activity list both. */}
+            {query ? null : openDevice ? (
               <DeviceDetail
                 device={openDevice}
                 onBack={() => setOpenDevice(null)}
-                onRead={(doc, languages) => setReading({ doc, languages })}
+                onRead={(doc, languages) => setReading({ doc, languages, backTo: openDevice.name })}
               />
             ) : (
               <>
@@ -99,7 +172,7 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
               </>
             )}
 
-            <section>
+            <section className={query ? "hidden" : undefined}>
               <div className="flex items-baseline justify-between">
                 <h2 className="font-display text-lg text-ink">Activity</h2>
                 <span className="flex items-center gap-1.5 text-xs text-ink-faint">

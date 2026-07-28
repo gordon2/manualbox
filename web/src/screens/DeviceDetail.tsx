@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, subscribeToJobs } from "../api/client";
 import type { Device, Doc, Gate, GateLanguage } from "../api/types";
 import { Alert, Button, Card } from "../ui";
-import type { ReaderLanguage } from "./Reader";
+import { readerLanguages, type ReaderLanguage } from "./Reader";
 
 /** One device: what it is, and the manuals belonging to it. */
 export function DeviceDetail({
@@ -161,15 +161,10 @@ function DocumentCard({
 }) {
   const [gate, setGate] = useState<Gate | null>(null);
 
-  // Which languages the reader may ask for. The gate's in-scope list is exactly what
-  // approving converted — approve takes no language argument for that reason — so it
-  // is the right list, and it costs no extra request because the gate is already here.
-  //
-  // Ordered biggest first, the same way the gate lists them, so the reader opens on
-  // the language most of the document is in rather than on whichever sorts first.
-  const languages: ReaderLanguage[] = gate
-    ? bySize(gate.inScope).map((run) => ({ lang: run.lang, name: run.name }))
-    : [];
+  // Which languages the reader may ask for — readerLanguages says why the gate's
+  // in-scope list is the right one. It costs no extra request here because the gate is
+  // already loaded for the card itself.
+  const languages: ReaderLanguage[] = gate ? readerLanguages(gate) : [];
 
   useEffect(() => {
     if (!document.probedAt) {

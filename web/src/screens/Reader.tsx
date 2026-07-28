@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, subscribeToJobs } from "../api/client";
-import type { Block, Conversion, Doc, Figure } from "../api/types";
+import type { Block, Conversion, Doc, Figure, Gate } from "../api/types";
 import { Alert, Card } from "../ui";
 import { dirOf, readingOrder, type Flow, type ReaderPage } from "./reader-flow";
 
@@ -9,6 +9,20 @@ import { dirOf, readingOrder, type Flow, type ReaderPage } from "./reader-flow";
 export interface ReaderLanguage {
   lang: string;
   name: string;
+}
+
+/**
+ * The languages a reader may ask for, biggest first.
+ *
+ * The gate's in-scope list is exactly what approving converted — approve takes no
+ * language argument for that reason — so it is the right list wherever the reader is
+ * opened from. Biggest first so the reader opens on the language most of the document
+ * is in rather than on whichever sorts first.
+ */
+export function readerLanguages(gate: Gate): ReaderLanguage[] {
+  return [...gate.inScope]
+    .sort((a, b) => b.chars - a.chars || a.name.localeCompare(b.name))
+    .map((run) => ({ lang: run.lang, name: run.name }));
 }
 
 /**
@@ -29,18 +43,31 @@ export interface ReaderLanguage {
  */
 export function Reader({
   doc,
-  deviceName,
+  backTo,
   languages,
+  startLang,
+  startPage,
   onBack,
 }: {
   doc: Doc;
-  deviceName: string;
+  /** What going back returns to, named: a device, or the results that led here. */
+  backTo: string;
   /** Empty asks for everything stored, which is already only what was charged for. */
   languages: ReaderLanguage[];
+  /**
+   * Which language to open in, when something already knows. A search hit does: the
+   * matching text is in one language, and opening on the biggest one instead would
+   * show a page that does not contain what was searched for.
+   */
+  startLang?: string | undefined;
+  /** Which page to open on. A page of the original, not an index into the pages shown. */
+  startPage?: number | undefined;
   onBack: () => void;
 }) {
   const first = languages[0];
-  const [lang, setLang] = useState<string | undefined>(first ? first.lang : undefined);
+  const [lang, setLang] = useState<string | undefined>(
+    startLang ?? (first ? first.lang : undefined),
+  );
   const [conversion, setConversion] = useState<Conversion | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +101,7 @@ export function Reader({
     <div className="space-y-6">
       <div>
         <button className="text-sm text-accent" onClick={onBack}>
-          ← {deviceName}
+          ← {backTo}
         </button>
         <h1 className="mt-2 text-balance font-display text-2xl text-ink">
           {doc.filename || "Untitled document"}
@@ -119,7 +146,15 @@ export function Reader({
             {languages.some((l) => l.lang === lang && isMirrored(l.lang)) ? (
               <DirectionWarning name={shown?.name ?? lang ?? ""} />
             ) : null}
-            <ReaderPages pages={pages} documentId={doc.id} />
+            {startPage !== undefined && !pages.some((page) => page.page === startPage) ? (
+              // Following a hit lands on a page in the hit's own language. Switching
+              // language afterwards can leave that page behind entirely, and a reader
+              // who scrolled nowhere deserves to know why rather than assume a bug.
+              <p className="text-sm text-ink-faint">
+                Page {startPage} has nothing in {shown ? shown.name : "this language"}.
+              </p>
+            ) : null}
+            <ReaderPages pages={pages} documentId={doc.id} startPage={startPage} />
           </>
         )
       ) : (
@@ -211,22 +246,66 @@ function Progress({ conversion }: { conversion: Conversion }) {
  * handing this a real document's blocks and reading the HTML that comes out. It takes
  * only data and needs no fetch, which is what makes that possible.
  */
-export function ReaderPages({ pages, documentId }: { pages: ReaderPage[]; documentId: string }) {
+export function ReaderPages({
+  pages,
+  documentId,
+  startPage,
+}: {
+  pages: ReaderPage[];
+  documentId: string;
+  /** The page to open on, marked and scrolled to. */
+  startPage?: number | undefined;
+}) {
   return (
     <article className="space-y-8">
       {pages.map((page) => (
-        <PageView key={page.page} page={page} documentId={documentId} />
+        <PageView
+          key={page.page}
+          page={page}
+          documentId={documentId}
+          opened={page.page === startPage}
+        />
       ))}
     </article>
   );
 }
 
-/** One page of the original: a marker, then everything printed on it. */
-function PageView({ page, documentId }: { page: ReaderPage; documentId: string }) {
+/**
+ * One page of the original: a marker, then everything printed on it.
+ *
+ * `opened` is the page a search hit sent the reader to. It scrolls itself into view
+ * through a callback ref rather than an effect looking the element up by id, so the
+ * scroll happens exactly when that page's element exists — the conversion arrives
+ * asynchronously, and an effect keyed on anything else would run before it. Figures
+ * carry their stored width and height, so nothing below reflows afterwards and the
+ * page does not drift back out of view.
+ */
+function PageView({
+  page,
+  documentId,
+  opened,
+}: {
+  page: ReaderPage;
+  documentId: string;
+  opened: boolean;
+}) {
+  const scrollHere = useCallback((node: HTMLElement | null) => {
+    node?.scrollIntoView({ block: "start" });
+  }, []);
+
   return (
-    <section>
+    <section
+      ref={opened ? scrollHere : undefined}
+      aria-current={opened ? "location" : undefined}
+      className="scroll-mt-6"
+    >
       <div className="flex items-center gap-3">
-        <span className="shrink-0 text-xs tabular-nums text-ink-faint">page {page.page}</span>
+        <span
+          className={`shrink-0 text-xs tabular-nums ${opened ? "text-accent" : "text-ink-faint"}`}
+        >
+          page {page.page}
+          {opened ? " · opened here" : ""}
+        </span>
         <span aria-hidden className="h-px flex-1 bg-rule" />
       </div>
       <div className="mt-4 space-y-4">
