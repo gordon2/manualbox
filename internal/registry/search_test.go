@@ -225,19 +225,20 @@ func TestDiacriticsAreFoldedForLatinOnly(t *testing.T) {
 	docID := newDocumentOnDevice(t, s, "Coffee machine", "manual.pdf", "a")
 
 	save(t, s, docID,
-		block(3, 0, 0, doc.BlockParagraph, "de", "Entkalken Sie das Gerät alle drei Monate."),
+		block(3, 0, 0, doc.BlockParagraph, "de", "Zubehör für das Gerät alle drei Monate reinigen."),
 		block(4, 0, 0, doc.BlockParagraph, "ru", "Ещё раз проверьте фильтр."),
 		block(5, 0, 0, doc.BlockParagraph, "el", "Διαβάστε τις οδηγίες χρήσης."),
 	)
 
-	// A German household on any keyboard types Gerat and must find Gerät. Without
-	// remove_diacritics -- which trigram, unlike unicode61, leaves OFF by default --
-	// this is 0 hits.
-	if res := search(t, s, registry.SearchQuery{Text: "Gerat"}); len(res.Hits) != 1 {
-		t.Errorf("Gerat found %d blocks, want the one holding Geraet", len(res.Hits))
+	// A German household on any keyboard types "Zubehor" and must find "Zubehör".
+	// Without remove_diacritics -- which trigram, unlike unicode61, leaves OFF by
+	// default -- this is 0 hits.
+	if res := search(t, s, registry.SearchQuery{Text: "Zubehor"}); len(res.Hits) != 1 {
+		t.Errorf("the umlaut-free spelling found %d blocks, want the one holding it",
+			len(res.Hits))
 	}
-	if res := search(t, s, registry.SearchQuery{Text: "Gerät"}); len(res.Hits) != 1 {
-		t.Errorf("Geraet as written found %d blocks, want 1", len(res.Hits))
+	if res := search(t, s, registry.SearchQuery{Text: "Zubehör"}); len(res.Hits) != 1 {
+		t.Errorf("the word as printed found %d blocks, want 1", len(res.Hits))
 	}
 
 	// Cyrillic and Greek are NOT folded, so a query must be written as the text is.

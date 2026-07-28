@@ -360,3 +360,71 @@ export interface Conversion {
   figures: Figure[];
   lastError?: string;
 }
+
+/**
+ * Which path answered a search.
+ *
+ * `index` is the FTS5 trigram index, with bm25 ranking. `substring` is the scan that
+ * covers a query the index cannot represent: a trigram index holds no token shorter
+ * than three characters, so a query with any word shorter than that would otherwise
+ * match nothing at all — which matters in Chinese and Japanese, where two characters
+ * is an ordinary word. The scan does not rank.
+ */
+export type SearchMode = "index" | "substring";
+
+/**
+ * One search hit: which manual, which page, which language, and enough text to
+ * recognise.
+ *
+ * `page`, `regionX0` and `index` are the block's natural key, the same citation
+ * `Block` carries, so a hit deep-links to the exact paragraph and still points there
+ * after a re-conversion. `filename` and `deviceName` are what a household recognises
+ * — "page 47 of something" answers nothing.
+ */
+export interface SearchHit {
+  documentId: string;
+  filename?: string;
+  deviceId: string;
+  deviceName: string;
+  /** The document's state, so a hit from a manual that is mid-re-conversion shows as such. */
+  state: DocumentState;
+  page: number;
+  regionX0: number;
+  index: number;
+  kind: BlockKind;
+  level?: number;
+  lang?: string;
+  /** `lang` for a person to read: "Japanese", not "ja". */
+  name?: string;
+  /** About 64 characters of the block around the match. */
+  snippet: string;
+  /** The whole block's length in runes, so a snippet is distinguishable from a complete block. */
+  chars: number;
+  /** FTS5's relevance, negative and lower-is-better. 0 in `substring` mode. */
+  bm25: number;
+  /**
+   * What the results are ordered by: `bm25` minus 1.0 for a heading.
+   *
+   * The heading bonus is a judgement — a heading names a section, so it answers
+   * "where does it say this" better than a passing mention — and both numbers are
+   * reported so it can be argued with rather than merely trusted.
+   */
+  score: number;
+}
+
+/**
+ * The hits, plus what was actually asked and how it was answered.
+ *
+ * `indexed` appears **only** when nothing matched, and it is the difference between
+ * "no manual says that" and "nothing has been converted yet", which are the same
+ * empty list otherwise.
+ */
+export interface SearchResults {
+  query: string;
+  mode: SearchMode;
+  limit: number;
+  /** The limit cut the list off: these are the first hits rather than the hits. */
+  truncated: boolean;
+  hits: SearchHit[];
+  indexed?: number;
+}

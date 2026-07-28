@@ -260,6 +260,10 @@ func TestProtectedRoutesRequireASession(t *testing.T) {
 		"/api/v1/documents/doc_123/gate",
 		"/api/v1/documents/doc_123/languages",
 		"/api/v1/documents/doc_123/content",
+		"/api/v1/documents/doc_123/conversion",
+		// Search reads every converted manual in the household, so it is the last
+		// route that may answer an anonymous caller.
+		"/api/v1/search",
 	} {
 		resp := h.do(t, http.MethodGet, path, nil)
 		if resp.StatusCode != http.StatusUnauthorized {

@@ -12,7 +12,7 @@ import (
 
 // searchFixture is a migrated database holding one device, one document and a few
 // blocks in the scripts that decided the tokeniser.
-func searchFixture(t *testing.T) (*DB, string) {
+func searchFixture(t *testing.T) (database *DB, documentID string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -46,10 +46,10 @@ func searchFixture(t *testing.T) (*DB, string) {
 		{Page: 48, RegionX0: 43, Idx: 0, Kind: "heading", Level: 2, Lang: "de",
 			Text: "Ausblasfilter austauschen", X1: 300, Y1: 118, Lines: 1, Chars: 25},
 		{Page: 48, RegionX0: 43, Idx: 1, Kind: "paragraph", Lang: "de",
-			Text: "Entkalken Sie das Gerät alle drei Monate.", X1: 300, Y1: 170, Lines: 2, Chars: 41},
+			Text: "Zubehör und Düsen alle drei Monate reinigen.", X1: 300, Y1: 170, Lines: 2, Chars: 43},
 		{Page: 539, RegionX0: 0, Idx: 0, Kind: "paragraph", Lang: "ja",
 			Text: "本製品を使用する前に取扱説明書をお読みください。",
-			X1: 800, Y1: 200, Lines: 2, Chars: 27},
+			X1:   800, Y1: 200, Lines: 2, Chars: 27},
 	}
 	for i := range blocks {
 		blocks[i].DocumentID = docID
@@ -181,7 +181,7 @@ func TestTheIndexHoldsWhatTheTokeniserWasChosenFor(t *testing.T) {
 
 	// And the Latin fold, which trigram does not do unless it is asked to: without
 	// `remove_diacritics 1` in the migration this is 0 hits.
-	folded, err := r.SearchBlocks(ctx, gen.SearchBlocksParams{Match: `"Gerat"`, Limit: 10})
+	folded, err := r.SearchBlocks(ctx, gen.SearchBlocksParams{Match: `"Zubehor"`, Limit: 10})
 	if err != nil {
 		t.Fatalf("SearchBlocks folded: %v", err)
 	}
