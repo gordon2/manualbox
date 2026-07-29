@@ -128,22 +128,46 @@ func (s *Service) handleConvert(ctx context.Context, job *jobs.Job, report jobs.
 	}
 	converted := time.Since(started) - analyzed
 
+	// The page furniture is dropped here and not stored, and this is the one line
+	// where "mark, do not delete" becomes a decision about a database.
+	//
+	// [doc.Conversion] flags a printed language tab, a folio and a running head
+	// rather than removing them, so that internal/verify can hold the rule against a
+	// second extraction of the page and refute it. doc_blocks is the other kind of
+	// consumer: everything reading it — the reader, the FTS index, an extraction
+	// citing a paragraph — wants what a person reads. Storing the furniture and
+	// filtering it in every one of those places is the same answer written four
+	// times, three of which would need a schema change to ask the question: kind has
+	// a CHECK, so a 'furniture' kind is a migration, and a boolean column is a
+	// migration too, plus a change to the FTS triggers 00006 built to keep the index
+	// correct without Go.
+	//
+	// What it costs is that a wrong rule cannot be undone with an UPDATE. That is a
+	// smaller cost here than it looks, because a block is wholly derived: the
+	// original is immutable in the blob store, Convert is a pure function of its
+	// bytes, and SaveConversion deletes and rewrites. Recovering from a bad rule is
+	// re-running this job, which is a button that already exists.
+	//
+	// Furniture sorts last within its region, so dropping it leaves each region's
+	// content on the contiguous 0..n-1 its natural key is meant to mean.
+	content := conv.ContentBlocks()
 	if err := report.Progress(ctx, 0.9, fmt.Sprintf(
-		"saving %d blocks and %d pictures", len(conv.Blocks), len(conv.Figures))); err != nil {
+		"saving %d blocks and %d pictures", len(content), len(conv.Figures))); err != nil {
 		return err
 	}
 
 	// The state is passed into SaveConversion rather than set after it, so that the
 	// claim and the content it rests on land in one transaction. A document cannot
 	// say "ready" with no blocks behind it.
-	if err := s.registry.SaveConversion(ctx, document.ID, conv.Blocks,
+	if err := s.registry.SaveConversion(ctx, document.ID, content,
 		figuresOf(conv), s.store, registry.StateReady); err != nil {
 		return s.jobFailed(ctx, job, document.ID,
 			fmt.Errorf("ingest: save conversion of document %s: %w", document.ID, err))
 	}
 
 	log.Info("document converted",
-		"blocks", len(conv.Blocks),
+		"blocks", len(content),
+		"furniture", len(conv.Blocks)-len(content),
 		"figures", len(conv.Figures),
 		"pages", len(conv.Pages),
 		"languages", len(conv.Scope.Languages),

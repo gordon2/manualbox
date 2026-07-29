@@ -176,9 +176,11 @@ type Furniture struct {
 	// each return a new slice.
 	notes map[int]map[furnitureKey]string
 
-	// Tabs and Folios are how many runs each clause claimed, over the whole
-	// document. Counted rather than derived so that a test and a report can hold
-	// the two clauses apart, which is how the rule was measured in the first place.
+	// Tabs and Folios are how many distinct pieces of furniture each clause
+	// claimed, over the whole document: one per page per thing, so a page printing
+	// its tab twice at the same height counts once. Counted rather than derived so
+	// that a test and a report can hold the two clauses apart, which is how the rule
+	// was measured in the first place.
 	Tabs, Folios int
 }
 
