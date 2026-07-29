@@ -110,9 +110,24 @@ const (
 //
 // The ratio is expected to be below 1 for real reasons, which is why [minCoverage]
 // is 0.75 and not 1: see its measurement.
+//
+// # Page furniture is NOT counted, on purpose, and it lowers every ratio
+//
+// A block [doc.Furniture] claimed is a language tab, a folio or a running head. It
+// is really printed on the page, so `pdftotext` reports it and counting it would
+// leave this ratio exactly where it was before that pass existed. It is skipped
+// anyway, and the reason is that this check is the only thing that can refute the
+// furniture rule. Count furniture and a rule that wrongly claims a paragraph is
+// invisible here, because the paragraph is still in the sum. Skip it and the same
+// mistake reads as a page that dropped a paragraph, which is what a coverage
+// finding is for. The cost is a permanently lower floor, measured at
+// [minCoverage].
 func checkCoverage(in Input, scope []int) ([]PageCoverage, []Finding) {
 	blocks := make(map[int]int, len(scope))
 	for i := range in.Blocks {
+		if in.Blocks[i].Furniture {
+			continue
+		}
 		blocks[in.Blocks[i].Page] += countGraphemes(in.Blocks[i].Text)
 	}
 	text := make(map[int]int, len(in.Text))
