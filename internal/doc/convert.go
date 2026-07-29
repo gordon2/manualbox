@@ -24,6 +24,12 @@ type Conversion struct {
 	// Blocks are the readable content in document order, only for the languages in
 	// scope. Their natural key — page, region left edge, index within the region —
 	// is assigned by [RegionBlocks] and is unchanged by being collected here.
+	//
+	// Page furniture is IN here, flagged rather than removed: a block with
+	// [Block.Furniture] set is a printed tab, a folio or a running head, and it
+	// comes last within its region. [Conversion.ContentBlocks] is what a reader and
+	// an index want; this slice is what a check that must account for every
+	// character on the page wants. See [Furniture] for why the difference matters.
 	Blocks []Block
 	// Figures are the pictures of the pages in scope, in page then reading order.
 	Figures []ConvertedFigure
@@ -35,6 +41,12 @@ type Conversion struct {
 	// countable: measured at 26 of the column manual's 68 pages for German, and 22
 	// of the sequential manual's 560 for Russian.
 	Pages []int
+	// Furniture is what the document repeats in the same place page after page, and
+	// why each piece was judged so. Carried rather than only applied so that the two
+	// clauses can be counted apart by a report and by a test — nil when nothing was
+	// converted. See [Furniture].
+	Furniture *Furniture
+
 	// Notes say what could not be done, in the caller's terms. A missing pdftocairo
 	// costs the cells and the pictures and not the text, so it is reported here
 	// rather than returned as an error — the same stance [ExtractRules] takes one
@@ -215,7 +227,13 @@ func Convert(ctx context.Context, path string, res *Result, household []string) 
 		}
 	}
 
-	conv.Blocks = RegionsBlocks(pages, res.Regions, inScope, tables)
+	// The furniture pass, and this is the only place in the pipeline that can run
+	// it: it needs every page of a language's section at once, which is what this
+	// function holds and what [RegionBlocks] by construction never does. Free — one
+	// walk over runs already in memory, no tool spawned. See [FindFurniture].
+	fur := FindFurniture(pages, res.Regions, inScope, FoliosOf(res.Pages))
+	conv.Furniture = fur
+	conv.Blocks = RegionsBlocks(pages, res.Regions, inScope, tables, fur)
 
 	// One note per kind rather than one per page: a document whose pdftocairo dies
 	// on forty pages should say so in a line a user can read.
@@ -285,12 +303,45 @@ func (c *Conversion) FiguresFor(lang string) []ConvertedFigure {
 	return out
 }
 
-// BlocksFor returns the blocks of one language, in document order.
+// BlocksFor returns the blocks of one language, in document order, furniture
+// included. A caller wanting what a person reads intersects it with
+// [Conversion.ContentBlocks] — or, more simply, skips the blocks whose
+// [Block.Furniture] is set, which is what that method does.
 func (c *Conversion) BlocksFor(lang string) []Block {
 	base := BaseLanguage(lang)
 	var out []Block
 	for i := range c.Blocks {
 		if BaseLanguage(c.Blocks[i].Lang) == base {
+			out = append(out, c.Blocks[i])
+		}
+	}
+	return out
+}
+
+// ContentBlocks returns the blocks a person reads: everything except the page
+// furniture.
+//
+// This is the slice a reader renders and an index indexes, and it exists as a
+// method rather than as a filter each caller writes so that "what is content" has
+// one answer. [Conversion.Blocks] keeps the furniture, because a check comparing a
+// conversion against a second extraction of the same page must be able to account
+// for every character the page prints.
+func (c *Conversion) ContentBlocks() []Block {
+	out := make([]Block, 0, len(c.Blocks))
+	for i := range c.Blocks {
+		if !c.Blocks[i].Furniture {
+			out = append(out, c.Blocks[i])
+		}
+	}
+	return out
+}
+
+// FurnitureBlocks returns only the page furniture, in document order. The
+// complement of [Conversion.ContentBlocks], and what a report counts.
+func (c *Conversion) FurnitureBlocks() []Block {
+	var out []Block
+	for i := range c.Blocks {
+		if c.Blocks[i].Furniture {
 			out = append(out, c.Blocks[i])
 		}
 	}
@@ -311,8 +362,17 @@ func (c *Conversion) Summary() string {
 			neutral++
 		}
 	}
-	s := fmt.Sprintf("%d blocks, %d figures (%d language-neutral) over %d of %d pages, %s",
-		len(c.Blocks), len(c.Figures), neutral, len(c.Pages), c.Scope.TotalPages,
+	// Content first and furniture named separately, because the same document
+	// converted before and after the furniture pass reports the same total and a
+	// summary that only totalled would hide the whole change.
+	fur := 0
+	for i := range c.Blocks {
+		if c.Blocks[i].Furniture {
+			fur++
+		}
+	}
+	s := fmt.Sprintf("%d blocks (%d furniture), %d figures (%d language-neutral) over %d of %d pages, %s",
+		len(c.Blocks)-fur, fur, len(c.Figures), neutral, len(c.Pages), c.Scope.TotalPages,
 		strings.Join(langs, "+"))
 	if len(c.Notes) > 0 {
 		s += fmt.Sprintf(", %d note(s)", len(c.Notes))

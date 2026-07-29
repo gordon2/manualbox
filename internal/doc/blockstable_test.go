@@ -69,13 +69,13 @@ func troublePage(no int) (*doc.PageRuns, doc.RuledTable) {
 func TestRegionBlocksReadATableAcrossItsRows(t *testing.T) {
 	page, table := troublePage(57)
 
-	down := blockTexts(doc.RegionBlocks(page, wholePage(57), nil))
+	down := blockTexts(doc.RegionBlocks(page, wholePage(57), nil, nil))
 	if strings.Index(down, "Fehler "+itoa(troubleRows)) > strings.Index(down, "Abhilfe 1") {
 		t.Fatalf("without ruled lines this page is meant to read down every question and "+
 			"then down every answer, which is the limitation being fixed; it read: %s", down)
 	}
 
-	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table})
+	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table}, nil)
 	var cells []string
 	for i := range got {
 		if got[i].Kind != doc.BlockTable {
@@ -105,7 +105,7 @@ func TestRegionBlocksReadATableAcrossItsRows(t *testing.T) {
 // they read with the prose, before the table, once each.
 func TestRegionBlocksKeepAHeadingPrintedAcrossATableExactlyOnce(t *testing.T) {
 	page, table := troublePage(57)
-	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table})
+	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table}, nil)
 
 	seen, firstTable := 0, len(got)
 	for i := range got {
@@ -145,8 +145,8 @@ func TestRegionBlocksClipATableToTheRegion(t *testing.T) {
 	page, table := troublePage(57)
 	tables := []doc.RuledTable{table}
 
-	left := doc.RegionBlocks(page, &doc.Region{Page: 57, X0: 30, X1: 160, Lang: "fi"}, tables)
-	right := doc.RegionBlocks(page, &doc.Region{Page: 57, X0: 170, X1: 430, Lang: "de"}, tables)
+	left := doc.RegionBlocks(page, &doc.Region{Page: 57, X0: 30, X1: 160, Lang: "fi"}, tables, nil)
+	right := doc.RegionBlocks(page, &doc.Region{Page: 57, X0: 170, X1: 430, Lang: "de"}, tables, nil)
 	if len(left) == 0 || len(right) == 0 {
 		t.Fatalf("got %d blocks left and %d right; both halves of the table must be read",
 			len(left), len(right))
@@ -190,8 +190,8 @@ func TestRegionBlocksWithoutRuledLinesAreUnchanged(t *testing.T) {
 		line{y: 96, x: 40, w: 400, size: 11, text: "Leistungsaufnahme: siehe Typenschild"},
 	)
 	for _, p := range []*doc.PageRuns{tabled, plain} {
-		none := doc.RegionBlocks(p, wholePage(p.No), nil)
-		empty := doc.RegionBlocks(p, wholePage(p.No), []doc.RuledTable{})
+		none := doc.RegionBlocks(p, wholePage(p.No), nil, nil)
+		empty := doc.RegionBlocks(p, wholePage(p.No), []doc.RuledTable{}, nil)
 		if blockTexts(none) != blockTexts(empty) {
 			t.Errorf("page %d reads differently for nil tables and no tables:\n  %s\n  %s",
 				p.No, blockTexts(none), blockTexts(empty))
@@ -219,7 +219,7 @@ func TestRegionBlocksReadNoTextTwice(t *testing.T) {
 		Font: doc.Font{Size: 3, Family: "Test-Face"},
 	})
 
-	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table})
+	got := doc.RegionBlocks(page, wholePage(57), []doc.RuledTable{table}, nil)
 	if strings.Contains(blockTexts(got), "Amfibia") {
 		t.Errorf("a sub-legible production slug reached a table cell, so the table walk "+
 			"is not reading through the region's own filter: %s", blockTexts(got))

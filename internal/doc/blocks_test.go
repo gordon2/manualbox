@@ -75,7 +75,7 @@ func TestRegionBlocksHeadingThenParagraphs(t *testing.T) {
 	lines = append(lines, bodyLines(70, 22, 4, "Lesen Sie die Bedienungsanleitung vor der Verwendung")...)
 	lines = append(lines, bodyLines(200, 22, 4, "Bewahren Sie sie zum spaeteren Nachschlagen auf")...)
 
-	got := doc.RegionBlocks(blockPage(23, lines...), wholePage(23), nil)
+	got := doc.RegionBlocks(blockPage(23, lines...), wholePage(23), nil, nil)
 
 	if len(got) != 3 {
 		t.Fatalf("got %d blocks, want a heading and two paragraphs: %v", len(got), kinds(got))
@@ -107,7 +107,7 @@ func TestRegionBlocksSplitParagraphsOnAGap(t *testing.T) {
 	// 44 is two pitches down, which is what a blank line looks like.
 	lines = append(lines, bodyLines(20+5*22+44, 22, 5, "zweiter Absatz")...)
 
-	got := doc.RegionBlocks(blockPage(30, lines...), wholePage(30), nil)
+	got := doc.RegionBlocks(blockPage(30, lines...), wholePage(30), nil, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("got %d blocks, want 2: %v", len(got), kinds(got))
@@ -121,7 +121,7 @@ func TestRegionBlocksSplitParagraphsOnAGap(t *testing.T) {
 // that rule, and the one a too-eager gap threshold breaks: every line of a
 // paragraph is a gap, and turning each into a block is worse than merging two.
 func TestRegionBlocksKeepAParagraphWhoseLinesAreOnePitchApart(t *testing.T) {
-	got := doc.RegionBlocks(blockPage(31, bodyLines(20, 22, 8, "eine Zeile")...), wholePage(31), nil)
+	got := doc.RegionBlocks(blockPage(31, bodyLines(20, 22, 8, "eine Zeile")...), wholePage(31), nil, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d blocks for one paragraph of 8 lines: %v", len(got), kinds(got))
@@ -143,7 +143,7 @@ func TestRegionBlocksReadAListWithHangingIndents(t *testing.T) {
 		{y: 108, x: 55, w: 700, size: 17, text: "• Stellen Sie den Roboter nicht auf den Kopf."},
 		{y: 130, x: 55, w: 700, size: 17, text: "• Halten Sie Haare und Finger fern."},
 	}
-	got := doc.RegionBlocks(blockPage(24, lines...), wholePage(24), nil)
+	got := doc.RegionBlocks(blockPage(24, lines...), wholePage(24), nil, nil)
 
 	if len(got) != 4 {
 		t.Fatalf("got %d blocks, want 4 list items: %v", len(got), kinds(got))
@@ -178,7 +178,7 @@ func TestRegionBlocksReadAListNumberedWithoutPunctuation(t *testing.T) {
 			doc.TextRun{X: 621, Y: y, Width: 120, Height: 17, Text: name, Font: f})
 	}
 
-	got := doc.RegionBlocks(p, &doc.Region{Page: 11, X0: 0, X1: testBlockPageWidth, Lang: "de"}, nil)
+	got := doc.RegionBlocks(p, &doc.Region{Page: 11, X0: 0, X1: testBlockPageWidth, Lang: "de"}, nil, nil)
 
 	if len(got) != len(names) {
 		t.Fatalf("got %d blocks for %d numbered parts: %v", len(got), len(names), kinds(got))
@@ -232,7 +232,7 @@ func TestRegionBlocksNeverPromoteSafetyCopyToAHeading(t *testing.T) {
 		{y: 242, x: 55, w: 700, size: 17, weight: doc.WeightRegular,
 			text: "es nicht von Kindern unter acht Jahren benutzt werden oder von"},
 	}
-	got := doc.RegionBlocks(blockPage(23, lines...), wholePage(23), nil)
+	got := doc.RegionBlocks(blockPage(23, lines...), wholePage(23), nil, nil)
 
 	var headings []string
 	for i := range got {
@@ -274,7 +274,7 @@ func TestRegionBlocksNeverPromoteAParagraphTail(t *testing.T) {
 		{y: 132, x: 30, w: 250, size: 14, weight: doc.WeightMedium,
 			text: "Umgebungen benutzt werden."},
 	}
-	got := doc.RegionBlocks(blockPage(4, lines...), wholePage(4), nil)
+	got := doc.RegionBlocks(blockPage(4, lines...), wholePage(4), nil, nil)
 
 	for i := range got {
 		if got[i].Kind == doc.BlockHeading {
@@ -302,7 +302,7 @@ func TestRegionBlocksNeverPromoteAFigureCallout(t *testing.T) {
 		{y: 200, x: 184, w: 13, size: 17, weight: doc.WeightMedium, text: "14"},
 		{y: 240, x: 452, w: 13, size: 17, weight: doc.WeightMedium, text: "16"},
 	}
-	got := doc.RegionBlocks(blockPage(11, lines...), wholePage(11), nil)
+	got := doc.RegionBlocks(blockPage(11, lines...), wholePage(11), nil, nil)
 
 	for i := range got {
 		if got[i].Kind == doc.BlockHeading {
@@ -327,7 +327,7 @@ func TestRegionBlocksReadColumnsOneAtATime(t *testing.T) {
 			// its two columns drift apart by two units down the page.
 			line{y: y + 2, x: 470, w: 350, size: 14, text: "rechts Zeile " + itoa(i)})
 	}
-	got := doc.RegionBlocks(blockPage(62, lines...), wholePage(62), nil)
+	got := doc.RegionBlocks(blockPage(62, lines...), wholePage(62), nil, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("got %d blocks, want one paragraph per column: %v", len(got), kinds(got))
@@ -358,7 +358,7 @@ func TestRegionBlocksReadOnlyInsideTheBox(t *testing.T) {
 			line{y: y, x: 610, w: 250, size: 14, text: "russisch Zeile " + itoa(i)})
 	}
 	got := doc.RegionBlocks(blockPage(2, lines...),
-		&doc.Region{Page: 2, X0: 30, X1: 280, Lang: "de"}, nil)
+		&doc.Region{Page: 2, X0: 30, X1: 280, Lang: "de"}, nil, nil)
 
 	if len(got) == 0 {
 		t.Fatal("the German column produced no blocks")
@@ -384,7 +384,7 @@ func TestRegionBlocksReadOnlyInsideTheBox(t *testing.T) {
 func TestRegionBlocksSingleLineRegion(t *testing.T) {
 	got := doc.RegionBlocks(
 		blockPage(12, line{y: 40, x: 55, w: 300, size: 17, text: "Abb. A-1"}),
-		wholePage(12), nil)
+		wholePage(12), nil, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d blocks for one line: %v", len(got), kinds(got))
@@ -399,13 +399,13 @@ func TestRegionBlocksSingleLineRegion(t *testing.T) {
 
 func TestRegionBlocksEmptyRegion(t *testing.T) {
 	page := &doc.PageRuns{No: 3, Width: testBlockPageWidth, Height: testBlockPageHeight}
-	if got := doc.RegionBlocks(page, wholePage(3), nil); len(got) != 0 {
+	if got := doc.RegionBlocks(page, wholePage(3), nil, nil); len(got) != 0 {
 		t.Errorf("got %d blocks for a page with no runs", len(got))
 	}
 
 	// A region whose box holds nothing, on a page that does hold text elsewhere.
 	page = blockPage(4, bodyLines(20, 22, 6, "text weit rechts")...)
-	if got := doc.RegionBlocks(page, &doc.Region{Page: 4, X0: 800, X1: 890}, nil); len(got) != 0 {
+	if got := doc.RegionBlocks(page, &doc.Region{Page: 4, X0: 800, X1: 890}, nil, nil); len(got) != 0 {
 		t.Errorf("got %d blocks for a box containing no runs", len(got))
 	}
 }
@@ -418,7 +418,7 @@ func TestRegionBlocksEmptyRegion(t *testing.T) {
 func TestRegionBlocksIgnoreWhatIsNotText(t *testing.T) {
 	lines := bodyLines(20, 22, 6, "echter Text auf der Seite")
 	page := blockPage(9, lines...)
-	clean := doc.RegionBlocks(page, wholePage(9), nil)
+	clean := doc.RegionBlocks(page, wholePage(9), nil, nil)
 
 	page.Runs = append(page.Runs,
 		// A production slug: real text in the file, two units tall, invisible on paper.
@@ -427,7 +427,7 @@ func TestRegionBlocksIgnoreWhatIsNotText(t *testing.T) {
 		// A run parked above the page, which is where a superseded address list lives.
 		doc.TextRun{X: 55, Y: -38, Width: 250, Height: 22, Text: "Superseded address list line"})
 
-	got := doc.RegionBlocks(page, wholePage(9), nil)
+	got := doc.RegionBlocks(page, wholePage(9), nil, nil)
 	if len(got) != len(clean) {
 		t.Errorf("blocks went from %d to %d when a sub-legible slug and an off-page run "+
 			"were added; neither is text on the page", len(clean), len(got))
@@ -452,7 +452,7 @@ func TestRegionBlocksJoinRunsAsThePageShowsThem(t *testing.T) {
 		doc.TextRun{X: 120, Y: 40, Width: 70, Height: 22, Text: "THOMAS", Font: f},
 		doc.TextRun{X: 190, Y: 40, Width: 60, Height: 22, Text: "-Geraet", Font: f})
 
-	got := doc.RegionBlocks(p, wholePage(5), nil)
+	got := doc.RegionBlocks(p, wholePage(5), nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d blocks: %v", len(got), kinds(got))
 	}
@@ -469,8 +469,8 @@ func TestRegionBlocksAreNaturallyKeyed(t *testing.T) {
 	page := blockPage(62, bodyLines(20, 22, 6, "eine Zeile Text")...)
 	region := &doc.Region{Page: 62, X0: 30, X1: 800, Lang: "de"}
 
-	first := doc.RegionBlocks(page, region, nil)
-	second := doc.RegionBlocks(page, region, nil)
+	first := doc.RegionBlocks(page, region, nil, nil)
+	second := doc.RegionBlocks(page, region, nil, nil)
 
 	if len(first) != len(second) {
 		t.Fatalf("two runs produced %d and %d blocks", len(first), len(second))
@@ -503,7 +503,7 @@ func TestRegionsBlocksReadOnlyWhatIsInScope(t *testing.T) {
 		{Page: 2, X0: 320, X1: 570, Lang: "pl"},
 	}
 
-	got := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, nil)
+	got := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, nil, nil)
 	if len(got) == 0 {
 		t.Fatal("no blocks for the German region")
 	}
@@ -515,7 +515,7 @@ func TestRegionsBlocksReadOnlyWhatIsInScope(t *testing.T) {
 	}
 
 	// And with no scope, both regions are read, in left-edge order.
-	all := doc.RegionsBlocks(pages, regions, nil, nil)
+	all := doc.RegionsBlocks(pages, regions, nil, nil, nil)
 	if len(all) <= len(got) {
 		t.Errorf("reading every region gave %d blocks and German alone %d", len(all), len(got))
 	}

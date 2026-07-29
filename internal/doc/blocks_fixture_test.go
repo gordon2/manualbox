@@ -132,7 +132,7 @@ const polishOnlyLetters = "ąćęłńśźżĄĆĘŁŃŚŹŻ"
 func TestBlocksOfTheColumnManualsGermanAreGerman(t *testing.T) {
 	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
+	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables, nil)
 	if len(german) == 0 {
 		t.Fatal("the German regions produced no blocks at all")
 	}
@@ -243,7 +243,7 @@ func TestBlocksNeverReachOutsideTheirRegion(t *testing.T) {
 		if r.X0 != 0 {
 			boxed++
 		}
-		for _, b := range doc.RegionBlocks(p, r, tables[r.Page]) {
+		for _, b := range doc.RegionBlocks(p, r, tables[r.Page], nil) {
 			checked++
 			if b.Kind == doc.BlockTable {
 				tableBlocks++
@@ -379,7 +379,7 @@ func TestBlocksOfTheColumnManualsPage14(t *testing.T) {
 func TestBlocksOfTheSequentialManualsGermanSection(t *testing.T) {
 	_, pages, regions, tables := blocksAndTablesOfFixture(t, "dreame-l40-ultra")
 
-	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
+	german := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables, nil)
 	if len(german) == 0 {
 		t.Fatal("the German section produced no blocks at all")
 	}
@@ -492,8 +492,8 @@ func TestBlocksOfTheSequentialManualsPages23And24(t *testing.T) {
 func TestBlocksConvergeOnASecondRun(t *testing.T) {
 	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	first := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
-	second := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
+	first := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables, nil)
+	second := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables, nil)
 
 	if len(first) != len(second) {
 		t.Fatalf("two runs produced %d and %d blocks", len(first), len(second))
@@ -536,7 +536,7 @@ func TestBlocksConvergeOnASecondRun(t *testing.T) {
 func TestBlocksHeadingLengthIsASoftCut(t *testing.T) {
 	_, pages, regions, tables := blocksAndTablesOfFixture(t, "thomas-drybox-amfibia")
 
-	blocks := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables)
+	blocks := doc.RegionsBlocks(pages, regions, map[string]bool{"de": true}, tables, nil)
 	widest, widestText := 0.0, ""
 	for i := range blocks {
 		b := &blocks[i]
@@ -576,7 +576,7 @@ func blocksOfPage(t *testing.T, pages []doc.PageRuns, regions []doc.Region, page
 		}
 		for j := range pages {
 			if pages[j].No == page {
-				got := doc.RegionBlocks(&pages[j], r, nil)
+				got := doc.RegionBlocks(&pages[j], r, nil, nil)
 				if len(got) == 0 {
 					t.Fatalf("page %d region x=%.0f produced no blocks", page, r.X0)
 				}

@@ -47,18 +47,18 @@ import (
 // were seen while checking the output against 108 dpi renders of the column
 // manual's pages 62 and 14 and the sequential manual's pages 23 and 24.
 //
-// **Page furniture is not identified.** A printed language tab, a folio and a
-// running head are text on the page, so they become blocks like anything else: the
-// sequential manual's "DE" badge is 11pt medium beside a 17pt body and comes back
-// as a level-2 heading on all 110 pages that print one, its folio comes back as a
-// one-character paragraph, and the column manual's running head "D | Hinweis zur
-// Entsorgung | Kundendienst | Garantie" comes back as a paragraph because it fills
-// its measure. None of these can be told from content by anything on one page —
-// the sequential manual genuinely heads sections "A", "B" and "C", so a
-// two-letter line is not evidence of a tab. What identifies furniture is that it
-// repeats in the same place on every page of a section, and that is a comparison
-// across pages rather than a property of one, so it belongs to a later pass with
-// the whole document in hand.
+// **Page furniture is not identified HERE, and one page cannot identify it.** A
+// printed language tab, a folio and a running head are text on the page, so
+// nothing in this file can tell them from content: the sequential manual's "DE"
+// tab is 11pt medium beside a 17pt body and classifies as a level-2 heading, its
+// folio as a one-character paragraph. Nor is any single page's evidence enough to
+// try — the sequential manual genuinely heads 28 pages with a bare "A" and 22
+// with a bare "D", so a one-letter line is not evidence of a tab. What identifies
+// furniture is repetition in the same place across the pages of a section, which
+// is a comparison between pages and not a property of one. That pass is
+// [FindFurniture], it runs from [Convert] with the whole document in view, and
+// what it finds arrives here as the `fur` argument. A caller passing nil gets this
+// file's own reading, which is furniture and all.
 //
 // **Hyphenation is not undone.** See [joinRuns] for the German counter-example
 // that makes a trailing hyphen ambiguous.
@@ -168,10 +168,26 @@ type Block struct {
 	// rune count. Runes, not bytes, for the reason [Region.Chars] gives.
 	Lines int
 	Chars int
-	// Note says in checkable terms why this block is the kind it is. The same
-	// stance as [Region.Note] and [ColumnLayout.Note]: the evidence is countable and
-	// a reader can hold it against the page.
+	// Note says in checkable terms why this block is the kind it is, or — when
+	// Furniture is set — why it is furniture. The same stance as [Region.Note] and
+	// [ColumnLayout.Note]: the evidence is countable and a reader can hold it
+	// against the page.
 	Note string
+
+	// Furniture reports that this block is on the page because of where the page
+	// is, not because of what it says: a printed language tab, a folio, a running
+	// head. See [Furniture] for the rule and every threshold it rests on.
+	//
+	// Marked rather than dropped, and the reason is that the rule can be wrong. A
+	// marked block is evidence a person can look at and a query can count; a
+	// dropped one is a hole in a page that nothing downstream can tell from a
+	// conversion defect. What it costs is that every caller between here and a
+	// screen has to honour it, and the cost of getting THAT wrong is the defect
+	// unfixed rather than content destroyed. Nothing here filters: a conversion
+	// carries its furniture, [Conversion.ContentBlocks] is what a reader and an
+	// index want, and internal/verify counts the two apart on purpose so that a
+	// runaway rule shows up as lost coverage instead of hiding inside it.
+	Furniture bool
 }
 
 // Bounds on what a line, a paragraph break and a heading are.
@@ -311,12 +327,24 @@ const bulletRunes = "•·▪◦‣∙*-–—>»✓"
 // on a parallel-columns page it would be text in a language nobody asked for.
 // The table walk draws from the same [inside] set for the same reason, so a cell
 // can never show text the region did not charge for and never the reverse.
-func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable) []Block {
+// fur says which of the page's runs are page furniture, and nil is a normal
+// argument meaning "not looked for" — a single page cannot answer that question,
+// so every caller holding one page and not the document passes nil and gets
+// exactly the reading that shipped before this existed. See [Furniture].
+func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable, fur *Furniture) []Block {
 	var dropped DroppedRuns
 	kept := usableRuns(p.Runs, p.Width, p.Height, &dropped)
-	inside := runsInBox(kept, r.X0, r.X1)
-	if len(inside) == 0 {
+	all := runsInBox(kept, r.X0, r.X1)
+	if len(all) == 0 {
 		return nil
+	}
+
+	// Furniture is taken out here, before a pitch, a body face or a line is
+	// measured. [splitFurniture] records why that has to happen at run level and
+	// not on the finished blocks.
+	inside, furniture := splitFurniture(all, r.Page, fur)
+	if len(inside) == 0 {
+		return furnitureBlocks(furniture, r, fur, 0)
 	}
 
 	tol := baselineToleranceFraction * medianHeight(inside)
@@ -349,7 +377,15 @@ func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable) []Block {
 			out = append(out, *b)
 		}
 	}
-	return out
+
+	// The furniture last, and not in the reading order it was printed in. Two
+	// reasons, and the first is the one that matters: a region's content then keeps
+	// the contiguous 0..n-1 that makes "paragraph 4 of the German region of page 62"
+	// mean the fourth paragraph a reader sees, which is the citation ingest.md asks
+	// for and which a tab sitting at index 1 breaks. The second is that furniture has
+	// no place in reading order to be put back into — it is what a reader is shown
+	// beside the page, not within it.
+	return append(out, furnitureBlocks(furniture, r, fur, len(out))...)
 }
 
 // RegionsBlocks reads every region of a document that is in scope, in page order.
@@ -362,7 +398,7 @@ func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable) []Block {
 // tables is keyed on page number, and a page missing from it has none — which is
 // also what a caller that could not run pdftocairo passes, for every page.
 func RegionsBlocks(pages []PageRuns, regions []Region, inScope map[string]bool,
-	tables map[int][]RuledTable) []Block {
+	tables map[int][]RuledTable, fur *Furniture) []Block {
 	byPage := make(map[int]*PageRuns, len(pages))
 	for i := range pages {
 		byPage[pages[i].No] = &pages[i]
@@ -392,7 +428,7 @@ func RegionsBlocks(pages []PageRuns, regions []Region, inScope map[string]bool,
 		if p == nil {
 			continue
 		}
-		out = append(out, RegionBlocks(p, &regions[i], tables[regions[i].Page])...)
+		out = append(out, RegionBlocks(p, &regions[i], tables[regions[i].Page], fur)...)
 	}
 	return out
 }
