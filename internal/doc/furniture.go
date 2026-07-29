@@ -391,7 +391,7 @@ func splitFurniture(runs []TextRun, page int, f *Furniture) (content, furniture 
 	if f == nil {
 		return runs, nil
 	}
-	if _, any := f.notes[page]; !any {
+	if _, onPage := f.notes[page]; !onPage {
 		return runs, nil
 	}
 	content = make([]TextRun, 0, len(runs))
