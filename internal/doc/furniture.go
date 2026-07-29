@@ -417,8 +417,19 @@ func splitFurniture(runs []TextRun, page int, f *Furniture) (content, furniture 
 // Every block is a [BlockParagraph] whatever the type it is set in, and that is
 // deliberate. A kind is a reading decision — "this line titles what follows" —
 // and a line that is on the page because of where the page is titles nothing. The
-// tab classified as a level-2 heading on 110 pages is the defect, not a fact
-// worth carrying forward.
+// tab classified as a heading is the defect, not a fact worth carrying forward,
+// and the classification is not even stable: measured over the sequential
+// manual's German section, the same tab came back as a level-2 heading on 11 of
+// its 16 pages, a level-1 heading on 3 and part of a paragraph on 2, because what
+// it is compared against is whatever else that page happens to set.
+//
+// Note while you are here that conversion.md, blocks.go, figures.go and
+// verify/order.go all say this tab is on "110 pages". It is not. Measured over
+// the sequential manual: a tab-shaped run sits near the top of 556 of its 560
+// pages, 553 of them inside a language region this pass reads, and the 34 sections
+// print one on every page they have. 110 is not a page count of anything here —
+// even the x=27-41 band order.go names holds 263 of them, because the tab is set
+// against a margin and its left edge moves with the width of the code.
 func furnitureBlocks(runs []TextRun, r *Region, f *Furniture, from int) []Block {
 	if len(runs) == 0 {
 		return nil
