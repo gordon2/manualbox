@@ -417,7 +417,54 @@ Found while measuring, and both concern the column fixture:
 
 ## What building the first half settled
 
-**Page furniture is not identified, and one page cannot identify it.** The printed
+**Page furniture IS identified now, per language and across pages.** The printed tab and
+the folio are found by `internal/doc/furniture.go` and no longer served as content: 111
+blocks on the column manual (70 tabs, 41 folios) and 1,105 on the sequential one (553
+tabs, 552 folios). On the sequential manual 471 of those tabs were arriving as level-2
+headings and 533 of the folios as paragraphs.
+
+**The denominator was the whole problem, and the obvious choice fails.** Counted over the
+pages a *household* converted, the German tab is 16 of 59 — 0.27, below any usable cut.
+Counted over the pages of *its own language*, 1.00. The rule is per base language.
+
+The threshold has a real gap under it, which is rare in this codebase: measured over all
+39 language sections of both manuals, a tab is on **0.81–1.00** of its language's pages,
+and the widest share of anything that is *not* furniture is **0.29** — `Плановое
+обслуживание` at 0.27, `Sicherheitshinweise` at 0.25. 0.5 sits 1.7x above the ceiling and
+1.6x below the lowest tab with nothing in between. A four-page floor is also needed: on a
+two-page section one page out of two is a half, which made ~400 buckets furniture.
+
+**A folio is confirmed by a second opinion rather than by a share.** The column manual
+prints its folio in the outer margin, so German only carries it on 7 of 26 pages. What
+replaces the share is `Page.Folio`, which `pdftotext` read through none of this code.
+
+**Removing the tab makes the heading rule work better.** Level-1 headings on the column
+manual *rise* by 29, because an 11pt tab glued onto a heading line was diluting the body
+face the rule measures against. Page 14 read `D Trockensaugen` and now reads
+`Trockensaugen`; page 57 `D Fehlerbehebung` now `Fehlerbehebung`. Sequential page 24 is
+now exactly one heading and 12 list items, matching its render comparison.
+
+**Marked in the model, filtered at the save boundary** — `Block.Furniture` plus
+`ContentBlocks()`, and `internal/ingest` stores only content. No migration, no change to
+`00006`'s search triggers, no filter in the reader or the index. The verifier deliberately
+excludes furniture from its coverage sum so that a rule wrongly claiming a *paragraph*
+shows up as a drop rather than being invisible; coverage moved 0.974 → 0.973 and 1.000 →
+0.997 against a threshold of 0.75.
+
+**The tab is on 556 of 560 pages of the sequential manual, not 110.** That 110 is quoted
+in four shipped files and is wrong in two ways: it undercounts by a factor of five, and it
+attributes the repetition to the *column* manual, which has 68 pages.
+
+**What is still not identified is the RUNNING HEAD**, and the measurement says why rather
+than leaving it open. Separating it from a genuinely repeated heading needs the occupancy
+of its height, not the text at it — 0.77 on the column manual against 0.63 for a real body
+line. But that cut removes the sequential manual's section titles, because there the
+running head **is** the section title, printed identically where the section starts and on
+every page after, with nothing distinguishing the first from the repeats. Twelve points
+apart with one document on each side. So the column manual's page 14 still opens with
+`Trockensaugen`, which a reader sees and did not ask for.
+
+**One page cannot identify furniture, which is why this pass is where it is.** The printed
 `DE` badge comes back as a level-2 heading on 110 pages, the folio as a one-character
 paragraph, the running head as a paragraph. Nothing *on a page* separates those from
 content — the sequential manual genuinely titles sections `A`, `B` and `C` — and what
