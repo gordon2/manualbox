@@ -91,6 +91,35 @@ func TestCoverageIgnoresAPageWithAlmostNoText(t *testing.T) {
 	}
 }
 
+// TestCoverageDoesNotCountPageFurniture is what makes this check able to refute
+// doc's furniture rule, and it is the whole reason the exclusion is deliberate
+// rather than an oversight.
+//
+// The furniture the rule claims really is printed, so `pdftotext` reports it and
+// counting it would leave every ratio exactly where it was. Counting it would also
+// make a rule that wrongly claims a paragraph invisible here — the paragraph would
+// still be in the sum. So a page whose whole text is flagged reads as a page that
+// dropped its whole text, which is what a coverage finding is for.
+func TestCoverageDoesNotCountPageFurniture(t *testing.T) {
+	claimed := block(7, 0, 40, 300, 100, prose)
+	claimed.Furniture = true
+	in := verify.Input{
+		Blocks: []doc.Block{claimed},
+		Text:   []doc.Page{page(7, prose)},
+	}
+	if got := count(t, in, verify.KindCoverage); got != 1 {
+		t.Fatalf("a page whose only block is claimed as furniture reported %d coverage "+
+			"finding(s); counting furniture would hide a rule that eats a paragraph", got)
+	}
+
+	// And the same block unflagged is the page being whole, which is the control:
+	// the finding above is the flag and not the text.
+	in.Blocks[0].Furniture = false
+	if got := count(t, in, verify.KindCoverage); got != 0 {
+		t.Fatalf("the same block unflagged reported %d coverage finding(s)", got)
+	}
+}
+
 // --- 2. invented text
 
 func TestInventedTextFiresOnWordsThePageNeverPrinted(t *testing.T) {
