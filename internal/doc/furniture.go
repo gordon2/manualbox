@@ -109,14 +109,22 @@ const (
 	// Measured over all 39 language sections, as (pages carrying it / the
 	// language's pages), the two populations do not touch:
 	//
-	//	the printed tab            0.96 to 1.00 -- 37 of the 39 sections
+	//	the printed tab            0.81 to 1.00 -- 37 of the 39 sections
 	//	the widest anything else   0.29
 	//
-	// The 37 are every section of the sequential manual at 1.00 (its tab is on
-	// every page of every section, 12 to 22 pages each) and German, Polish and
-	// Ukrainian on the column manual at 1.00, 0.96 and 1.00. The two sections with
+	// The 37 are every section of the sequential manual at 1.00 — its tab is on
+	// every page of every section, 12 to 22 pages each — and German, Polish and
+	// Ukrainian on the column manual at 1.00, 0.81 and 0.85. The two sections with
 	// no tab bucket at all are the column manual's Russian and Kazakh, which print
 	// none in their columns.
+	//
+	// The column manual's 0.81 is not the tab being absent from five pages. It is
+	// [usableRuns] dropping it as sub-legible: the tab is set smaller than the
+	// [minRunHeightFraction] of the page's median run height on the pages whose
+	// median is a heading's, so on those pages it was never a block to claim. Which
+	// is why the numerator here is counted after that filter and not before — a
+	// share taken over runs the block builder never sees is a share of the wrong
+	// thing.
 	//
 	// The 0.29 is the ceiling of everything that is NOT furniture, and it is worth
 	// naming what is at it, because these are what a lower threshold would eat:

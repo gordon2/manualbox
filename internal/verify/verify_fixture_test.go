@@ -126,19 +126,33 @@ func figurePages(conv *doc.Conversion) int {
 func TestCheckTheColumnManual(t *testing.T) {
 	conv, rep := checked(t, "thomas-drybox-amfibia")
 
-	if len(conv.Blocks) != 2180 || len(conv.Figures) != 59 {
+	// 2,256 blocks, of which 111 are page furniture — the three language tabs this
+	// manual prints in its columns, and 41 folios. It was 2,180 before doc's
+	// furniture pass existed, and the rise of 76 is not text appearing: 35 content
+	// blocks lost a tab that was glued to them and 111 furniture blocks took its
+	// place. Counted apart because a change to the furniture rule must move the
+	// second number and not the first.
+	if len(conv.Blocks) != 2256 || len(conv.Figures) != 59 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 2180 and 59", len(conv.Blocks), len(conv.Figures))
+			"was 2256 and 59", len(conv.Blocks), len(conv.Figures))
+	}
+	if got := len(conv.FurnitureBlocks()); got != 111 {
+		t.Errorf("%d furniture block(s), was 111", got)
 	}
 
 	// No page loses text. The lowest score is page 5 at 0.80, which is a page of
 	// framed illustrations whose captions the run filter drops, and the median is
 	// 0.97 — so the floor of 0.75 leaves headroom and reports nothing here.
+	//
+	// Coverage now excludes the furniture it counted before, and on this manual that
+	// costs almost nothing: the median moved from 0.974 to 0.973 and the floor stayed
+	// at 0.801, because a tab and a folio are four characters against a page of three
+	// thousand. checkCoverage records why it is excluded anyway.
 	if got := rep.Count(verify.KindCoverage); got != 0 {
 		t.Errorf("coverage reported %d page(s) on a manual that drops none", got)
 	}
 	if m := rep.MedianCoverage(); m < 0.95 || m > 1.0 {
-		t.Errorf("median coverage %.3f, was 0.974", m)
+		t.Errorf("median coverage %.3f, was 0.973 (0.974 before furniture was excluded)", m)
 	}
 
 	// Four blocks hold words the page never printed, and all four are table cells
@@ -202,16 +216,28 @@ func TestCheckTheColumnManual(t *testing.T) {
 func TestCheckTheSequentialManual(t *testing.T) {
 	conv, rep := checked(t, "dreame-l40-ultra")
 
-	if len(conv.Blocks) != 15951 || len(conv.Figures) != 134 {
+	// 16,055 blocks, of which 1,105 are page furniture: the 34 language tabs, one on
+	// every page of every section, and 552 folios. It was 15,951 before doc's
+	// furniture pass existed, and the rise of 104 is the tab being un-glued from the
+	// running head it had joined on 104 pages.
+	if len(conv.Blocks) != 16055 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 15951 and 134", len(conv.Blocks), len(conv.Figures))
+			"was 16055 and 134", len(conv.Blocks), len(conv.Figures))
+	}
+	if got := len(conv.FurnitureBlocks()); got != 1105 {
+		t.Errorf("%d furniture block(s), was 1105", got)
 	}
 
+	// Excluding the furniture moved the median from 1.000 to 0.997 and the worst
+	// judged page from 0.952 to 0.949, against a floor of 0.75. The page that moves
+	// furthest is page 558, which holds nothing but a tab and a folio and so scores
+	// 0.500 — it is under minCoverageText and is not judged, which is the page that
+	// constant was written for.
 	if got := rep.Count(verify.KindCoverage); got != 0 {
-		t.Errorf("coverage reported %d page(s); its worst page scores 0.95", got)
+		t.Errorf("coverage reported %d page(s); its worst judged page scores 0.949", got)
 	}
 	if m := rep.MedianCoverage(); m < 0.99 {
-		t.Errorf("median coverage %.3f, was 1.000", m)
+		t.Errorf("median coverage %.3f, was 0.997 (1.000 before furniture was excluded)", m)
 	}
 
 	// The right-to-left defect, named once per page instead of once per word: 32
@@ -286,9 +312,11 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// The one reading-order class either manual has: the routine-maintenance page
 	// of each language section lays its intervals out as an unruled grid, which
 	// conversion.md records as invisible to the table detector, and reading it in
-	// columns puts the intervals out of order. 37 findings over 34 sections.
-	if got := rep.Count(verify.KindReadingOrder); got != 37 {
-		t.Errorf("reading order: %d finding(s), was 37", got)
+	// columns puts the intervals out of order. 36 findings over 34 sections — it was
+	// 37 until the furniture pass took a tab out of the block that carried it, which
+	// left that block under minOrderChars.
+	if got := rep.Count(verify.KindReadingOrder); got != 36 {
+		t.Errorf("reading order: %d finding(s), was 36 (37 before the furniture pass)", got)
 	}
 	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 24 {
 		t.Errorf("reading-order findings cover %d pages, was 26 — a class this "+
