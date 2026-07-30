@@ -390,8 +390,9 @@ draw a small open circle where a leader stops — 3.3 to 3.4 units square, measu
 and one sitting in the corridor between the box's edge and a run, on that run's
 midline, is what claims the run. The case that rules the distance out is a document:
 page 11 of the columns manual prints its **parts list**, 39 numbers and 39 German
-names, 22.3 units to the right of the exploded view, which is *nearer* than the
-underside diagram's own labels on page 521 at 20.3–35.3. Any "grow onto text within
+names, 22.3 units to the right of the exploded view — *inside* the range page 521's
+underside diagram holds its own labels at, 20.3–35.3. It is not that the legend sits
+further away; it is that no distance separates the two, so any "grow onto text within
 N units" rule swallows the whole list. The terminator test refuses all 78 of its
 runs, because a legend is not pointed at.
 
@@ -443,8 +444,10 @@ fall outside every language region and are never converted — leaving 33 on pag
 reader is served. Page 521's three drawings take 9, 11 and 14 labels.
 
 **The cost is overlapping crops, and it is confined to those plates.** Eleven pairs
-of grown boxes overlap and every one of them is on page 5 or 6, where 31 figures
+of grown boxes overlap — nine on page 5 and two on page 6, where 31 and 28 figures
 share one sheet with labels between them; none is on any page a conversion serves.
+Widening the corridor is what would change that: at 80 units a pair appears on page
+524, which a reader is served, and that is the upper bound's evidence.
 Not fixed, because arbitrating which of two drawings a shared corridor belongs to
 would be a rule invented for one plate.
 
@@ -476,6 +479,12 @@ column into one 244×402 box where ten drawings were found before. The columns m
 does not move (59 → 59, identical per page). Not taken, because growth reaches the
 labels without it — a terminator survives the filter on its own, being a circle
 rather than a line.
+
+**What is still cropped is counted, so it can only go down.** 41 figures of the
+sequential manual hold 88 labels their leaders point at and their crop does not
+reach — 16 of those figures and 29 of those labels on the two plates — and the columns
+manual's 2 are its two false claims. Pinned in
+`TestALabelOutsideTheFinalCropIsTheResidual`.
 
 **What this still does not do is carry a label as text.** The complete answer is not
 a wider crop: it is to keep each claimed label as a string with a position, let the

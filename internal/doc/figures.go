@@ -275,7 +275,7 @@ const (
 	// A leader points AT its label, so the mark and the label's middle line up; 4 is
 	// about a third of a line of body text on either document (12 to 14 units).
 	// Swept: 2, 4, 6 and 8 grow 48, 55, 59 and 62 figures of the sequential manual,
-	// and the overlapping crops it creates rise from 12 to 18 over that range.
+	// and the overlapping crops it creates go 11, 11, 14, 14 over that range.
 	labelAlign = 4.0
 
 	// labelCorridor is how far outside a figure's edge a label may sit and still be
@@ -286,8 +286,10 @@ const (
 	// so the near ones are 3 units away, and the far ones are labels whose leader
 	// ends short of the drawing. 40 covers all of them. It cannot be much tighter:
 	// at 20 the underside diagram's six left labels are out of reach. It must not be
-	// much wider either, and the reason is a document rather than a preference — see
-	// the note on the parts list in [growToLabels].
+	// much wider either, and there are two measurements for that rather than a
+	// preference — the parts list in [growToLabels], and the overlapping crops, which
+	// stay on the two front-matter plates at 40 and 60 and reach page 524, a page a
+	// reader is served, at 80.
 	labelCorridor = 40.0
 
 	// maxLabelGrowth is how far one edge may move to take in labels, as a fraction
@@ -295,7 +297,7 @@ const (
 	// width or height.
 	//
 	// Swept over the sequential manual as figures grown / labels taken: 18/51 at
-	// 0.25, 32/110 at 0.5, 55/233 at 1, 63/259 at 2 and 64/266 with no cap at all,
+	// 0.25, 32/107 at 0.5, 55/229 at 1, 63/255 at 2 and 64/262 with no cap at all,
 	// where the largest single growth reaches 3.56 of a side. 1 is where the
 	// document's own labelled diagrams are all served — page 521's three drawings
 	// need 0.26, 0.68 and 0.65 — and it is a bound with a meaning rather than a
@@ -1038,10 +1040,11 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 // It has to be that rather than the gap, and the case that settles it is a document
 // rather than an argument. Page 11 of the columns manual prints its parts list — 39
 // numbers and 39 German names, "1 Gehäusedeckel", "2 Tragegriff" — in a column
-// 22.3 units to the right of the exploded view. That is nearer than the underside
-// diagram's own labels on page 521, which are 20.3 to 35.3 units out. Any rule that
-// grows onto text within some distance swallows the whole parts list; the terminator
-// test refuses all 78 of its runs, because a legend is not pointed at.
+// 22.3 units to the right of the exploded view. That is INSIDE the range page 521's
+// underside diagram holds its own labels at, 20.3 to 35.3 units out: it is not that
+// the legend sits further away, it is that no distance separates the two. So any rule
+// that grows onto text within some distance swallows the whole parts list, while the
+// terminator test refuses all 78 of its runs, because a legend is not pointed at.
 //
 // The second half of the signal is that **a label wraps**. Its second and third
 // lines carry no terminator of their own, and left unclaimed they are obstacles to
@@ -1093,10 +1096,10 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 // diagram plates, which fall outside every language region and are never converted —
 // leaving 33 on pages a reader is served.
 //
-// The cost is overlapping crops, and it is confined: 13 pairs of grown boxes
-// overlap, every single one of them on those two plate pages, and none on any page a
-// conversion serves. Page 5 is 31 figures on one sheet with labels between them, and
-// two boxes there now overlap wholly. Recorded rather than fixed, because no page a
+// The cost is overlapping crops, and it is confined: 11 pairs of grown boxes
+// overlap — 9 on page 5 and 2 on page 6 — and none on any page a conversion serves.
+// Page 5 is 31 figures on one sheet with labels between them, and two boxes there now
+// overlap wholly. Recorded rather than fixed, because no page a
 // reader sees is affected and the alternative — arbitrating which of two drawings a
 // shared corridor belongs to — would be a rule invented for one plate.
 //
