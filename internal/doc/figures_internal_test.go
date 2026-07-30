@@ -1185,9 +1185,10 @@ func TestWithoutATerminatorNothingMoves(t *testing.T) {
 //
 // Page 11 of the columns manual prints its parts list — 39 numbers and 39 German
 // names — in a column 22.3 units to the right of the exploded view, with no
-// terminator anywhere: a legend is not pointed at. 22.3 is NEARER than page 521's
-// underside diagram's own labels, which are 20.3 to 35.3 units out, so no "grow onto
-// text within N units" rule can take one and refuse the other.
+// terminator anywhere: a legend is not pointed at. 22.3 sits INSIDE the range page
+// 521's underside diagram holds its own labels at, 20.3 to 35.3 units out — not
+// further away than them, which is the stronger fact: no "grow onto text within N
+// units" rule can take one and refuse the other, at any N.
 func TestAPartsListIsRefused(t *testing.T) {
 	area := CellRect{100, 100, 300, 400}
 	const listX = 322.3 // 22.3 units right of the drawing's edge
