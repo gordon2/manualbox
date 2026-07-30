@@ -195,13 +195,17 @@ func TestFurnitureOnTheColumnManualsGluedPages(t *testing.T) {
 		t.Errorf("converted %d pages, the gate charges this household for 26", len(conv.Pages))
 	}
 
-	// 432 blocks before the pass; 427 content and 33 furniture after. The content
+	// 432 blocks before the pass; 427 content and 33 furniture after it. The content
 	// falls by 5 and not by 33 because 28 of the 33 were already blocks of their own
 	// and the other 5 were glued into a block that survives without them.
+	//
+	// 443 since the contents page came apart: its 17 printed entries were one
+	// run-together block of dot leaders, and each is now its own, which is +16 on the
+	// one page of this section that has a table of contents.
 	content, furniture := len(conv.ContentBlocks()), len(conv.FurnitureBlocks())
-	if content != 427 || furniture != 33 {
-		t.Errorf("%d content and %d furniture blocks, was 427 and 33 (432 before the pass)",
-			content, furniture)
+	if content != 443 || furniture != 33 {
+		t.Errorf("%d content and %d furniture blocks, was 443 and 33 (427 before the "+
+			"contents page came apart, 432 before the furniture pass)", content, furniture)
 	}
 	if conv.Furniture.Tabs != 26 || conv.Furniture.Folios != 7 {
 		t.Errorf("claimed %d tab(s) and %d folio(s) in German, was 26 and 7",

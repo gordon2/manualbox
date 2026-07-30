@@ -358,12 +358,52 @@ function FlowView({ flow, documentId }: { flow: Flow; documentId: string }) {
         </ul>
       );
 
+    case "contents":
+      return <ContentsView flow={flow} />;
+
     case "table":
       return <TableView flow={flow} />;
 
     case "figure":
       return <FigureView figure={flow.figure} documentId={documentId} />;
   }
+}
+
+/**
+ * A printed table of contents, as the list of entries it is.
+ *
+ * It arrived as one run-together paragraph of dot leaders until internal/doc learned
+ * to give each printed line its own block — 17 entries on the columns manual's
+ * contents page, glued into one because consecutive entries sit at exactly the line
+ * pitch and the paragraph rule has nothing else to separate them by.
+ *
+ * The leader is drawn with a rule rather than with the document's own periods: a row
+ * of literal dots is noise to a screen reader, and the dots are still in the block's
+ * text where search and the coverage check can see them.
+ *
+ * The page number is NOT a link yet, and that is the honest half of this: it is the
+ * page printed on the paper, and turning it into somewhere to jump needs the printed
+ * page mapped onto a PDF page. Shown as what the paper says, so a reader can find it
+ * by hand, until that mapping is wired through.
+ */
+function ContentsView({ flow }: { flow: Extract<Flow, { kind: "contents" }> }) {
+  return (
+    <ul className="max-w-prose space-y-1">
+      {flow.entries.map((entry, i) => (
+        <li
+          key={i}
+          dir={dirOf(entry.block.lang)}
+          className="flex items-baseline gap-2 text-[15px] leading-relaxed text-ink"
+        >
+          <span className="text-pretty text-start">{entry.title}</span>
+          <span aria-hidden className="mb-1 h-px flex-1 bg-rule" />
+          {entry.page ? (
+            <span className="shrink-0 tabular-nums text-ink-soft">{entry.page}</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /**

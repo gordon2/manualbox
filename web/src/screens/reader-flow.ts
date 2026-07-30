@@ -34,6 +34,7 @@ export type Flow =
   | { kind: "heading"; block: Block; level: number }
   | { kind: "paragraph"; block: Block }
   | { kind: "list"; items: Array<{ block: Block; marker: string; text: string }> }
+  | { kind: "contents"; entries: Array<{ block: Block; title: string; page: string }> }
   | { kind: "table"; rows: TableCell[][]; columns: number; lang: string }
   | { kind: "figure"; figure: Figure };
 
@@ -196,8 +197,22 @@ function group(items: Item[]): Flow[] {
       return out;
     };
 
+    // A contents entry is a list item whose note says it carries a dot leader, and
+    // internal/doc explains why it is not a kind of its own: BlockKind reaches a
+    // database column whose CHECK lists five kinds, and a sixth costs a rebuild of
+    // the table the search index is external-content over.
+    if (isContentsEntry(block)) {
+      const cells = run(isContentsEntry);
+      flows.push({ kind: "contents", entries: cells.map(splitEntry) });
+      release();
+      continue;
+    }
+
     if (block.kind === "list-item") {
-      const cells = run((b) => b.kind === "list-item");
+      // Contents entries are list items too and are taken above this, deliberately:
+      // asking about the kind first swallows them into an ordinary list, which is
+      // what happened the first time this was wired and what the leader note is for.
+      const cells = run((b) => b.kind === "list-item" && !isContentsEntry(b));
       flows.push({ kind: "list", items: cells.map(splitMarker) });
       release();
       continue;
@@ -246,6 +261,38 @@ export function splitMarker(block: Block): { block: Block; marker: string; text:
   const rest = text.slice(marker.length);
   if (rest !== "" && !/^\s/.test(rest)) return { block, marker: "", text };
   return { block, marker, text: rest.trimStart() };
+}
+
+/** The note internal/doc writes on one entry of a printed table of contents. */
+const CONTENTS_NOTE = "a dot leader of ";
+
+/** Whether a block is one entry of a printed table of contents. */
+function isContentsEntry(block: Block): boolean {
+  return block.kind === "list-item" && (block.note ?? "").startsWith(CONTENTS_NOTE);
+}
+
+/**
+ * A contents entry split into the title and the page it points at.
+ *
+ * The dot leader is the document's own typesetting and is dropped from the DOM
+ * rather than rendered: a row of literal periods read by a screen reader is noise,
+ * and the leader is drawn with a rule instead. The dots are still in the block's
+ * text, which is what search and the coverage check see, so nothing is lost — this
+ * is presentation only.
+ *
+ * A line that does not split — no leader of four or more, or nothing after it —
+ * keeps its whole text as the title and shows no page number, rather than guessing.
+ * internal/doc will not classify such a line as an entry in the first place, so this
+ * is the belt to that brace.
+ */
+export function splitEntry(block: Block): { block: Block; title: string; page: string } {
+  const match = /^(.*?)[\s.]*\.{4,}\s*([\d\s\u2013\u2014-]*\d)\s*$/.exec(block.text);
+  const title = match?.[1];
+  const page = match?.[2];
+  if (title === undefined || page === undefined) {
+    return { block, title: block.text.trim(), page: "" };
+  }
+  return { block, title: title.trim(), page: page.replace(/\s+/g, " ").trim() };
 }
 
 /**

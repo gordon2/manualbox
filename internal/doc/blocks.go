@@ -1169,6 +1169,12 @@ func blocksOfColumn(lines []textLine, pitch, measure float64, body bodyFace) []B
 			switch {
 			case l.y-prev.y > paragraphGapFactor*pitch:
 				start = true
+			case IsContentsEntry(note):
+				// One entry per line, always. Consecutive entries sit at exactly the
+				// line pitch, so the gap test above cannot separate them — which is
+				// precisely why a contents page arrived as one run-together paragraph
+				// of dot leaders: 17 entries glued into one block.
+				start = true
 			case kind == BlockListItem && l.marker != "" && !l.markerRuneOnly:
 				// A second marker is a second item. A bare number accepted on a gap
 				// alone does not get this power: the column manual's specification rows
@@ -1196,6 +1202,114 @@ func blocksOfColumn(lines []textLine, pitch, measure float64, body bodyFace) []B
 	return out
 }
 
+// contentsNotePrefix opens the note of a block that is one entry of a printed table
+// of contents, and [IsContentsEntry] is how a reader asks.
+//
+// # Why the note and not a kind of its own
+//
+// A contents entry IS a list item — the paper prints a list — and the note's stated
+// job is to say why a block is the kind it is, in checkable terms, which is exactly
+// what "a dot leader of 34 and a page number" does. That is the honest reading, and
+// it is also the cheap one: [BlockKind] reaches a database column whose CHECK lists
+// the five kinds by name, and widening a closed set there costs a table rebuild —
+// which for doc_blocks means dropping and recreating 00006's three FTS triggers and
+// reindexing the search table, since the index is external-content over this table's
+// rowids. Migration 00003 is the precedent for the rebuild and records the procedure;
+// nothing here needs it, because nothing here is a sixth kind.
+//
+// The reader distinguishes an entry by this note, the same way it recovers a list
+// marker from `opens with the list marker "•"`. If a later change does want a kind of
+// its own, the rebuild is what it costs and 00003 is how it is done.
+const contentsNotePrefix = "a dot leader of "
+
+// IsContentsEntry reports whether a block's note says it is one entry of a printed
+// table of contents. Exported because the reader groups a run of them into one list
+// and has only the note to go on.
+func IsContentsEntry(note string) bool {
+	return strings.HasPrefix(note, contentsNotePrefix)
+}
+
+// minLeaderDots is how many consecutive dots make a dot leader, and this threshold
+// has something almost nothing else in this package has: a real gap to sit in.
+//
+// Measured over both whole documents, every run of two or more dots: the columns
+// manual draws 89 of them, and their lengths are 3, 3, 3, 4 and then **34 to 91**,
+// with nothing in between. The four short ones are ellipses in prose and none of
+// them is followed by a page number; the 85 long ones are its contents entries, 17
+// per language across the five languages of pages 2 and 3, and all 85 end in a page
+// number. The sequential manual has 8 runs of exactly two dots and not one longer,
+// so this rule cannot fire on that document at all — its own contents page sets the
+// page number in a separate column with no leader between, which is why it needs the
+// different signal [Furniture] would want and is not attempted here.
+//
+// 8 sits in the middle of the gap in log terms and a factor of four below the
+// shortest real leader. Anything from 5 to 34 gives the same answer on both
+// documents, which is what makes the value uninteresting — the two conditions are
+// each sufficient on their own here, since the short runs carry no page number
+// either.
+const minLeaderDots = 8
+
+// contentsEntry reports whether a line is one entry of a printed table of contents:
+// a title, a leader of at least [minLeaderDots] dots, and the page it points at.
+//
+// Both halves are required and the reason is the four short dot runs above. A leader
+// alone would take an ellipsis mid-sentence; a trailing number alone would take
+// every numbered line in the document, of which the sequential manual has thousands.
+//
+// The page reference is a number or a range — the columns manual prints
+// "Trockensaugen . ...... 14 – 22" — and what is returned is only the leader's length,
+// because turning the reference into somewhere a reader can jump needs the printed
+// page to be mapped onto a PDF page, which is [Reconcile]'s job and is not done here.
+// This makes a contents page READ as a list of entries instead of one run-together
+// paragraph; making it navigable is the next step and needs that mapping.
+func contentsEntry(text string) (dots int, ok bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return 0, false
+	}
+	// The longest run of dots anywhere in the line.
+	run, best := 0, 0
+	for _, r := range trimmed {
+		if r == '.' {
+			run++
+			if run > best {
+				best = run
+			}
+			continue
+		}
+		run = 0
+	}
+	if best < minLeaderDots {
+		return 0, false
+	}
+	// ...and the line ends in a page reference: a number, or a range of them. Read
+	// from the end so the title's own digits — "Reinigung der AQUA-Box" has none, but
+	// "THOMAS 786" would — cannot satisfy it.
+	rs := []rune(trimmed)
+	i := len(rs)
+	for i > 0 && (unicode.IsDigit(rs[i-1]) || unicode.IsSpace(rs[i-1])) {
+		i--
+	}
+	if i == len(rs) {
+		return 0, false // does not end in a digit
+	}
+	// A range separator, then a second number, is still a page reference.
+	if i > 0 && (rs[i-1] == '-' || rs[i-1] == '–' || rs[i-1] == '—') {
+		i--
+		for i > 0 && (unicode.IsDigit(rs[i-1]) || unicode.IsSpace(rs[i-1])) {
+			i--
+		}
+	}
+	// What is left before the reference must be the leader, not more prose.
+	for i > 0 && (rs[i-1] == '.' || unicode.IsSpace(rs[i-1])) {
+		i--
+	}
+	if i == 0 {
+		return 0, false // dots and digits only, with no title: not an entry
+	}
+	return best, true
+}
+
 // classify decides what one line is.
 //
 // The order is deliberate and the first rule is the one that surprises: a line
@@ -1207,6 +1321,12 @@ func blocksOfColumn(lines []textLine, pitch, measure float64, body bodyFace) []B
 // Checked against a 108 dpi render of page 62: they are bulleted items with a
 // bold lead-in, which is what this calls them.
 func classify(l *textLine, measure float64, body bodyFace) (kind BlockKind, level int, note string) {
+	// Asked before the marker, because a contents entry numbered "1." is still a
+	// contents entry and neither of these documents has one. The order is the choice;
+	// the case is hypothetical.
+	if dots, ok := contentsEntry(l.text); ok {
+		return BlockListItem, 0, fmt.Sprintf(contentsNotePrefix+"%d and a page number", dots)
+	}
 	if l.marker != "" {
 		return BlockListItem, 0, fmt.Sprintf("opens with the list marker %q", l.marker)
 	}

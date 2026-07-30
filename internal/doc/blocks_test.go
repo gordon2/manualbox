@@ -554,3 +554,30 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// TestEachContentsEntryIsItsOwnBlock is the defect itself: seventeen entries sit at
+// exactly the line pitch, so the paragraph rule has nothing to separate them by and
+// glued the whole contents page into one block of run-together dot leaders.
+func TestEachContentsEntryIsItsOwnBlock(t *testing.T) {
+	// Page 2 of the columns manual, the Russian column: left edge 604, 16-unit pitch,
+	// the first three entries at their measured tops.
+	page := &doc.PageRuns{No: 2, Width: 892, Height: 850, Runs: []doc.TextRun{
+		{X: 604, Y: 62, Width: 259, Height: 17, Text: "Мы поздравляем Вас  ..............................2"},
+		{X: 604, Y: 78, Width: 259, Height: 17, Text: "Использование по назначению  ....................4"},
+		{X: 604, Y: 94, Width: 259, Height: 17, Text: "Указания по технике безопасности  ..............8"},
+	}}
+	blocks := doc.RegionBlocks(page, &doc.Region{Page: 2, X0: 604, X1: 866, Lang: "ru"}, nil, nil)
+
+	var entries int
+	for i := range blocks {
+		if blocks[i].Kind == doc.BlockListItem && doc.IsContentsEntry(blocks[i].Note) {
+			entries++
+		}
+	}
+	if entries != 3 {
+		t.Errorf("%d contents entries from 3 printed lines; %s", entries, doc.BlockSummary(blocks))
+		for i := range blocks {
+			t.Logf("  %s %q", blocks[i].Kind, blocks[i].Text)
+		}
+	}
+}

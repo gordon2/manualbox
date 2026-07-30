@@ -126,15 +126,22 @@ func figurePages(conv *doc.Conversion) int {
 func TestCheckTheColumnManual(t *testing.T) {
 	conv, rep := checked(t, "thomas-drybox-amfibia")
 
-	// 2,256 blocks, of which 111 are page furniture — the three language tabs this
+	// 2,336 blocks, of which 111 are page furniture — the three language tabs this
 	// manual prints in its columns, and 41 folios. It was 2,180 before doc's
-	// furniture pass existed, and the rise of 76 is not text appearing: 35 content
-	// blocks lost a tab that was glued to them and 111 furniture blocks took its
-	// place. Counted apart because a change to the furniture rule must move the
+	// furniture pass existed, and the rise of 76 to 2,256 was not text appearing: 35
+	// content blocks lost a tab that was glued to them and 111 furniture blocks took
+	// its place. Counted apart because a change to the furniture rule must move the
 	// second number and not the first.
-	if len(conv.Blocks) != 2256 || len(conv.Figures) != 59 {
+	//
+	// 2,336 since the contents pages came apart. This document prints its table of
+	// contents once per language, 17 entries each, and each was one run-together
+	// block of dot leaders: +16 per language over five languages is exactly the 80.
+	// Coverage did not move — the dots are still in the text, only grouped
+	// differently — and neither did the figures.
+	if len(conv.Blocks) != 2336 || len(conv.Figures) != 59 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 2256 and 59", len(conv.Blocks), len(conv.Figures))
+			"was 2336 and 59 (2256 before the contents pages came apart)",
+			len(conv.Blocks), len(conv.Figures))
 	}
 	if got := len(conv.FurnitureBlocks()); got != 111 {
 		t.Errorf("%d furniture block(s), was 111", got)
