@@ -160,6 +160,16 @@ the original, unchanged. Measured through the API: the column manual's German is
 blocks and 53 figures, the sequential manual's Russian 445 blocks and 65 figures over
 pages 517-538.
 
+**A contents page reads as a list of entries.** The columns manual's `Оглавление` was
+one run-together paragraph of dot leaders; each printed line is now its own block,
+drawn as a title, a leader rule and the page the paper prints. The signal is a dot
+leader of 8+ plus a page reference, and it has a rare thing under it — a real gap:
+over both manuals every dot run is 3, 3, 3, 4 then 34 to 91. It is **not** a sixth
+`BlockKind`, because that reaches a CHECK on `doc_blocks` and widening it costs a
+rebuild of the table the FTS index is external-content over; the note carries the fact
+instead. The page number is not yet a link — that needs the printed page mapped onto a
+PDF page.
+
 **The blocks are indexed, and `GET /api/v1/search?q=` answers which manual says X.**
 FTS5 over `doc_blocks` with `content='doc_blocks'`, kept correct by three triggers
 because the third path that changes that table — `documents ON DELETE CASCADE` —

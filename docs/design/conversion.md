@@ -501,6 +501,47 @@ also make it translatable, searchable, correct in right-to-left, and free of eve
 rectangle conflict above. That is a schema, an API and a reader change, and it is
 what should replace this pass rather than sit beside it.
 
+**A CONTENTS PAGE IS READ AS THE LIST OF ENTRIES IT IS**, which it was not: the
+columns manual's `Оглавление` arrived as one run-together paragraph of dot leaders,
+`Мы поздравляем Вас ...........2 Использование по назначению ......4`, because its
+seventeen entries sit at exactly the line pitch and the paragraph rule has nothing
+else to separate them by.
+
+**The signal is a dot leader plus a page reference, and it has a real gap under it** —
+which almost nothing else in this package does. Measured over both whole documents,
+every run of two or more dots: **3, 3, 3, 4, then 34 to 91, with nothing between.**
+The four short ones are ellipses in prose and none carries a page number; the 85 long
+ones are the contents entries, 17 per language across five languages. Both halves are
+required anyway, because "a leader" and "a page at the end of it" are what an entry
+is, and the next document gets no say in which of the two it breaks.
+
+**The sequential manual cannot trigger it at all**, and that is a property rather
+than luck: its longest dot run anywhere is two. Its own contents page sets the page
+number in a separate column at x=851 against a title at x=89, with no leader between,
+so it needs the tab-stop signal this does not attempt — and it is front matter that
+falls outside every language region, so no conversion serves it.
+
+**It is not a sixth `BlockKind`, and the reason is a cost worth knowing.** A contents
+entry IS a list item, the paper prints a list, and the note says which sort — exactly
+as it already says `opens with the list marker "•"`. A kind of its own would reach a
+database column whose CHECK lists the five by name, and widening a closed set there
+costs a table rebuild. For `doc_blocks` that means dropping and recreating `00006`'s
+three FTS triggers and reindexing a search table that is external-content over this
+table's rowids. Migration `00003` is the precedent and records the procedure. Nothing
+here needs it; a later change that wants the kind knows the price.
+
+Measured: **+16 content blocks per language, +80 over the columns manual's five**, and
+coverage does not move — the dots are still in the block's text, only grouped
+differently. The reader drops them from the DOM and draws the leader with a rule,
+because a row of literal periods is noise to a screen reader.
+
+**The page number is not a link, and that is the honest half.** It is the number
+printed on the paper; jumping needs the printed page mapped onto a PDF page, which is
+what `Reconcile` already does for the language map and is not wired through to here.
+Shown as the paper says it, so a reader can find the page by hand. That mapping is the
+next step and it is also what the printed-index parser needs — see
+language-detection.md, where the same page defeats it for a different consumer.
+
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
 A scanned manual with no text layer needs OCR before any of this applies, and the
