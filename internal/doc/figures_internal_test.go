@@ -2,7 +2,11 @@ package doc
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -761,6 +765,338 @@ func TestBoxOverlapOnADegenerateAxis(t *testing.T) {
 				tc.name, got, tc.want)
 		}
 	}
+}
+
+// The two fixtures, by what they are rather than by their filenames: which of them
+// a number belongs to is the whole point of every assertion below.
+const (
+	columnsManual    = "thomas-drybox-amfibia"
+	sequentialManual = "dreame-l40-ultra"
+)
+
+// frontMatterPlates are the sequential manual's two diagram plates. They fall
+// outside every language region, so no conversion ever serves them, and they are
+// where every cost this pass has lands.
+var frontMatterPlates = []int{5, 6}
+
+// TestGrowSweep prints what each of the growth rule's four numbers does over both
+// whole documents, one at a time with the rest at their defaults, in the same shape
+// TestGuardSweep and TestMergeThresholdSweep use. It is the measurement
+// [labelTerminator], [labelAlign], [labelCorridor] and [maxLabelGrowth] are set
+// from.
+//
+// What it asserts is only what is measured and stable.
+//
+// **The columns manual does not move at any setting.** 0 of its 59 figures grow, for
+// every value of every one of the four. Both of its claims are blocked by prose in
+// the corridor, so this pass is the other document's entirely and the manual whose
+// pictures were counted by eye cannot lose one to it. That is the same shape of
+// evidence [mergeOverlapping] rests on and it is the strongest safety property this
+// change has.
+//
+// **Growth never changes the figure COUNT**, on either document: 59 and 195 with the
+// pass on and off. It moves edges, and it runs after both guards, so a page cannot
+// gain or lose a picture to it.
+//
+// **The shipped values give 55 grown figures and 229 labels taken in** on the
+// sequential manual, 22 of the 55 on the plate pages.
+//
+// **The cap is a smooth continuum with no cliff**, so its shape is asserted rather
+// than a gap: 18/51, 32/107, 55/229, 63/255 and 64/262 figures/labels at 0.25, 0.5,
+// 1, 2 and no cap at all.
+//
+// **The overlapping crops are confined to the plates**: 11 pairs on pages 5 and 6,
+// 0 on every other page of either document. Measured both ways — counting every
+// overlapping pair of grown boxes and counting only the pairs whose drawings do not
+// themselves overlap gives 11 either way, because no two of these figures' drawings
+// overlap at all.
+func TestGrowSweep(t *testing.T) {
+	for _, name := range []string{columnsManual, sequentialManual} {
+		t.Run(name, func(t *testing.T) {
+			pages, ink := loadFigureInk(t, name)
+			show := func(label string, g figureGuards) growStats {
+				s := growSweepStats(pages, ink, g)
+				t.Logf("  %-16s -> %3d figures, %2d grown, %3d labels, "+
+					"overlapping pairs on %v",
+					label, s.figures, s.grown, s.labels, growPages(s.pairsOn))
+				return s
+			}
+			base := show("the defaults", defaultGuards)
+			t.Logf("  grown per page: %v", base.grownOn)
+			t.Logf("  overlapping pairs per page: %v", base.pairsOn)
+
+			var swept []growStats
+			for _, s := range []struct {
+				name string
+				vals []float64
+				set  func(*figureGuards, float64)
+			}{
+				{"terminator", []float64{4, 6, 8, 12},
+					func(g *figureGuards, v float64) { g.terminator = v }},
+				{"align", []float64{2, 4, 6, 8},
+					func(g *figureGuards, v float64) { g.align = v }},
+				{"corridor", []float64{20, 40, 60, 80},
+					func(g *figureGuards, v float64) { g.corridor = v }},
+				{"growth", []float64{0, 0.25, 0.5, 1, 2, math.Inf(1)},
+					func(g *figureGuards, v float64) { g.growth = v }},
+			} {
+				for _, v := range s.vals {
+					g := defaultGuards
+					s.set(&g, v)
+					swept = append(swept, show(fmt.Sprintf("%s=%g", s.name, v), g))
+				}
+			}
+
+			// The figure count is growth's invariant, at every setting of every one
+			// of the four: the pass runs after both guards and only moves edges.
+			for i := range swept {
+				if swept[i].figures != base.figures {
+					t.Errorf("a swept value gives %d figures against %d at the "+
+						"defaults; growth may move an edge and never decide a picture",
+						swept[i].figures, base.figures)
+				}
+			}
+
+			if name == columnsManual {
+				// The safety property. Not "few" and not "no regression": none, at
+				// every value of every threshold.
+				for i := range swept {
+					if swept[i].grown != 0 || swept[i].labels != 0 {
+						t.Errorf("this document grew %d figures and took %d labels at "+
+							"some swept value; both of its claims are blocked by prose "+
+							"in the corridor and it must not move at any setting",
+							swept[i].grown, swept[i].labels)
+						break
+					}
+				}
+				if base.figures != 59 {
+					t.Errorf("%d figures, expected 59", base.figures)
+				}
+				return
+			}
+
+			if base.figures != 195 || base.grown != 55 || base.labels != 229 {
+				t.Errorf("%d figures, %d grown, %d labels; expected 195, 55 and 229",
+					base.figures, base.grown, base.labels)
+			}
+			if plates := growTotal(base.grownOn) - growTotal(base.grownOn, frontMatterPlates...); plates != 22 {
+				t.Errorf("%d grown figures on pages %v, expected 22 — the front-matter "+
+					"plates carry most of what this pass does and none of what a "+
+					"reader is served", plates, frontMatterPlates)
+			}
+
+			// The cap, as a continuum rather than a gap. Each step gains figures and
+			// labels over the one below it, and no step is a cliff.
+			for _, tc := range []struct {
+				growth        float64
+				grown, labels int
+			}{
+				{0.25, 18, 51}, {0.5, 32, 107}, {1, 55, 229}, {2, 63, 255},
+				{math.Inf(1), 64, 262},
+			} {
+				g := defaultGuards
+				g.growth = tc.growth
+				s := growSweepStats(pages, ink, g)
+				if s.grown != tc.grown || s.labels != tc.labels {
+					t.Errorf("growth=%g gives %d grown and %d labels, expected %d and %d",
+						tc.growth, s.grown, s.labels, tc.grown, tc.labels)
+				}
+			}
+
+			// The cost, and the reason it is recorded rather than fixed: it is not on
+			// a page any conversion serves. Page 5 is 31 figures on one sheet with
+			// labels between them.
+			if off := growTotal(base.pairsOn, frontMatterPlates...); off != 0 {
+				t.Errorf("%d overlapping pairs of grown boxes off pages %v (%v); every "+
+					"one of them used to be on a plate, and a reader is served none of "+
+					"those pages", off, frontMatterPlates, base.pairsOn)
+			}
+			if all := growTotal(base.pairsOn); all != 11 {
+				t.Errorf("%d overlapping pairs in total, expected 11 on the plates", all)
+			}
+		})
+	}
+}
+
+// TestALabelOutsideTheFinalCropIsTheResidual counts what is left: figures on a page
+// a conversion serves that still have a label a leader points at, sitting outside
+// the final crop.
+//
+// It is a floor rather than a bug, and every one of them is [growToLabels]'s
+// conservative half doing its job. Page 521 figure 0 is the case to read: its right
+// corridor holds a label and then five lines of that label's own bullet description,
+// so the edge correctly refuses to move rather than pull a paragraph into a picture.
+//
+// The number can only go down. Nothing in this pass can raise it — growth only moves
+// edges outwards, so a label inside the crop stays inside it — which is why this is
+// asserted as an exact count with a direction rather than a bound: a change that
+// takes more labels in must edit the number down, and one that takes fewer has
+// regressed.
+//
+// Converted pages are every page except the two front-matter plates, which are the
+// only pages either document has that fall outside every language region. That is a
+// proxy for the region computation, which lives in another package.
+func TestALabelOutsideTheFinalCropIsTheResidual(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// figures with a clipped label, and the labels themselves, off the plates.
+		figures, labels int
+	}{
+		// Both of this document's two claims are refused, so both of its figures
+		// with a label outside them are residual. Pages 1 and 22.
+		{columnsManual, 2, 2},
+		// 41 of this document's figures on a converted page still hold a clipped
+		// label, over 15 pages; 88 labels in all. The plates hold 16 more figures
+		// and 29 more labels, which no reader is served.
+		{sequentialManual, 41, 88},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pages, ink := loadFigureInk(t, tc.name)
+			s := growSweepStats(pages, ink, defaultGuards)
+			figures := growTotal(s.residualOn, frontMatterPlates...)
+			labels := growTotal(s.residualLabels, frontMatterPlates...)
+			t.Logf("%s: %d figures still hold a clipped label, %d labels in all, "+
+				"on pages %v", tc.name, figures, labels, growPages(s.residualOn))
+			t.Logf("  labels per page: %v", s.residualLabels)
+			if figures != tc.figures || labels != tc.labels {
+				t.Errorf("%d figures and %d labels, expected %d and %d; this number "+
+					"can only go down, so a change that improves the crop must edit it",
+					figures, labels, tc.figures, tc.labels)
+			}
+			if tc.name != sequentialManual {
+				return
+			}
+			// The case the comment above names, checked rather than described: page
+			// 521 figure 0's right corridor holds a label and then five lines of its
+			// own bullet description, so its right edge correctly refuses to move.
+			for i := range pages {
+				if pages[i].No != 521 {
+					continue
+				}
+				var dropped DroppedRuns
+				text := usableRuns(pages[i].Runs, pages[i].Width, pages[i].Height, &dropped)
+				marks := marksOf(onPageInk(ink[i], pages[i].Width, pages[i].Height))
+				figs := findFigures(ink[i], &pages[i], defaultGuards)
+				if len(figs) == 0 {
+					t.Fatalf("page 521 has no figures; it is the page this pass was " +
+						"written for and it prints three drawings")
+				}
+				if n := clippedLabels(&figs[0], text, marks, defaultGuards); n == 0 {
+					t.Errorf("page 521 figure 0 holds every label it is pointed at; " +
+						"the residual it is the example of has moved")
+				}
+			}
+		})
+	}
+}
+
+// growStats is what one setting of the growth rule does to a whole document.
+type growStats struct {
+	figures int
+	grown   int
+	// labels is how many runs the crops took in: a run that intersects a figure's
+	// grown box and does not touch the drawing itself. A label the edge cut short
+	// counts, because it WAS taken in — see [growToLabels] on why a claimed label may
+	// be cut and prose may not.
+	labels int
+	// grownOn is how many grown figures each page carries.
+	grownOn map[int]int
+	// pairsOn is how many pairs of grown boxes overlap on each page. Counted over
+	// pairs whose drawings do not themselves overlap, so the number is growth's own
+	// doing; on these two documents no two drawings overlap, so it is also simply
+	// every overlapping pair.
+	pairsOn map[int]int
+	// residualOn and residualLabels are the figures each page still has with a label
+	// outside the final crop, and how many such labels.
+	residualOn     map[int]int
+	residualLabels map[int]int
+}
+
+// growSweepStats runs one setting over every page of a document.
+func growSweepStats(pages []PageRuns, ink [][]Ink, g figureGuards) growStats {
+	s := growStats{grownOn: map[int]int{}, pairsOn: map[int]int{},
+		residualOn: map[int]int{}, residualLabels: map[int]int{}}
+	for i := range pages {
+		p := &pages[i]
+		var dropped DroppedRuns
+		text := usableRuns(p.Runs, p.Width, p.Height, &dropped)
+		marks := marksOf(onPageInk(ink[i], p.Width, p.Height))
+		figs := findFigures(ink[i], p, g)
+		s.figures += len(figs)
+		for j := range figs {
+			f := &figs[j]
+			if n := clippedLabels(f, text, marks, g); n > 0 {
+				s.residualOn[p.No]++
+				s.residualLabels[p.No] += n
+			}
+			if f.Rect == f.InkRect {
+				continue
+			}
+			s.grown++
+			s.grownOn[p.No]++
+			for k := range text {
+				box := runBox(&text[k])
+				if boxOverlap(box, f.InkRect) == 0 && boxOverlap(box, f.Rect) > 0 {
+					s.labels++
+				}
+			}
+		}
+		for a := range figs {
+			for b := a + 1; b < len(figs); b++ {
+				if boxOverlap(figs[a].Rect, figs[b].Rect) > 0 &&
+					boxOverlap(figs[a].InkRect, figs[b].InkRect) == 0 {
+					s.pairsOn[p.No]++
+				}
+			}
+		}
+	}
+	return s
+}
+
+// clippedLabels is how many of a figure's labels a leader points at and the final
+// crop still does not hold whole. Terminator claims only: a continuation line
+// without its first line is not a label this can report on.
+func clippedLabels(f *Figure, text []TextRun, marks []CellRect, g figureGuards) int {
+	var n int
+	for side := range 4 {
+		for i := range text {
+			r := &text[i]
+			gap, outside := runBeyond(f.InkRect, r, side)
+			if !outside || gap > g.corridor {
+				continue
+			}
+			if terminatorAt(marks, f.InkRect, r, side, g) && boxOverlap(runBox(r), f.Rect) < 1 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// growPages is the pages a map of per-page counts covers, in order.
+func growPages(m map[int]int) []int {
+	out := make([]int, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Ints(out)
+	return out
+}
+
+// growTotal sums a map of per-page counts, optionally excluding some pages.
+func growTotal(m map[int]int, except ...int) int {
+	var n int
+	for k, v := range m {
+		if !slices.Contains(except, k) {
+			n += v
+		}
+	}
+	return n
+}
+
+// runBox is a run as a rectangle, so the two can be compared with [boxOverlap].
+func runBox(r *TextRun) CellRect {
+	return CellRect{r.X, r.Y, r.right(), r.bottom()}
 }
 
 // growthDrawing lays a drawing's border as chained strokes so the cluster's
