@@ -221,13 +221,25 @@ func paintedBox(img image.Image) (image.Rectangle, bool) {
 // wanted from internal/doc and did not have; see the report. Matching is by area
 // overlap ([minClipOverlap]) rather than by containment, because a containment test
 // would define away the case it is looking for.
+//
+// Which box answers which question is not interchangeable, and getting it wrong
+// makes this check report the opposite of the truth. A shape belongs to the figure
+// by how much of it falls inside the DRAWN extent, and it is cut by whether it
+// leaves the RENDERED one. Asking both of the rendered box makes a crop grown onto
+// its labels adopt whatever of the neighbouring drawing it now reaches over and
+// then report that as its own picture being cut: measured, it took the sequential
+// manual from 25 clipped figures to 27 the moment [doc.growToLabels] landed, with
+// page 521 figure 2 "cut" by six units of a leader belonging to the drawing above
+// it. Split this way the metric can only fall as the crop grows, which is what it
+// is for.
 func clipped(f *doc.ConvertedFigure, ink []doc.Ink) []Finding {
 	var inside, crossing int
 	var worstOver float64
 	var worstShape doc.CellRect
+	own := f.DrawnExtent()
 	for j := range ink {
 		r := ink[j].Rect
-		if overlapFraction(r, f.Rect) < minClipOverlap {
+		if overlapFraction(r, own) < minClipOverlap {
 			continue
 		}
 		inside++

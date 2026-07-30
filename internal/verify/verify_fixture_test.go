@@ -286,18 +286,26 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	if got := rep.Count(verify.KindFigureBand); got != 2 {
 		t.Errorf("blank bands: %d figure(s), was 6 before the clip and 2 after", got)
 	}
-	// 25, down from 70, and this is where merging overlapping candidates pays off
+	// 24, down from 70, and this is where merging overlapping candidates pays off
 	// twice. The residual findings of this document were never the trim and never
 	// the clip: they were the crowded diagram pages 521-531, where a drawing had
 	// clustered in pieces and each piece's box was crossed by the shapes of the
 	// piece beside it. Merging the pieces removes the crossing along with the
-	// duplicate picture. What is left is 25 on 13 pages, which is the leader-line
-	// case this package has to guess at, matching a shape to a figure by geometry
-	// because doc.Figure carries how many shapes it holds and not which.
-	if got := rep.Count(verify.KindFigureClipped); got != 25 {
+	// duplicate picture. What is left is the leader-line case this package has to
+	// guess at, matching a shape to a figure by geometry because doc.Figure carries
+	// how many shapes it holds and not which.
+	//
+	// 25 until growing a box onto its labels took one more away, and that number is
+	// worth keeping here because the wrong reading of it was 27. A grown crop reaches
+	// over whatever sits in the corridor beside it, so asking BOTH questions of the
+	// rendered box makes a figure adopt the neighbouring drawing's leader and then
+	// report itself as cut by it. [verify.clipped] matches a shape by the drawn
+	// extent and tests it against the rendered one, and that is what makes this
+	// number fall as the crop grows rather than rise.
+	if got := rep.Count(verify.KindFigureClipped); got != 24 {
 		t.Errorf("clipped figures: %d of 134, was 74 of 163 before the clip, "+
-			"71 while the trim cut labels off, and 70 of 168 before overlapping "+
-			"candidates were merged", got)
+			"71 while the trim cut labels off, 70 of 168 before overlapping "+
+			"candidates were merged and 25 before a crop grew onto its labels", got)
 	}
 	// 20, and the 23 that doc/figures.go's header quotes is a different count at a
 	// different level: doc finds 195 figures over 23 pages, and conversion keeps the
