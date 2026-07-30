@@ -762,3 +762,330 @@ func TestBoxOverlapOnADegenerateAxis(t *testing.T) {
 		}
 	}
 }
+
+// growthDrawing lays a drawing's border as chained strokes so the cluster's
+// bounding box is exactly r, with no stroke small enough to be read as a leader's
+// terminator: every rect is 10 units thick, and a mark is admitted only when BOTH
+// sides are [labelTerminator] or under. That matters more than it looks. Built with
+// 6-unit strokes the border's own 8x6 pieces are terminator candidates, and one of
+// them lands on any label's midline — which would make TestAPartsListIsRefused pass
+// for the wrong reason.
+func growthDrawing(r CellRect) []Ink {
+	ink := chainX(r.X0, r.X1, r.Y0, r.Y0+10, 10)
+	ink = append(ink, chainX(r.X0, r.X1, r.Y1-10, r.Y1, 10)...)
+	ink = append(ink, chainY(r.Y0, r.Y1, r.X0, r.X0+10, 10)...)
+	ink = append(ink, chainY(r.Y0, r.Y1, r.X1-10, r.X1, 10)...)
+	return ink
+}
+
+// leaderMark is a leader's end mark at its measured size: the open circles on page
+// 521 of the sequential manual are 3.3 to 3.4 units square.
+func leaderMark(cx, cy float64) Ink {
+	return Ink{Rect: CellRect{cx - 1.7, cy - 1.7, cx + 1.7, cy + 1.7}}
+}
+
+// runMidY is a run's midline, which is what a leader points at.
+func runMidY(r TextRun) float64 { return r.Y + r.Height/2 }
+
+// TestALabelALeaderPointsAtIsTakenIn drives the whole pass through FindFigures at
+// page 521's measured geometry: the box's right edge is at 263.0, the terminator
+// sits at 259.6-263.0 and SETS that edge, and the label starts at 266.0. Three
+// units, and before this pass nothing in findFigures ever grew a box.
+//
+// It also pins the two rectangles apart. Rect is what will be rendered; InkRect is
+// the drawn extent the guards judged, and attribution reads that one.
+func TestALabelALeaderPointsAtIsTakenIn(t *testing.T) {
+	const drawn = 263.0
+	label := TextRun{X: 266, Y: 200, Width: 10, Height: 13, Text: "12"}
+	page := &PageRuns{No: 521, Width: 918, Height: 631, Runs: []TextRun{label}}
+
+	ink := growthDrawing(CellRect{100, 100, drawn, 300})
+	ink = append(ink, leaderMark(261.3, runMidY(label)))
+
+	figs := FindFigures(ink, page)
+	if len(figs) != 1 {
+		t.Fatalf("found %d figures, expected 1", len(figs))
+	}
+	if got := figs[0].Rect; got != (CellRect{100, 100, 276, 300}) {
+		t.Errorf("Rect = %v, expected the right edge out at the label's far edge 276", got)
+	}
+	if got := figs[0].InkRect; got != (CellRect{100, 100, drawn, 300}) {
+		t.Errorf("InkRect = %v, expected the drawing alone, right edge at %.1f", got, drawn)
+	}
+}
+
+// TestWithoutATerminatorNothingMoves is the same geometry with the mark taken out,
+// and it is the whole signal: a run three units from the edge is not a label unless
+// something points at it.
+func TestWithoutATerminatorNothingMoves(t *testing.T) {
+	const drawn = 263.0
+	label := TextRun{X: 266, Y: 200, Width: 10, Height: 13, Text: "12"}
+	page := &PageRuns{No: 521, Width: 918, Height: 631, Runs: []TextRun{label}}
+
+	figs := FindFigures(growthDrawing(CellRect{100, 100, drawn, 300}), page)
+	if len(figs) != 1 {
+		t.Fatalf("found %d figures, expected 1", len(figs))
+	}
+	if figs[0].Rect != figs[0].InkRect {
+		t.Errorf("Rect = %v against InkRect = %v; with no mark the box must not move",
+			figs[0].Rect, figs[0].InkRect)
+	}
+}
+
+// TestAPartsListIsRefused is the case that rules a distance rule out, and it is a
+// document rather than an argument.
+//
+// Page 11 of the columns manual prints its parts list — 39 numbers and 39 German
+// names — in a column 22.3 units to the right of the exploded view, with no
+// terminator anywhere: a legend is not pointed at. 22.3 is NEARER than page 521's
+// underside diagram's own labels, which are 20.3 to 35.3 units out, so no "grow onto
+// text within N units" rule can take one and refuse the other.
+func TestAPartsListIsRefused(t *testing.T) {
+	area := CellRect{100, 100, 300, 400}
+	const listX = 322.3 // 22.3 units right of the drawing's edge
+	text := []TextRun{
+		{X: listX, Y: 110, Width: 6, Height: 13, Text: "1"},
+		{X: listX + 12, Y: 110, Width: 80, Height: 13, Text: "Gehäusedeckel"},
+		{X: listX, Y: 128, Width: 6, Height: 13, Text: "2"},
+		{X: listX + 12, Y: 128, Width: 62, Height: 13, Text: "Tragegriff"},
+		{X: listX, Y: 146, Width: 6, Height: 13, Text: "3"},
+		{X: listX + 12, Y: 146, Width: 70, Height: 13, Text: "Saugschlauch"},
+	}
+	got := growToLabels(area, text, growthDrawing(area), defaultGuards)
+	if got != area {
+		t.Errorf("grew to %v; a parts list is not pointed at and nothing may move", got)
+	}
+}
+
+// TestProseInTheCorridorStopsTheEdgeDead is the conservative half of the rule, and
+// it is a decision rather than a detail: an edge moves only if everything the growth
+// region touches is a claimed label.
+//
+// Page 521's lid-open drawing is the case. Its corridor holds "Кнопка сброса" and
+// then the five bullet lines that explain it, so growing right would drag a
+// paragraph into a picture; its left edge grows and its right does not.
+func TestProseInTheCorridorStopsTheEdgeDead(t *testing.T) {
+	area := CellRect{100, 100, 300, 300}
+	label := TextRun{X: 303, Y: 190, Width: 12, Height: 13, Text: "12"}
+	prose := TextRun{X: 305, Y: 140, Width: 60, Height: 13, Text: "a whole line of prose"}
+	drawn := append(growthDrawing(area), leaderMark(296, runMidY(label)))
+
+	got := growToLabels(area, []TextRun{label, prose}, drawn, defaultGuards)
+	if got != area {
+		t.Errorf("grew to %v; one line of prose in the corridor and the edge stays", got)
+	}
+}
+
+// TestAWrappedLabelIsTakenWhole covers the second half of the signal: a label's
+// later lines carry no terminator of their own, and left unclaimed they are
+// obstacles to the label they belong to. Page 521's lidar drawing claims nine of its
+// eleven labels by terminator, and its two continuation lines block the edge from
+// moving at all.
+//
+// The counter-case is what stops the rule swallowing a bulleted description. What
+// separates them is that a bullet has its text beside it on the same baseline and a
+// continuation line does not.
+func TestAWrappedLabelIsTakenWhole(t *testing.T) {
+	area := CellRect{100, 100, 300, 300}
+	first := TextRun{X: 303, Y: 190, Width: 40, Height: 13, Text: "Модуль"}
+	second := TextRun{X: 303, Y: 201, Width: 30, Height: 13, Text: "на основе ИИ"}
+	drawn := append(growthDrawing(area), leaderMark(296, runMidY(first)))
+
+	got := growToLabels(area, []TextRun{first, second}, drawn, defaultGuards)
+	if got != (CellRect{100, 100, 343, 300}) {
+		t.Errorf("grew to %v, expected the right edge at the first line's far edge 343 "+
+			"with the second line claimed rather than blocking it", got)
+	}
+
+	// The counter-case. The bullet is 1.5 units wide and its text starts 1 unit past
+	// it on the same baseline, so the description IS flush with the label above it
+	// and IS on the adjacent line — the only thing left to refuse it is that it is
+	// not alone on its own baseline.
+	bullet := TextRun{X: 303, Y: 201, Width: 1.5, Height: 13, Text: "•"}
+	desc := TextRun{X: 305.5, Y: 201, Width: 60, Height: 13, Text: "Нажмите кнопку сброса"}
+	text := []TextRun{first, bullet, desc}
+	marks := []CellRect{leaderMark(296, runMidY(first)).Rect}
+	claimed := claimLabels(area, text, marks, edgeRight, defaultGuards)
+	if len(claimed) != 1 || claimed[0] != &text[0] {
+		got := make([]string, 0, len(claimed))
+		for _, c := range claimed {
+			got = append(got, c.Text)
+		}
+		t.Errorf("claimed %q, expected only the label; a bullet's description is not "+
+			"its continuation", got)
+	}
+	if grown := growToLabels(area, text, drawn, defaultGuards); grown != area {
+		t.Errorf("grew to %v; the description is unclaimed and sits in the region", grown)
+	}
+}
+
+// TestGrowthComparesBaselinesNotBands pins the reading a band comparison gets wrong.
+// Two consecutive lines of one label overlap vertically, because a run is taller
+// than the pitch it is set at — 13 units of height on a 10-unit pitch here — so a
+// band test reports a label's own third line as something sharing the second's line,
+// and that blocked every growth on the page this pass was written for.
+func TestGrowthComparesBaselinesNotBands(t *testing.T) {
+	area := CellRect{100, 100, 300, 300}
+	text := []TextRun{
+		{X: 303, Y: 190, Width: 40, Height: 13, Text: "Модуль"},
+		{X: 303, Y: 200, Width: 36, Height: 13, Text: "на основе"},
+		{X: 303, Y: 210, Width: 32, Height: 13, Text: "3D-датчики"},
+	}
+	// Each line's band overlaps the next by 3 units, and only the first is pointed at.
+	for i := range text[:len(text)-1] {
+		if text[i].bottom() <= text[i+1].Y {
+			t.Fatalf("line %d ends at %.1f before line %d starts at %.1f; the point of "+
+				"this test is that they overlap", i, text[i].bottom(), i+1, text[i+1].Y)
+		}
+	}
+	drawn := append(growthDrawing(area), leaderMark(296, runMidY(text[0])))
+
+	if got := growToLabels(area, text, drawn, defaultGuards); got != (CellRect{100, 100, 343, 300}) {
+		t.Errorf("grew to %v, expected the right edge at 343; a three-line label whose "+
+			"lines overlap must still grow", got)
+	}
+}
+
+// TestTheCapIsAgainstTheDrawing covers [maxLabelGrowth] from both sides, and then
+// the trap underneath it: the cap is measured against the drawing, so an edge's
+// allowance does not grow because another edge moved first.
+func TestTheCapIsAgainstTheDrawing(t *testing.T) {
+	// 100 wide, so at maxLabelGrowth of 1 the right edge may move 100 units.
+	area := CellRect{100, 100, 200, 300}
+	grow := func(labelWidth float64) CellRect {
+		label := TextRun{X: 203, Y: 190, Width: labelWidth, Height: 13, Text: "Bezeichnung"}
+		drawn := append(growthDrawing(area), leaderMark(196, runMidY(label)))
+		return growToLabels(area, []TextRun{label}, drawn, defaultGuards)
+	}
+	// Far edge at 299: the edge moves 99 of its allowed 100.
+	if got := grow(96); got != (CellRect{100, 100, 299, 300}) {
+		t.Errorf("just inside the cap: grew to %v, expected the edge at 299", got)
+	}
+	// Far edge at 301: 101 units, and the whole growth is refused rather than
+	// clipped back to the cap. A label cut at an arbitrary line is not the point.
+	if got := grow(98); got != area {
+		t.Errorf("just outside the cap: grew to %v, expected no move at all", got)
+	}
+
+	// Two edges. The left label needs 80 units and is allowed; the right label needs
+	// 150, which is over the drawing's own 100 and must stay refused even though the
+	// box is 180 wide by the time the right edge is judged.
+	left := TextRun{X: 20, Y: 190, Width: 60, Height: 13, Text: "links"}
+	right := TextRun{X: 203, Y: 220, Width: 147, Height: 13, Text: "rechts"}
+	drawn := append(growthDrawing(area),
+		leaderMark(96, runMidY(left)), leaderMark(204, runMidY(right)))
+	got := growToLabels(area, []TextRun{left, right}, drawn, defaultGuards)
+	if got != (CellRect{20, 100, 200, 300}) {
+		t.Errorf("grew to %v, expected the left edge out to 20 and the right edge "+
+			"unmoved; the first edge's growth must not enlarge the second's allowance", got)
+	}
+}
+
+// TestAClaimedLabelMayBeCutAndProseMayNot is the asymmetry that makes the pass work
+// on a page whose two label columns interleave in x. Page 521's lidar drawing
+// reaches 397 where its own longest label ends at 469, because the neighbouring
+// drawing's labels start at 400. Refusing to cut a label at all was measured and
+// costs the whole page.
+func TestAClaimedLabelMayBeCutAndProseMayNot(t *testing.T) {
+	area := CellRect{100, 100, 300, 300}
+	short := TextRun{X: 303, Y: 190, Width: 27, Height: 13, Text: "Deckel"}
+	long := TextRun{X: 303, Y: 220, Width: 97, Height: 13, Text: "Absaugen und Lösen"}
+	prose := TextRun{X: 340, Y: 150, Width: 50, Height: 13, Text: "the next column's prose"}
+	drawn := append(growthDrawing(area),
+		leaderMark(296, runMidY(short)), leaderMark(296, runMidY(long)))
+
+	got := growToLabels(area, []TextRun{short, long, prose}, drawn, defaultGuards)
+	if got != (CellRect{100, 100, 330, 300}) {
+		t.Errorf("grew to %v, expected the edge at the shorter label's 330 — cutting "+
+			"the longer label rather than reaching over the prose at 340", got)
+	}
+}
+
+// TestEachEdgeIsJudgedAgainstTheBoxAsAlreadyGrown is a real trap rather than a
+// hypothetical: a prototype that computed all four edges from the original box
+// admitted a run diagonally outside two of them on 2 figures.
+//
+// The run below is beyond neither edge on its own — it clears the left edge but does
+// not reach the figure's vertical band, and clears the top edge but not its
+// horizontal band — so it is never a candidate label. It only lands in the way once
+// the left edge has moved, which is why the top edge must be judged against the
+// grown box.
+func TestEachEdgeIsJudgedAgainstTheBoxAsAlreadyGrown(t *testing.T) {
+	area := CellRect{100, 100, 300, 300}
+	left := TextRun{X: 60, Y: 190, Width: 35, Height: 13, Text: "links"}
+	top := TextRun{X: 190, Y: 60, Width: 40, Height: 13, Text: "oben"}
+	corner := TextRun{X: 65, Y: 70, Width: 25, Height: 13, Text: "diagonal"}
+	for _, side := range []int{edgeLeft, edgeRight, edgeTop, edgeBottom} {
+		if _, outside := runBeyond(area, &corner, side); outside {
+			t.Fatalf("the corner run is beyond edge %d; it has to be beyond none of "+
+				"them for this test to mean anything", side)
+		}
+	}
+	drawn := append(growthDrawing(area),
+		leaderMark(96, runMidY(left)), leaderMark(196, 96))
+
+	got := growToLabels(area, []TextRun{left, top, corner}, drawn, defaultGuards)
+	if got != (CellRect{60, 100, 300, 300}) {
+		t.Errorf("grew to %v, expected the left edge out to 60 and the top refused; "+
+			"the corner run is only in the way once the left edge has moved", got)
+	}
+}
+
+// TestTheGuardsJudgeTheDrawingNotTheCrop pins the order the pass runs in. A
+// diagram's own labels are text, so a box grown onto them is legitimately over
+// [maxFigureTextFraction] — page 521's lidar diagram reaches 0.162 with its eleven
+// labels — and re-testing the grown box would reject the very pictures this pass
+// exists to complete.
+func TestTheGuardsJudgeTheDrawingNotTheCrop(t *testing.T) {
+	drawn := CellRect{100, 100, 200, 200}
+	var runs []TextRun
+	ink := growthDrawing(drawn)
+	for _, y := range []float64{105, 120, 135, 150, 165, 180} {
+		r := TextRun{X: 203, Y: y, Width: 85, Height: 13, Text: "Bezeichnung"}
+		runs = append(runs, r)
+		ink = append(ink, leaderMark(196, runMidY(r)))
+	}
+	page := &PageRuns{No: 521, Width: 918, Height: 631, Runs: runs}
+
+	figs := FindFigures(ink, page)
+	if len(figs) != 1 {
+		t.Fatalf("found %d figures, expected 1", len(figs))
+	}
+	got := figs[0]
+	if got.Rect != (CellRect{100, 100, 288, 200}) {
+		t.Fatalf("Rect = %v, expected the edge out at the labels' far edge 288", got.Rect)
+	}
+	if crop := textFraction(got.Rect, runs); crop <= maxFigureTextFraction {
+		t.Fatalf("the grown box is %.3f text, under the %.2f guard; this test needs a "+
+			"crop the guard would have rejected", crop, maxFigureTextFraction)
+	}
+	if got.InkRect != drawn {
+		t.Errorf("InkRect = %v, expected the drawing %v", got.InkRect, drawn)
+	}
+	if want := textFraction(drawn, runs); got.TextFraction != want {
+		t.Errorf("TextFraction = %.3f, expected %.3f — the drawing's, not the crop's",
+			got.TextFraction, want)
+	}
+	// Every shape, the six terminators included: a leader's mark is what SETS the
+	// edge it sits on, so it is inside the drawing's box, not out in the corridor.
+	if got.Ink != len(ink) {
+		t.Errorf("Ink = %d, expected all %d shapes of the drawing", got.Ink, len(ink))
+	}
+}
+
+// TestDrawnExtentFallsBackToRect covers the two callers that legitimately have no
+// ink box: a figure read back out of the database, where the drawn extent is not
+// stored, and a figure built by hand in a test. Before this pass the two rects were
+// one rect, which is why the fallback is right rather than an error.
+func TestDrawnExtentFallsBackToRect(t *testing.T) {
+	crop := CellRect{100, 100, 276, 300}
+	drawn := CellRect{100, 100, 263, 300}
+	stored := Figure{Rect: crop}
+	if got := stored.DrawnExtent(); got != crop {
+		t.Errorf("DrawnExtent = %v with no InkRect, expected Rect %v", got, crop)
+	}
+	fresh := Figure{Rect: crop, InkRect: drawn}
+	if got := fresh.DrawnExtent(); got != drawn {
+		t.Errorf("DrawnExtent = %v, expected InkRect %v", got, drawn)
+	}
+}
