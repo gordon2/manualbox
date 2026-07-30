@@ -787,6 +787,18 @@ func leaderMark(cx, cy float64) Ink {
 // runMidY is a run's midline, which is what a leader points at.
 func runMidY(r TextRun) float64 { return r.Y + r.Height/2 }
 
+// marksOf picks the terminator candidates out of a drawing the same way
+// [growToLabels] does, for the tests that call [claimLabels] directly.
+func marksOf(drawn []Ink) []CellRect {
+	var marks []CellRect
+	for i := range drawn {
+		if r := drawn[i].Rect; r.Width() <= labelTerminator && r.Height() <= labelTerminator {
+			marks = append(marks, r)
+		}
+	}
+	return marks
+}
+
 // TestALabelALeaderPointsAtIsTakenIn drives the whole pass through FindFigures at
 // page 521's measured geometry: the box's right edge is at 263.0, the terminator
 // sits at 259.6-263.0 and SETS that edge, and the label starts at 266.0. Three
@@ -1021,8 +1033,17 @@ func TestEachEdgeIsJudgedAgainstTheBoxAsAlreadyGrown(t *testing.T) {
 				"them for this test to mean anything", side)
 		}
 	}
+	// Each mark on its own label's midline: 96 is the left label's, and 210 is the
+	// top label's — a leader points AT its label, and [labelAlign] is 4 units.
 	drawn := append(growthDrawing(area),
-		leaderMark(96, runMidY(left)), leaderMark(196, 96))
+		leaderMark(96, runMidY(left)), leaderMark(top.X+top.Width/2, 96))
+
+	claimedTop := claimLabels(area, []TextRun{left, top, corner},
+		marksOf(drawn), edgeTop, defaultGuards)
+	if len(claimedTop) != 1 {
+		t.Fatalf("the top edge claimed %d labels, expected the one; without a claim "+
+			"there is nothing for the growth region to be judged against", len(claimedTop))
+	}
 
 	got := growToLabels(area, []TextRun{left, top, corner}, drawn, defaultGuards)
 	if got != (CellRect{60, 100, 300, 300}) {
