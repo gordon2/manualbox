@@ -256,6 +256,12 @@ func Convert(ctx context.Context, path string, res *Result, household []string) 
 // includes one straddling two of them — belongs to every language in scope,
 // which is rule 2 of [Convert].
 //
+// The extent asked about is [Figure.DrawnExtent], never the rendered crop. Those differ once [doc.growToLabels] has taken a label in, and using the
+// crop would let a drawing grown sideways onto its label reach out of its own
+// column and be served to every household — the one failure the funnel may not
+// have. A picture's language is a property of the picture, not of how much of the
+// page around it was rendered.
+//
 // The false return is the third case, and it is the funnel: a figure inside a
 // region in a language the household does not read is that language's picture,
 // and is dropped exactly as its text is.
@@ -263,7 +269,8 @@ func attribute(f *Figure, regions []Region, onPage []int, inScope map[string]boo
 	scopeLangs []string) (ConvertedFigure, bool) {
 	for _, i := range onPage {
 		r := &regions[i]
-		if f.Rect.X0 < r.X0-figureRegionSlack || f.Rect.X1 > r.X1+figureRegionSlack {
+		drawn := f.DrawnExtent()
+		if drawn.X0 < r.X0-figureRegionSlack || drawn.X1 > r.X1+figureRegionSlack {
 			continue
 		}
 		base := BaseLanguage(r.Lang)

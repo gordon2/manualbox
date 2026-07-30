@@ -361,6 +361,113 @@ content-addressed store, so a box that moves means the same page yields differen
 Two eye counts already in the repo were counting boxes rather than drawings and are
 corrected: a page recorded as 8 drawings prints 4, and one recorded as 8 prints 9.
 
+**A CALLOUT NUMBER WAS BEING CROPPED AWAY, and it made a labelled diagram
+unreadable.** Reported by the user against the sequential manual's RU product
+overview: the crop keeps the leader lines and loses every label, so the leaders end
+in nothing and the drawing cannot be read against its parts.
+
+The cause is not a bad box, and that is the useful part. A figure's box is the
+bounding box of the drawn **ink**; a label is a **text run**. On PDF page 521 the
+lidar drawing's box ends at x=263.0, its leader terminators are the marks at
+259.6–263.0 that *set* that edge, and all eleven of its labels begin at **266.0**.
+Three units, every one. The box does not need to find the leader's end — it is
+already sitting on it. It needs to cross the gap, and nothing in `findFigures` ever
+grew a box: `trimToPicture` only ever pulls edges in.
+
+**What says a run is a label is the terminator, not the distance.** Both documents
+draw a small open circle where a leader stops — 3.3 to 3.4 units square, measured —
+and one sitting in the corridor between the box's edge and a run, on that run's
+midline, is what claims the run. The case that rules the distance out is a document:
+page 11 of the columns manual prints its **parts list**, 39 numbers and 39 German
+names, 22.3 units to the right of the exploded view, which is *nearer* than the
+underside diagram's own labels on page 521 at 20.3–35.3. Any "grow onto text within
+N units" rule swallows the whole list. The terminator test refuses all 78 of its
+runs, because a legend is not pointed at.
+
+**A label wraps, and its later lines are the obstacle.** Page 521's lidar drawing
+claims nine of its eleven labels by terminator; the two continuation lines
+(`на основе ИИ`, `3D-датчики`) carry no mark of their own and, left unclaimed, block
+the edge from moving at all. So a run flush with a claimed label, on the adjacent
+line, **alone on its baseline**, is part of it. Alone is what separates a label from
+a bulleted description: a bullet has its text beside it 1 unit away, a continuation
+line does not. Comparing bands rather than baselines gets this wrong in a way worth
+recording — two consecutive lines of one label overlap vertically, because a run is
+taller than the pitch it is set at, so a band test reports a label's own third line
+as something sharing the second's line and blocks every growth on the page.
+
+**The conservative half is that prose stops an edge dead.** An edge moves only if
+everything the growth region touches is a claimed label; one line of prose in the way
+and the edge stays. That is why page 521's lid-open drawing keeps its three
+right-hand labels cropped — the corridor holds `Кнопка сброса` and then the five
+bullet lines explaining it — while its left edge takes nine labels.
+
+**A claimed label may be cut short; prose may not.** On a page whose two label
+columns interleave in x this is the difference between the fix working and not
+working: the lidar drawing reaches x=397 where its own longest label ends at 469,
+because the neighbouring drawing's labels start at 400. Refusing to cut a label at
+all was measured, and it costs the whole page — that drawing does not grow, and
+neither does its neighbour's left edge. A leader ending in a word cut short is a
+large improvement on a leader ending in nothing; a picture with a paragraph in it is
+not.
+
+What it is worth, over both whole documents:
+
+| | columns manual | sequential manual |
+|---|---|---|
+| figures | 59 | 195 |
+| figures with a label outside them | 2 | 79 |
+| figures grown | **0** | **55** |
+| labels taken in | 0 | **229** |
+
+**The columns manual does not move at any setting**, which is the same shape of
+evidence the merge rests on: its two claims are both blocked by prose in the
+corridor, so this is the other document's change entirely. Of the sequential
+manual's 55, **22 are on pages 5 and 6** — the front-matter diagram plates, which
+fall outside every language region and are never converted — leaving 33 on pages a
+reader is served. Page 521's three drawings take 9, 11 and 14 labels.
+
+**The cost is overlapping crops, and it is confined to those plates.** Eleven pairs
+of grown boxes overlap and every one of them is on page 5 or 6, where 31 figures
+share one sheet with labels between them; none is on any page a conversion serves.
+Not fixed, because arbitrating which of two drawings a shared corridor belongs to
+would be a rule invented for one plate.
+
+**The rendered rectangle and the drawn one are now different things, and one caller
+must not confuse them.** `Figure.Rect` is what was rendered and is what the stored
+pixel size describes; `Figure.InkRect` is the drawn extent the two guards judged.
+Attribution reads the drawn one, through `Figure.DrawnExtent`: a box grown sideways
+onto a label could otherwise reach out of its own language column and be handed to
+every household, which is the one failure the funnel may not have. A picture's
+language is a property of the picture, not of how much of the page around it was
+rendered. The ink box is not stored — nothing reading a conversion back asks the
+language question again — so there is no migration.
+
+**Growth runs after both guards, deliberately.** A diagram's own labels are text, so
+a grown box is legitimately over `maxFigureTextFraction`: page 521's lidar drawing
+reaches 0.162 with its eleven labels. Re-testing the grown box would reject the very
+pictures this pass exists to complete, so the guards judge the drawing and growth is
+what happens to a drawing that has already passed.
+
+**A perfectly horizontal leader line is invisible to all of this, and fixing that was
+measured and rejected.** `onPageInk` drops a shape whose box has no extent on one
+axis, and an axis-aligned hairline is exactly that: page 521 carries 52 such shapes 8
+units or longer, its leaders among them, and that is why the underside drawing's
+terminators sit 28 units *outside* its box while the lidar drawing's sit on the edge.
+Keeping them was tried. It costs the sequential manual **16 figures, 195 → 179**, and
+the reason is that the restored shapes include the page's own furniture: page 5 draws
+a zero-width column separator 402 units tall, and it bridges that page's middle
+column into one 244×402 box where ten drawings were found before. The columns manual
+does not move (59 → 59, identical per page). Not taken, because growth reaches the
+labels without it — a terminator survives the filter on its own, being a circle
+rather than a line.
+
+**What this still does not do is carry a label as text.** The complete answer is not
+a wider crop: it is to keep each claimed label as a string with a position, let the
+reader draw it beside the picture, and take it out of the block flow — which would
+also make it translatable, searchable, correct in right-to-left, and free of every
+rectangle conflict above. That is a schema, an API and a reader change, and it is
+what should replace this pass rather than sit beside it.
+
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.
 A scanned manual with no text layer needs OCR before any of this applies, and the

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -257,6 +258,51 @@ const (
 	// it. Nothing is gained anywhere in exchange, so the exact test stands.
 	trimReachSlack = 0.0
 
+	// labelTerminator is how large a leader's end mark may be, in units, and it is
+	// the signal the whole of [growToLabels] turns on.
+	//
+	// Both documents draw one: a small open circle where a leader line stops, just
+	// short of the label it points at. Measured, they are 3.3 to 3.4 units square on
+	// page 521 of the sequential manual and 3.4 on its plate pages. 8 is chosen to
+	// admit a mark of twice that with a stroke's width on top, and the sweep in
+	// TestGrowSweep says the value is not on a cliff: at 4, 6, 8 and 12 the
+	// sequential manual grows 48, 53, 55 and 66 figures. 12 is where it starts
+	// admitting a drawing's own small details as terminators, and 4 misses marks that
+	// carry a stroke.
+	labelTerminator = 8.0
+
+	// labelAlign is how far off a run's midline a terminator may sit, in units.
+	// A leader points AT its label, so the mark and the label's middle line up; 4 is
+	// about a third of a line of body text on either document (12 to 14 units).
+	// Swept: 2, 4, 6 and 8 grow 48, 55, 59 and 62 figures of the sequential manual,
+	// and the overlapping crops it creates rise from 12 to 18 over that range.
+	labelAlign = 4.0
+
+	// labelCorridor is how far outside a figure's edge a label may sit and still be
+	// that figure's, in units.
+	//
+	// Measured on page 521 of the sequential manual, where the labels of three
+	// drawings sit 0.1 to 35.3 units out: the box's edge is the leader's terminator,
+	// so the near ones are 3 units away, and the far ones are labels whose leader
+	// ends short of the drawing. 40 covers all of them. It cannot be much tighter:
+	// at 20 the underside diagram's six left labels are out of reach. It must not be
+	// much wider either, and the reason is a document rather than a preference — see
+	// the note on the parts list in [growToLabels].
+	labelCorridor = 40.0
+
+	// maxLabelGrowth is how far one edge may move to take in labels, as a fraction
+	// of the side it is on. One: an edge may not move further than the drawing's own
+	// width or height.
+	//
+	// Swept over the sequential manual as figures grown / labels taken: 18/51 at
+	// 0.25, 32/110 at 0.5, 55/233 at 1, 63/259 at 2 and 64/266 with no cap at all,
+	// where the largest single growth reaches 3.56 of a side. 1 is where the
+	// document's own labelled diagrams are all served — page 521's three drawings
+	// need 0.26, 0.68 and 0.65 — and it is a bound with a meaning rather than a
+	// fitted number: past it the labels are larger than the picture and the crop is
+	// no longer a picture with its labels.
+	maxLabelGrowth = 1.0
+
 	// maxFigurePNGBytes caps one rendered figure held in memory. Measured over
 	// every figure of both fixtures the largest is 353 KB, page 11's parts diagram
 	// at 1077x1510; 32 MB is two orders above that and still bounds a page-sized
@@ -291,11 +337,25 @@ type Figure struct {
 	// down then across. It is not a document-wide figure number: nothing here has
 	// the whole document in view, and numbering across pages is the caller's.
 	Index int `json:"index"`
-	// Rect is where the figure sits, in the 1.5-scaled space. Carried beside the
-	// bytes because it is half the answer: a picture has to land in the right place
-	// in a column's reading order, and on a parallel-columns manual it has to be
-	// attributable to a language region.
+	// Rect is what was rendered, in the 1.5-scaled space: the drawn extent plus any
+	// labels [growToLabels] took in. Carried beside the bytes because it is half the
+	// answer — a picture has to land in the right place in a column's reading order —
+	// and it is the rectangle PixelWidth and PixelHeight describe, so a caller
+	// scaling the pixels back onto the page is scaling them onto this.
 	Rect CellRect `json:"rect"`
+	// InkRect is the drawn extent alone, before any label was taken in, and it is
+	// what the two guards judged.
+	//
+	// It is carried separately because one caller must not use Rect: [attribute]
+	// decides which language a picture belongs to by which region its box lies
+	// inside, and a box grown sideways onto a label could reach out of its own
+	// column and be served to every household — which is the one failure the funnel
+	// may not have. The language question is asked of the drawing, the crop is what
+	// a reader is shown.
+	//
+	// Not stored. Nothing reading a figure back out of the database asks the
+	// language question again; it was answered when the conversion was made.
+	InkRect CellRect `json:"inkRect,omitzero"`
 	// Ink is how many drawn shapes the figure holds — the shape guard's evidence,
 	// kept rather than reduced to the verdict, so a rejected page can be shown to
 	// have been rejected for the right reason.
@@ -315,6 +375,23 @@ type Figure struct {
 	Digest string `json:"digest"`
 	// PNG is the rendered figure.
 	PNG []byte `json:"-"`
+}
+
+// DrawnExtent is the figure's drawn box: [Figure.InkRect] when it is known, and
+// [Figure.Rect] when it is not.
+//
+// The fallback is there for the two callers that legitimately have no ink box. A
+// figure read back out of the database has only the rectangle that was stored,
+// because the drawn extent is not stored — nothing reading a conversion asks the
+// language question again. And a figure built by hand in a test states the box it
+// is about. Both mean the same thing when nothing has been grown, which is why
+// this is a fallback rather than an error: before [growToLabels] the two rects
+// were one rect.
+func (f *Figure) DrawnExtent() CellRect {
+	if f.InkRect == (CellRect{}) {
+		return f.Rect
+	}
+	return f.InkRect
 }
 
 // ExtractInk reads every shape one page draws, as bounding boxes.
@@ -414,12 +491,18 @@ type figureGuards struct {
 	// inside the other before they are read as one picture. See
 	// [mergeOverlapping] for why it is zero.
 	mergeOverlap float64
+	// The label-growth rule's four numbers, here for the same reason: TestGrowSweep
+	// moves them over both whole documents. growth of zero turns the pass off, which
+	// is how the sweep measures what it is worth.
+	terminator, align, corridor, growth float64
 }
 
 var defaultGuards = figureGuards{
 	minWidth: minFigureWidth, minHeight: minFigureHeight,
 	minInk: minFigureInk, maxText: maxFigureTextFraction,
 	mergeOverlap: figureMergeOverlap,
+	terminator:   labelTerminator, align: labelAlign,
+	corridor: labelCorridor, growth: maxLabelGrowth,
 }
 
 func findFigures(ink []Ink, page *PageRuns, g figureGuards) []Figure {
@@ -456,9 +539,16 @@ func findFigures(ink []Ink, page *PageRuns, g figureGuards) []Figure {
 		if fraction > g.maxText {
 			continue
 		}
+		// Growth comes last, after both guards have judged the drawing. Deliberately:
+		// a diagram's own labels are text, so a box grown onto them is legitimately
+		// over [maxFigureTextFraction] — page 521's lidar diagram reaches 0.162 with
+		// its eleven labels — and re-testing the grown box would reject the very
+		// pictures this pass exists to complete.
 		out = append(out, Figure{
-			Page: page.No, Index: len(out), Rect: area,
-			Ink: count, TextFraction: fraction,
+			Page: page.No, Index: len(out),
+			Rect:    growToLabels(area, text, drawn, g),
+			InkRect: area,
+			Ink:     count, TextFraction: fraction,
 		})
 	}
 	return out
@@ -918,6 +1008,443 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 		case 3:
 			area.Y1 = y0
 		}
+	}
+	return area
+}
+
+// growToLabels grows a figure's box to take in the labels its leader lines point
+// at, and never takes in a line of prose.
+//
+// This is [trimToPicture]'s opposite and it exists because the trim was only ever
+// half the problem. A figure's box is the bounding box of the drawn ink, and a
+// callout number is not ink: it is a text run printed just outside the drawing, at
+// the end of a leader line. So the box covers every leader and excludes every label
+// they point at, and the user's report is exactly that — "the crop keeps the lines
+// and loses every number, so the leaders end in nothing and the diagram cannot be
+// read against its parts list."
+//
+// Measured on page 521 of the sequential manual, the RU product overview, whose
+// three drawings carry 31 labels between them: the box's right edge is at 263.0,
+// the leader terminators are at 259.6-263.0, and all eleven of that drawing's
+// labels start at **266.0**. Three units, every one of them. The box does not need
+// to reach the leader's end — it is already there. It needs to cross the gap.
+//
+// # What says a run is this figure's label, and what says it is prose
+//
+// The terminator: a small mark, [labelTerminator] units at most, sitting in the
+// corridor between the figure's edge and the run, on that run's own midline. Both
+// documents draw one at the end of every leader.
+//
+// It has to be that rather than the gap, and the case that settles it is a document
+// rather than an argument. Page 11 of the columns manual prints its parts list — 39
+// numbers and 39 German names, "1 Gehäusedeckel", "2 Tragegriff" — in a column
+// 22.3 units to the right of the exploded view. That is nearer than the underside
+// diagram's own labels on page 521, which are 20.3 to 35.3 units out. Any rule that
+// grows onto text within some distance swallows the whole parts list; the terminator
+// test refuses all 78 of its runs, because a legend is not pointed at.
+//
+// The second half of the signal is that **a label wraps**. Its second and third
+// lines carry no terminator of their own, and left unclaimed they are obstacles to
+// the label they belong to: page 521's lidar drawing claims nine of its eleven
+// labels by terminator, and the two continuation lines block the edge from moving at
+// all. A run flush with a claimed label, on the next line, alone on its baseline, is
+// part of it. Alone matters: "Кнопка сброса" is a label and the five lines under it
+// are its description, and what separates them is that a bullet has its text beside
+// it while a label's continuation does not.
+//
+// # What it will not do, which is the conservative half
+//
+// An edge moves only if everything the growth region touches is a claimed label.
+// One line of prose in the way and the edge stays where it is. That is why page
+// 521's lid-open drawing keeps its three right-hand labels cropped: the corridor
+// holds "Кнопка сброса" and then the five bullet lines that explain it, so growing
+// right would drag a paragraph into a picture. Its left edge grows and its right
+// does not.
+//
+// A claimed label may still be cut, and prose may not. The edge goes as far as the
+// farthest label it can reach cleanly, which on a page whose two label columns
+// interleave in x is not far enough for the longest of them: page 521's lidar
+// drawing reaches 397, where its own longest label ends at 469, because the
+// neighbouring drawing's labels start at 400. Refusing to cut a label at all was
+// measured and costs the whole page — with it, that drawing does not grow, and
+// neither does its neighbour's left edge. A leader ending in a word cut short is a
+// large improvement on a leader ending in nothing; a picture with a paragraph in it
+// is not.
+//
+// # What it is worth, over both whole documents
+//
+//	                                  columns manual   sequential manual
+//	figures                                 59               195
+//	figures with a label outside them         2                79
+//	figures grown                             0                55
+//	labels taken in                           0               233
+//
+// The columns manual does not move at any setting, which is the same shape of
+// evidence [mergeOverlapping] rests on: its two claims are both blocked by prose in
+// the corridor, so this change is the other document's entirely. Of the sequential
+// manual's 55, **22 are on pages 5 and 6** — the front-matter diagram plates, which
+// fall outside every language region and are never converted — leaving 33 on pages a
+// reader is served.
+//
+// The cost is overlapping crops, and it is confined: 13 pairs of grown boxes
+// overlap, every single one of them on those two plate pages, and none on any page a
+// conversion serves. Page 5 is 31 figures on one sheet with labels between them, and
+// two boxes there now overlap wholly. Recorded rather than fixed, because no page a
+// reader sees is affected and the alternative — arbitrating which of two drawings a
+// shared corridor belongs to — would be a rule invented for one plate.
+//
+// Edges are taken in a fixed order and each one's region is judged against the box
+// as already grown, which is what keeps two independently clean edges from admitting
+// a run diagonally outside both.
+func growToLabels(area CellRect, text []TextRun, drawn []Ink, g figureGuards) CellRect {
+	if g.growth <= 0 {
+		return area
+	}
+	// The terminator candidates, once for the page rather than once per run: a
+	// leader's mark is small, and page 42 of the columns manual draws 82,626 shapes
+	// that a per-run scan would walk for every label on every figure.
+	marks := make([]CellRect, 0, 64)
+	for i := range drawn {
+		if r := drawn[i].Rect; r.Width() <= g.terminator && r.Height() <= g.terminator {
+			marks = append(marks, r)
+		}
+	}
+
+	out := area
+	for side := range 4 {
+		// Claims come from the box the guards judged, so which runs are this
+		// figure's labels does not depend on the order the edges are taken in.
+		claimed := claimLabels(area, text, marks, side, g)
+		if len(claimed) == 0 {
+			continue
+		}
+		// The region and the reach are judged against the box as already grown,
+		// which is what keeps two independently clean edges from admitting a run
+		// diagonally outside both. The cap is against the drawing, so an edge's
+		// allowance does not grow because another edge moved first.
+		want, ok := labelExtent(out, text, claimed, side)
+		if !ok {
+			continue
+		}
+		if edgeMove(area, side, want) > g.growth*edgeSpan(area, side) {
+			continue
+		}
+		out = moveEdge(out, side, want)
+	}
+	return out
+}
+
+// claimLabels collects the runs beyond one edge that belong to the figure: those a
+// leader points at, and the continuation lines of those.
+func claimLabels(area CellRect, text []TextRun, marks []CellRect, side int, g figureGuards) []*TextRun {
+	var claimed []*TextRun
+	for i := range text {
+		r := &text[i]
+		gap, outside := runBeyond(area, r, side)
+		if !outside || gap > g.corridor {
+			continue
+		}
+		if terminatorAt(marks, area, r, side, g) {
+			claimed = append(claimed, r)
+		}
+	}
+	if len(claimed) == 0 {
+		return nil
+	}
+	// A wrapped label's later lines, to a fixpoint: a third line continues a second
+	// that was itself only just claimed.
+	for again := true; again; {
+		again = false
+		for i := range text {
+			r := &text[i]
+			gap, outside := runBeyond(area, r, side)
+			if !outside || gap > g.corridor || claims(claimed, r) {
+				continue
+			}
+			if len([]rune(strings.TrimSpace(r.Text))) < minWrapRunes {
+				continue
+			}
+			if continuesLabel(claimed, r, side, text, area) {
+				claimed = append(claimed, r)
+				again = true
+			}
+		}
+	}
+	return claimed
+}
+
+// labelExtent is how far the edge may move: the farthest claimed label whose
+// growth region holds nothing but claimed labels.
+func labelExtent(area CellRect, text []TextRun, claimed []*TextRun, side int) (float64, bool) {
+	extents := make([]float64, 0, len(claimed))
+	for _, r := range claimed {
+		extents = append(extents, farEdge(r, side))
+	}
+	sort.Float64s(extents)
+	if side == edgeRight || side == edgeBottom {
+		slices.Reverse(extents)
+	}
+	for _, e := range extents {
+		if !outward(area, side, e) {
+			continue // already inside the box, from another edge's growth
+		}
+		if unclaimedRun(growthRegion(area, side, e), text, claimed) == nil {
+			return e, true
+		}
+	}
+	return 0, false
+}
+
+// The four edges, in the order [growToLabels] takes them.
+const (
+	edgeLeft = iota
+	edgeRight
+	edgeTop
+	edgeBottom
+)
+
+// minWrapRunes is the shortest run that may be claimed as a label's next line.
+// Three: "колесо" and "щетки" are continuation lines on page 521 and a bullet's
+// "•" is not, and the floor is the second lock on that after [continuesLabel]'s
+// own test. A claim by terminator has no floor, because a callout number is one
+// character.
+const minWrapRunes = 3
+
+// runBeyond reports whether a run lies wholly beyond one edge — within the band the
+// figure occupies on the other axis — and by how far.
+func runBeyond(area CellRect, r *TextRun, side int) (gap float64, ok bool) {
+	switch side {
+	case edgeLeft:
+		if r.right() <= area.X0 && r.bottom() > area.Y0 && r.Y < area.Y1 {
+			return area.X0 - r.right(), true
+		}
+	case edgeRight:
+		if r.X >= area.X1 && r.bottom() > area.Y0 && r.Y < area.Y1 {
+			return r.X - area.X1, true
+		}
+	case edgeTop:
+		if r.bottom() <= area.Y0 && r.right() > area.X0 && r.X < area.X1 {
+			return area.Y0 - r.bottom(), true
+		}
+	case edgeBottom:
+		if r.Y >= area.Y1 && r.right() > area.X0 && r.X < area.X1 {
+			return r.Y - area.Y1, true
+		}
+	}
+	return 0, false
+}
+
+// terminatorAt reports whether a leader's end mark sits between the figure's edge
+// and this run, on the run's own midline.
+//
+// The mark may be just inside the edge or out in the corridor, and both happen in
+// one document: page 521's lidar drawing ends AT its terminators, which is what
+// sets its box edge, while its underside drawing's marks are 28 units outside the
+// box because the leader lines running to them are perfectly horizontal and a
+// horizontal hairline has no height, so [onPageInk] never saw them. See the note
+// at the end of this file.
+func terminatorAt(marks []CellRect, area CellRect, r *TextRun, side int, g figureGuards) bool {
+	midX, midY := r.X+r.Width/2, r.Y+r.Height/2
+	for _, s := range marks {
+		cx, cy := (s.X0+s.X1)/2, (s.Y0+s.Y1)/2
+		switch side {
+		case edgeLeft:
+			if cx <= area.X0+g.terminator && cx >= r.right()-g.terminator &&
+				math.Abs(cy-midY) <= g.align {
+				return true
+			}
+		case edgeRight:
+			if cx >= area.X1-g.terminator && cx <= r.X+g.terminator &&
+				math.Abs(cy-midY) <= g.align {
+				return true
+			}
+		case edgeTop:
+			if cy <= area.Y0+g.terminator && cy >= r.bottom()-g.terminator &&
+				math.Abs(cx-midX) <= g.align {
+				return true
+			}
+		case edgeBottom:
+			if cy >= area.Y1-g.terminator && cy <= r.Y+g.terminator &&
+				math.Abs(cx-midX) <= g.align {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// continuesLabel reports whether r is the next line of a label already claimed: set
+// flush with it, on the adjacent line, and alone on its own baseline.
+func continuesLabel(claimed []*TextRun, r *TextRun, side int, text []TextRun, area CellRect) bool {
+	const (
+		// flush is how far two lines of one label's near edges may differ. Three:
+		// page 521 sets "Модуль" and "MopExtend" against a right margin two units
+		// apart, because the glyphs do not end at the same place.
+		flush = 3.0
+		// step is how far apart two lines of one label may sit. Six: a run is taller
+		// than the pitch it is set at, so consecutive lines of these labels overlap
+		// rather than leaving a gap, and this bounds the case where they do not.
+		step = 6.0
+		// beside is how near another run must be to count as sharing this line. A
+		// bullet's text starts 1 unit after it; the next label column on page 521
+		// starts 147 units away and must not count, or a three-line label is blocked
+		// by a run it has nothing to do with.
+		beside = 12.0
+		// sameLine compares BASELINES, not bands. Two consecutive lines of one label
+		// overlap vertically, so a band test reports a label's own third line as
+		// something sharing the second's line, which blocked every growth on the page
+		// this pass was written for.
+		sameLine = 2.0
+	)
+	for _, c := range claimed {
+		if math.Abs(nearEdge(r, side)-nearEdge(c, side)) > flush {
+			continue
+		}
+		var apart float64
+		if side == edgeLeft || side == edgeRight {
+			apart = math.Max(r.Y-c.bottom(), c.Y-r.bottom())
+		} else {
+			apart = math.Max(r.X-c.right(), c.X-r.right())
+		}
+		if apart > step {
+			continue
+		}
+		alone := true
+		for i := range text {
+			o := &text[i]
+			if o == r || strings.TrimSpace(o.Text) == "" || claims(claimed, o) {
+				continue
+			}
+			if _, outside := runBeyond(area, o, side); !outside {
+				continue
+			}
+			var shares, near bool
+			if side == edgeLeft || side == edgeRight {
+				shares = math.Abs(o.Y-r.Y) <= sameLine
+				near = o.X < r.right()+beside && r.X < o.right()+beside
+			} else {
+				shares = math.Abs(o.X-r.X) <= sameLine
+				near = o.Y < r.bottom()+beside && r.Y < o.bottom()+beside
+			}
+			if shares && near {
+				alone = false
+				break
+			}
+		}
+		if alone {
+			return true
+		}
+	}
+	return false
+}
+
+// claims reports whether a run is already claimed. By identity: two runs of a page
+// can hold the same text at the same size, and it is this one that is claimed.
+func claims(claimed []*TextRun, r *TextRun) bool {
+	return slices.Contains(claimed, r)
+}
+
+// nearEdge is the run's side facing the figure, farEdge the side away from it.
+func nearEdge(r *TextRun, side int) float64 {
+	switch side {
+	case edgeLeft:
+		return r.right()
+	case edgeRight:
+		return r.X
+	case edgeTop:
+		return r.bottom()
+	default:
+		return r.Y
+	}
+}
+
+func farEdge(r *TextRun, side int) float64 {
+	switch side {
+	case edgeLeft:
+		return r.X
+	case edgeRight:
+		return r.right()
+	case edgeTop:
+		return r.Y
+	default:
+		return r.bottom()
+	}
+}
+
+// growthRegion is the strip an edge would add by moving out to want.
+func growthRegion(area CellRect, side int, want float64) CellRect {
+	switch side {
+	case edgeLeft:
+		return CellRect{want, area.Y0, area.X0, area.Y1}
+	case edgeRight:
+		return CellRect{area.X1, area.Y0, want, area.Y1}
+	case edgeTop:
+		return CellRect{area.X0, want, area.X1, area.Y0}
+	default:
+		return CellRect{area.X0, area.Y1, area.X1, want}
+	}
+}
+
+// unclaimedRun is the first run inside a region that no label claimed, or nil when
+// the region holds nothing else.
+func unclaimedRun(region CellRect, text []TextRun, claimed []*TextRun) *TextRun {
+	for i := range text {
+		r := &text[i]
+		if strings.TrimSpace(r.Text) == "" || claims(claimed, r) {
+			continue
+		}
+		if math.Min(region.X1, r.right()) > math.Max(region.X0, r.X) &&
+			math.Min(region.Y1, r.bottom()) > math.Max(region.Y0, r.Y) {
+			return r
+		}
+	}
+	return nil
+}
+
+// outward reports whether want is further out than the edge already is.
+func outward(area CellRect, side int, want float64) bool {
+	switch side {
+	case edgeLeft:
+		return want < area.X0
+	case edgeRight:
+		return want > area.X1
+	case edgeTop:
+		return want < area.Y0
+	default:
+		return want > area.Y1
+	}
+}
+
+func edgeMove(area CellRect, side int, want float64) float64 {
+	switch side {
+	case edgeLeft:
+		return area.X0 - want
+	case edgeRight:
+		return want - area.X1
+	case edgeTop:
+		return area.Y0 - want
+	default:
+		return want - area.Y1
+	}
+}
+
+func edgeSpan(area CellRect, side int) float64 {
+	if side == edgeLeft || side == edgeRight {
+		return area.Width()
+	}
+	return area.Height()
+}
+
+func moveEdge(area CellRect, side int, want float64) CellRect {
+	switch side {
+	case edgeLeft:
+		area.X0 = want
+	case edgeRight:
+		area.X1 = want
+	case edgeTop:
+		area.Y0 = want
+	default:
+		area.Y1 = want
 	}
 	return area
 }
