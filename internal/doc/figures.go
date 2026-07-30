@@ -1082,6 +1082,12 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 //	figures grown                             0                55
 //	labels taken in                           0               233
 //
+// Those 229 are labels the crop REACHES, and the difference between reaching and
+// containing is the clipping this rule accepts: on page 521 the three drawings reach
+// 9, 11 and 14 labels and hold 3, 8 and 12 of them whole, so 23 of the 34 arrive
+// uncut. That is the number to watch if this is ever replaced by carrying a label as
+// text, which would make it 34.
+//
 // The columns manual does not move at any setting, which is the same shape of
 // evidence [mergeOverlapping] rests on, so this change is the other document's
 // entirely. Both of its claims are FALSE and both are blocked, which is worth
@@ -1098,8 +1104,11 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 //
 // The cost is overlapping crops, and it is confined: 11 pairs of grown boxes
 // overlap — 9 on page 5 and 2 on page 6 — and none on any page a conversion serves.
-// Page 5 is 31 figures on one sheet with labels between them, and two boxes there now
-// overlap wholly. Recorded rather than fixed, because no page a
+// Page 5 is 31 figures on one sheet with labels between them, and one of its nine
+// pairs is a crop now wholly inside another crop. The drawn boxes are untouched by
+// all of this — measured over both documents, every page, they still overlap in 0
+// pairs and nest in 0, so [mergeOverlapping]'s property holds of the rect it is
+// about. Recorded rather than fixed, because no page a
 // reader sees is affected and the alternative — arbitrating which of two drawings a
 // shared corridor belongs to — would be a rule invented for one plate.
 //

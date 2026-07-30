@@ -431,6 +431,11 @@ What it is worth, over both whole documents:
 | figures grown | **0** | **55** |
 | labels taken in | 0 | **229** |
 
+Those 229 are labels the crop **reaches**, and the gap between reaching and
+containing is exactly the clipping this accepts: page 521's three drawings reach 9, 11
+and 14 labels and hold 3, 8 and 12 whole, so 23 of its 34 arrive uncut. It is the
+number that would become 34 if a label were carried as text instead.
+
 **The columns manual does not move at any setting**, which is the same shape of
 evidence the merge rests on, so this is the other document's change entirely. Both of
 its claims are FALSE and both are blocked, and that is the clearest statement of what
@@ -445,7 +450,10 @@ reader is served. Page 521's three drawings take 9, 11 and 14 labels.
 
 **The cost is overlapping crops, and it is confined to those plates.** Eleven pairs
 of grown boxes overlap — nine on page 5 and two on page 6, where 31 and 28 figures
-share one sheet with labels between them; none is on any page a conversion serves.
+share one sheet with labels between them, and one of page 5's is a crop wholly inside
+another crop; none is on any page a conversion serves. The **drawn** boxes are
+untouched: measured over both documents on every page they still overlap in 0 pairs
+and nest in 0, so the merge pass's property holds of the rect it is about.
 Widening the corridor is what would change that: at 80 units a pair appears on page
 524, which a reader is served, and that is the upper bound's evidence.
 Not fixed, because arbitrating which of two drawings a shared corridor belongs to
