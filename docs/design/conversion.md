@@ -195,9 +195,14 @@ German page, and a page-scoped rule cannot reach them from Russian:
 
 | household | figures from the column manual |
 |---|---|
-| German | 40, of which 38 neutral |
-| Polish | 41, of which 38 neutral |
+| German | 53, of which 51 neutral |
+| Polish | 54, of which 51 neutral |
 | **Russian** | **1** |
+| **Ukrainian** | **1** |
+
+Those first two numbers were 40 and 41 when this was written and the shape of the
+finding is unchanged; reading the clip split merged drawings apart and took that
+document from 46 figures to 59, so every per-household count here rose with it.
 
 Closing that automatically costs either every page's ink for every household — 68
 `pdftocairo` spawns where 52 were charged here, and 1,120 on the sequential manual to
@@ -219,12 +224,18 @@ actually occupy, and it is wrong. Measured properly, over all 560 pages:
 
 | | |
 |---|---|
-| figures | 229 |
+| figures | 195 |
 | figure pages **inside** a language section | **20** |
 | figure pages outside one | 3 |
-| Russian | **81 figures** |
-| Japanese | **82 figures** |
+| Russian | **65 figures** |
+| Japanese | **69 figures** |
 | the other 32 languages | none |
+
+That total read 229 when this was measured, and the two per-section counts 81 and 82.
+All three fell when candidate boxes that overlap were merged — a drawing that had
+clustered in pieces is one figure now — and the page counts did not move at all,
+which is what says these are the same pictures counted correctly rather than
+pictures lost.
 
 So a Russian or Japanese reader of that manual gets a heavily illustrated section, and
 the other 32 get none — because those two sections genuinely carry illustrations and
@@ -744,12 +755,12 @@ that was not asked for. That is the funnel's whole promise, and it is the one fa
 a reader would notice immediately.
 
 **Both halves are met, and both were checked against renders rather than against
-counts.** Column manual German: 432 blocks and 40 figures over 26 of 68 pages, with
+counts.** Column manual German: 427 content blocks and 53 figures over 26 of 68 pages, with
 page 57's two troubleshooting tables arriving as 25 distinct cells and page 14's two
 photographs coming back neutral with the same digest in the German and the Polish
-conversion. Sequential manual German: 481 blocks over pages 23-38, and page 24
+conversion. Sequential manual German: 453 content blocks over pages 23-38, and page 24
 compared against its render matches bullet for bullet — one heading and **12 list
-items against 12 printed**. Sequential Russian: 487 blocks and its 81 figures over
+items against 12 printed**. Sequential Russian: 445 content blocks and its 65 figures over
 pages 517-538, page 533's eight line drawings among them.
 
 The two blemishes on that page 24 comparison are the documented page-furniture
@@ -783,10 +794,10 @@ whole, not reconstructing it.
 **A figure's language is derived on read, not stored.** `doc_figures` has no language
 column, which is the contract — a picture belonging to no language belongs to every
 language — and that is exactly why a household reading two languages cannot be served
-by page. The de+uk conversion of the column manual stores 41 figures; page-scoped
+by page. The de+uk conversion of the column manual stores 54 figures; page-scoped
 filtering would hand a German reader the Ukrainian column's picture off every shared
 page. Applying the same geometric test `Convert` used, against the same stored
-regions, gives German **40** and Ukrainian **39**, overlapping in the 38 neutral ones
+regions, gives German **53** and Ukrainian **52**, overlapping in the 51 neutral ones
 — including page 14's two photographs, which arrive with identical digests in both.
 
 **The state has to be the transaction's, and reverting it proves so.** Setting the
@@ -798,6 +809,6 @@ Calling `SetDocumentState` from *inside* the transaction is the deadlock the
 is written on the transaction's own handle, last.
 
 Both fixtures came back at the numbers above through the real API: 432 German blocks
-with page 57's two tables as 25 cells, and 487 Russian blocks with 81 figures over
+with page 57's two tables as 25 cells, and 445 Russian blocks with 65 figures over
 pages 517-538, page 533's eight among them. Re-approving a `ready` document produced
 byte-identical JSON.
