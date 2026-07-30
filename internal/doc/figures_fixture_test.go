@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/gordon2/manualbox/internal/doc"
@@ -168,9 +169,15 @@ func TestFigureCountsOverBothWholeDocuments(t *testing.T) {
 				}
 				for j := range figs {
 					f := &figs[j]
-					side := f.Rect.Width()
-					if f.Rect.Height() < side {
-						side = f.Rect.Height()
+					// The drawn box, not the crop. The size floor is a guard and it
+					// judges the drawing, so the census of what it admitted has to ask
+					// the same box — since growToLabels this reads 24 off Rect, because
+					// the smallest drawing grew on one edge, and that number is a
+					// measurement of the crop rather than of the threshold.
+					drawn := f.DrawnExtent()
+					side := drawn.Width()
+					if drawn.Height() < side {
+						side = drawn.Height()
 					}
 					if side < smallest {
 						smallest = side
@@ -381,14 +388,46 @@ func TestEveryFigureOfTheColumnsManualRenders(t *testing.T) {
 // at is unfalsifiable. This can be: no figure's box may share any area with
 // another's on the same page.
 //
-// Before the merge pass the columns manual had 0 overlapping pairs and the
-// sequential one 53, of which 7 were one box wholly inside another. The strict
+// Before the merge pass the columns manual had 0 overlapping pairs on that test and
+// the sequential one 53, of which 7 were one box wholly inside another. The strict
 // containment census is kept separate because it was the case the report named.
+//
+// # The box the property is about is now the drawn one
+//
+// It was asserted of Rect, and Rect stopped being the box the merge pass produces
+// once growToLabels started moving edges outward. Measured at both rects over both
+// whole documents: the drawn boxes overlap in 0 pairs and nest in 0 on either
+// document, exactly as before, and it is the rendered crops that overlap — 11 pairs,
+// every one of them on page 5 or 6 of the sequential manual, with one crop wholly
+// inside another on page 5.
+//
+// So the merge pass's property is intact and is asserted where it belongs, of
+// InkRect, at zero on both documents and on every page. The crops are asserted as
+// the cost they are: growth may make two crops overlap, but only on the two
+// front-matter plate pages that fall outside every language region and are never
+// converted, and never on a page a reader is served. The zero on every other page is
+// the half that matters — a crop overlap on page 521 would be a picture served twice.
 func TestNoFigureOverlapsAnotherOnEitherManual(t *testing.T) {
-	for _, name := range []string{"thomas-drybox-amfibia", "dreame-l40-ultra"} {
-		t.Run(name, func(t *testing.T) {
-			path, pages := rulesFixture(t, name)
-			var overlapping, nested int
+	for _, tc := range []struct {
+		name string
+		// cropOverlaps and cropNested are keyed by page, so a pair moving to a page
+		// a reader sees fails on the key rather than on the total.
+		cropOverlaps map[int]int
+		cropNested   map[int]int
+	}{
+		// The columns manual grows no figure at all, so its crops are its drawn
+		// boxes and both censuses stay at the zero the merge pass established.
+		{"thomas-drybox-amfibia", map[int]int{}, map[int]int{}},
+		// Page 5 is 31 figures on one sheet with labels between them and page 6 is
+		// the second such plate. Recorded rather than fixed: arbitrating which of two
+		// drawings a shared corridor belongs to would be a rule invented for one plate,
+		// and no page a conversion serves is affected.
+		{"dreame-l40-ultra", map[int]int{5: 9, 6: 2}, map[int]int{5: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, pages := rulesFixture(t, tc.name)
+			inkOverlaps, inkNested := 0, 0
+			cropOverlaps, cropNested := map[int]int{}, map[int]int{}
 			for i := range pages {
 				figs := areasOf(t, path, &pages[i])
 				for a := range figs {
@@ -396,30 +435,326 @@ func TestNoFigureOverlapsAnotherOnEitherManual(t *testing.T) {
 						if a == b {
 							continue
 						}
-						x := math.Min(figs[a].Rect.X1, figs[b].Rect.X1) -
-							math.Max(figs[a].Rect.X0, figs[b].Rect.X0)
-						y := math.Min(figs[a].Rect.Y1, figs[b].Rect.Y1) -
-							math.Max(figs[a].Rect.Y0, figs[b].Rect.Y0)
-						if a < b && x > 0 && y > 0 {
-							overlapping++
-							t.Errorf("page %d: figures %d and %d overlap\n    %s\n    %s",
-								pages[i].No, a, b, describe(&figs[a]), describe(&figs[b]))
+						fa, fb := &figs[a], &figs[b]
+						if a < b && overlaps(fa.DrawnExtent(), fb.DrawnExtent()) {
+							inkOverlaps++
+							t.Errorf("page %d: the drawn boxes of figures %d and %d overlap\n    %s\n    %s",
+								pages[i].No, a, b, describe(fa), describe(fb))
 						}
-						if figs[a].Rect.X0 >= figs[b].Rect.X0 && figs[a].Rect.X1 <= figs[b].Rect.X1 &&
-							figs[a].Rect.Y0 >= figs[b].Rect.Y0 && figs[a].Rect.Y1 <= figs[b].Rect.Y1 {
-							nested++
+						if within(fa.DrawnExtent(), fb.DrawnExtent()) {
+							inkNested++
+						}
+						if a < b && overlaps(fa.Rect, fb.Rect) {
+							cropOverlaps[pages[i].No]++
+						}
+						if within(fa.Rect, fb.Rect) {
+							cropNested[pages[i].No]++
 						}
 					}
 				}
 			}
-			t.Logf("%s: %d overlapping pair(s), %d figure(s) wholly inside another",
-				name, overlapping, nested)
-			if nested != 0 {
-				t.Errorf("%d figure(s) sit wholly inside another; a box inside a box "+
+			t.Logf("%s: drawn boxes %d overlapping pair(s), %d nested; "+
+				"crops %v overlapping pair(s) by page, %v nested by page",
+				tc.name, inkOverlaps, inkNested, cropOverlaps, cropNested)
+
+			if inkNested != 0 {
+				t.Errorf("%d drawn box(es) sit wholly inside another; a box inside a box "+
 					"is a fragment of that drawing, served to a reader as a second picture",
-					nested)
+					inkNested)
+			}
+			// The crop census, page by page. A total would let a pair move off a plate
+			// page onto a page a household reads and still add up.
+			for _, c := range []struct {
+				what      string
+				got, want map[int]int
+				complaint string
+			}{
+				{"overlap", cropOverlaps, tc.cropOverlaps,
+					"two crops overlapping on a page a conversion serves is one picture served twice"},
+				{"nest", cropNested, tc.cropNested,
+					"a crop wholly inside another is a scrap of that drawing served as a picture of its own"},
+			} {
+				for _, no := range sortedPageNumbers(union(c.got, c.want)) {
+					if c.got[no] != c.want[no] {
+						t.Errorf("page %d: %d crop %s(s), expected %d — %s",
+							no, c.got[no], c.what, c.want[no], c.complaint)
+					}
+				}
 			}
 		})
+	}
+}
+
+// TestTheReportedPageKeepsItsCalloutLabels is the fault the user reported, on the
+// page it was reported on and against the three drawings it was reported against:
+// PDF page 521 of the sequential manual, the RU product overview, whose crops kept
+// every leader line and lost all 34 of the labels those leaders point at.
+//
+// The three rows below are the whole of the change made visible on one page. Each
+// drawn box is the bounding box of the ink and is what both guards judged; each crop
+// is what is now rendered; and the label count is how many of the page's text runs
+// the crop reaches that the drawn box did not.
+//
+// The grown edges land on exact integers — 484, 397, 459, 872 — because pdftohtml
+// reports a run's box in whole units, and an edge moves to a label's far edge.
+func TestTheReportedPageKeepsItsCalloutLabels(t *testing.T) {
+	path, pages := rulesFixture(t, "dreame-l40-ultra")
+	page := pageOf(t, pages, 521)
+
+	figs := areasOf(t, path, page)
+	if len(figs) != 3 {
+		t.Fatalf("page 521 returned %d figures; it prints three drawings", len(figs))
+	}
+	for i := range figs {
+		f := &figs[i]
+		t.Logf("figure %d: drawn (%.4f,%.4f)-(%.4f,%.4f) crop (%.4f,%.4f)-(%.4f,%.4f) %d label(s)",
+			f.Index, f.InkRect.X0, f.InkRect.Y0, f.InkRect.X1, f.InkRect.Y1,
+			f.Rect.X0, f.Rect.Y0, f.Rect.X1, f.Rect.Y1, len(labelsTakenIn(f, page)))
+	}
+	for i, c := range []struct {
+		ink, crop doc.CellRect
+		labels    int
+	}{
+		// The base station, seen from the front. Its left edge takes in the two label
+		// columns printed over the station's own footprint; its right edge is the one
+		// that does not move, asserted separately below.
+		{doc.CellRect{X0: 539.0625, Y0: 96.0820, X1: 748.3594, Y1: 277.5645},
+			doc.CellRect{X0: 484.0000, Y0: 96.0820, X1: 748.3594, Y1: 277.5645}, 9},
+		// The lidar drawing, the one figures.go measured: its box ends at 263.0, its
+		// leader terminators are the marks at 259.6-263.0 that set that edge, and all
+		// eleven of its labels begin at 266.0. Three units, every one of them. The
+		// right edge reaches 397 and not the 469 its longest label ends at, because
+		// the neighbouring drawing's labels start at 400 — a claimed label may be cut
+		// short, prose may not.
+		{doc.CellRect{X0: 65.9355, Y0: 116.9121, X1: 263.0098, Y1: 364.4355},
+			doc.CellRect{X0: 65.9355, Y0: 116.9121, X1: 397.0000, Y1: 364.4355}, 11},
+		// The underside, whose labels sit on both sides of it. It is the drawing that
+		// grows on two edges and takes in the most.
+		{doc.CellRect{X0: 579.2813, Y0: 359.4258, X1: 765.1171, Y1: 522.7383},
+			doc.CellRect{X0: 459.0000, Y0: 359.4258, X1: 872.0000, Y1: 522.7383}, 14},
+	} {
+		f := &figs[i]
+		// A thousandth of a unit, which is two orders tighter than the difference any
+		// of these numbers is about: the smallest edge move on the page is figure 0's
+		// 55 units.
+		if !sameBox(f.InkRect, c.ink, 0.001) {
+			t.Errorf("figure %d's drawn box is (%.4f,%.4f)-(%.4f,%.4f), measured at "+
+				"(%.4f,%.4f)-(%.4f,%.4f)", i,
+				f.InkRect.X0, f.InkRect.Y0, f.InkRect.X1, f.InkRect.Y1,
+				c.ink.X0, c.ink.Y0, c.ink.X1, c.ink.Y1)
+		}
+		if !sameBox(f.Rect, c.crop, 0.001) {
+			t.Errorf("figure %d's crop is (%.4f,%.4f)-(%.4f,%.4f), measured at "+
+				"(%.4f,%.4f)-(%.4f,%.4f)", i,
+				f.Rect.X0, f.Rect.Y0, f.Rect.X1, f.Rect.Y1,
+				c.crop.X0, c.crop.Y0, c.crop.X1, c.crop.Y1)
+		}
+		if n := len(labelsTakenIn(f, page)); n != c.labels {
+			t.Errorf("figure %d's crop took in %d label(s), measured at %d", i, n, c.labels)
+			for _, r := range labelsTakenIn(f, page) {
+				t.Logf("    %q at (%.0f,%.0f)", strings.TrimSpace(r.Text), r.X, r.Y)
+			}
+		}
+	}
+
+	// The edge that did not move, which is the conservative rule working and not a
+	// shortfall. Figure 0's right corridor holds the label "Кнопка сброса" at x=754,
+	// 5.6 units out, and then the five lines of the bullet description explaining it,
+	// so growing right would drag a paragraph into a picture.
+	if figs[0].Rect.X1 != figs[0].InkRect.X1 {
+		t.Errorf("figure 0's right edge moved from %.4f to %.4f; the corridor beyond it "+
+			"holds a label and then five lines of prose, so it must stay where the ink put it",
+			figs[0].InkRect.X1, figs[0].Rect.X1)
+	}
+	if reached(figs[0].Rect, runContaining(t, page, "Кнопка сброса")) {
+		t.Error(`figure 0's crop reaches "Кнопка сброса"; the five bullet lines under it ` +
+			"are prose, and taking the label means taking them")
+	}
+
+	// And the labels that do land in a crop now, named rather than counted: a count
+	// alone would pass if growth took in nine of something else.
+	for _, c := range []struct {
+		figure int
+		label  string
+		whole  bool
+	}{
+		{0, "Разъемы", false}, // clipped by the drawing's own bottom edge, 4.4 units below it
+		{1, "Микрофон", true},
+		{1, "Крышка лидара", true},
+		{2, "Датчик ковра", true},
+	} {
+		r := runContaining(t, page, c.label)
+		f := &figs[c.figure]
+		if reached(f.InkRect, r) {
+			t.Errorf("%q is already inside figure %d's drawn box; it is meant to be a "+
+				"label the crop had lost", c.label, c.figure)
+		}
+		if !reached(f.Rect, r) {
+			t.Errorf("%q at (%.0f,%.0f) is outside figure %d's crop (%.1f,%.1f)-(%.1f,%.1f); "+
+				"it is one of the labels the leaders point at", c.label, r.X, r.Y, c.figure,
+				f.Rect.X0, f.Rect.Y0, f.Rect.X1, f.Rect.Y1)
+		}
+		if c.whole && !boxed(f.Rect, r) {
+			t.Errorf("%q is only partly inside figure %d's crop; this one is printed clear "+
+				"of the crop's other three edges and must arrive whole", c.label, c.figure)
+		}
+	}
+}
+
+// TestLabelGrowthOverBothWholeDocuments is what the growth rule is worth, swept
+// over every page of both manuals rather than over the page the fault was reported
+// on — and the columns manual's zero is the stronger half of it.
+//
+// A rule that grows a picture's box onto nearby text is one line of prose away from
+// dragging a paragraph into a picture on every page of a document nobody has looked
+// at. The columns manual is where that would show: 68 pages of parallel language
+// columns, and page 11 prints a parts list of 39 numbers and 39 German names 22.3
+// units to the right of the exploded view — nearer than the labels page 521 of the
+// other manual grows onto. It moves nothing, on any page, at any setting. Its two
+// claims are both blocked by prose in the corridor, so this is the sequential
+// manual's change entirely, and that is the same shape of evidence mergeOverlapping
+// rests on.
+func TestLabelGrowthOverBothWholeDocuments(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		figures       int
+		grown         int
+		labels        int
+		grownOnPlates int
+	}{
+		{"thomas-drybox-amfibia", 59, 0, 0, 0},
+		// Of the 55, 22 are on pages 5 and 6 — the front-matter diagram plates, which
+		// fall outside every language region and are never converted — so 33 are on
+		// pages a reader is served. Both halves are asserted, because the useful number
+		// is the 33 and it is only visible as a difference.
+		{"dreame-l40-ultra", 195, 55, 229, 22},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, pages := rulesFixture(t, tc.name)
+
+			var total, grown, labels, grownOnPlates int
+			for i := range pages {
+				figs := areasOf(t, path, &pages[i])
+				total += len(figs)
+				for j := range figs {
+					f := &figs[j]
+					// Growth only ever grows. This is the invariant that says a moved edge
+					// is a crop widened onto a label and never a drawing cut away, which is
+					// what trimToPicture does and what this pass is the opposite of.
+					if !within(f.InkRect, f.Rect) {
+						t.Errorf("page %d: %s has a crop that does not contain its drawn box "+
+							"(%.1f,%.1f)-(%.1f,%.1f)", pages[i].No, describe(f),
+							f.InkRect.X0, f.InkRect.Y0, f.InkRect.X1, f.InkRect.Y1)
+					}
+					if f.Rect == f.InkRect {
+						continue
+					}
+					grown++
+					labels += len(labelsTakenIn(f, &pages[i]))
+					if pages[i].No == 5 || pages[i].No == 6 {
+						grownOnPlates++
+					}
+				}
+			}
+			t.Logf("%s: %d figures, %d grown taking in %d label(s), %d of them on the plate pages",
+				tc.name, total, grown, labels, grownOnPlates)
+
+			// The figure count is asserted alongside the growth so that a growth number
+			// cannot be met by a document that found a different set of pictures.
+			if total != tc.figures {
+				t.Errorf("%d figures, expected %d", total, tc.figures)
+			}
+			if grown != tc.grown {
+				t.Errorf("%d figures grew, measured at %d", grown, tc.grown)
+			}
+			if labels != tc.labels {
+				t.Errorf("%d label(s) taken in, measured at %d", labels, tc.labels)
+			}
+			if grownOnPlates != tc.grownOnPlates {
+				t.Errorf("%d of the grown figures are on pages 5 and 6, measured at %d; "+
+					"the %d a reader is served is this number's complement",
+					grownOnPlates, tc.grownOnPlates, tc.grown-tc.grownOnPlates)
+			}
+		})
+	}
+}
+
+// TestGrowthDoesNotChangeWhichLanguageAPictureBelongsTo is the funnel's promise
+// applied to the one thing growth could break: a box grown sideways onto a label
+// must not reach out of its own language column and be served to every household.
+// attribute asks Figure.DrawnExtent for exactly that reason, and this checks the
+// answer through doc.Convert rather than through the geometry.
+//
+// It is honest about what these two documents can and cannot show, because the
+// answer is not what it looks like. The only fixture with side-by-side language
+// columns is the columns manual, and it grows nothing at all — so on these fixtures
+// the failure DrawnExtent prevents is unreachable, and this test cannot refute an
+// attribute that read Rect. What it can do is pin that: the count is asserted
+// together with "no served figure of that document is grown", so if a future change
+// makes the columns manual grow, this stops being a vacuous pass and the counts move
+// with it. The refutation that does not depend on a document behaving this way
+// belongs to a unit test with a figure grown by hand.
+//
+// The sequential manual is the other side of the same fact: 14 of the 65 figures its
+// Russian conversion serves ARE grown, so these counts are the counts of a corpus
+// that actually contains grown boxes. Its regions are whole-page, though, which is
+// why growth cannot move its attribution either.
+func TestGrowthDoesNotChangeWhichLanguageAPictureBelongsTo(t *testing.T) {
+	// The de+uk conversion of the columns manual, which is the case that has no test
+	// elsewhere: a household reading two of its five languages. 54 figures, of which
+	// German sees 53 and Ukrainian 52, overlapping in the 51 that sit inside no
+	// region of their page — page 14's two photographs among them, which the render
+	// shows belong to neither text column.
+	both := convertFixture(t, "thomas-drybox-amfibia", "de", "uk")
+	neutral := 0
+	for i := range both.Figures {
+		if both.Figures[i].Neutral {
+			neutral++
+		}
+	}
+	if len(both.Figures) != 54 || len(both.FiguresFor("de")) != 53 ||
+		len(both.FiguresFor("uk")) != 52 || neutral != 51 {
+		t.Errorf("de+uk stores %d figures, German sees %d and Ukrainian %d, %d neutral; "+
+			"measured at 54, 53, 52 and 51", len(both.Figures), len(both.FiguresFor("de")),
+			len(both.FiguresFor("uk")), neutral)
+	}
+	// Which is a vacuous pass unless it is said so: nothing in this document grows,
+	// so no figure it serves can have been attributed by a grown box.
+	for i := range both.Figures {
+		if f := &both.Figures[i]; f.Rect != f.DrawnExtent() {
+			t.Errorf("page %d figure %d of the columns manual grew, from "+
+				"(%.1f,%.1f)-(%.1f,%.1f) to (%.1f,%.1f)-(%.1f,%.1f). That is not a failure in "+
+				"itself, but the counts above were measured on a document that grows nothing, "+
+				"and whether a grown box stayed inside its own column is now a live question",
+				f.Page, f.Index,
+				f.DrawnExtent().X0, f.DrawnExtent().Y0, f.DrawnExtent().X1, f.DrawnExtent().Y1,
+				f.Rect.X0, f.Rect.Y0, f.Rect.X1, f.Rect.Y1)
+		}
+	}
+
+	// The sequential manual's Russian, which is where the grown boxes are. Its total
+	// and its page range are asserted by TestConvertTheSequentialManualForRussian and
+	// are deliberately not restated; what is new here is that grown boxes are among
+	// what a reader is served, and that each one arrives with the drawn box the
+	// language question was asked of.
+	ru := convertFixture(t, "dreame-l40-ultra", "ru")
+	grown := 0
+	for i := range ru.Figures {
+		f := &ru.Figures[i]
+		if f.InkRect == (doc.CellRect{}) {
+			t.Errorf("page %d figure %d carries no drawn box; attribute asked DrawnExtent "+
+				"and would have fallen back to the crop", f.Page, f.Index)
+		}
+		if !within(f.DrawnExtent(), f.Rect) {
+			t.Errorf("page %d figure %d has a drawn box outside its crop", f.Page, f.Index)
+		}
+		if f.Rect != f.DrawnExtent() {
+			grown++
+		}
+	}
+	if grown != 14 {
+		t.Errorf("%d of the Russian conversion's figures are grown, measured at 14; if this "+
+			"is zero the counts above no longer say anything about growth", grown)
 	}
 }
 
@@ -427,6 +762,88 @@ func describe(f *doc.Figure) string {
 	return fmt.Sprintf("page %d figure %d (%.1f,%.1f)-(%.1f,%.1f) %.0fx%.0f ink=%d text=%.1f%%",
 		f.Page, f.Index, f.Rect.X0, f.Rect.Y0, f.Rect.X1, f.Rect.Y1,
 		f.Rect.Width(), f.Rect.Height(), f.Ink, 100*f.TextFraction)
+}
+
+// overlaps reports whether two boxes share any area.
+func overlaps(a, b doc.CellRect) bool {
+	return math.Min(a.X1, b.X1) > math.Max(a.X0, b.X0) &&
+		math.Min(a.Y1, b.Y1) > math.Max(a.Y0, b.Y0)
+}
+
+// within reports whether the first box lies wholly inside the second.
+func within(inner, outer doc.CellRect) bool {
+	return inner.X0 >= outer.X0 && inner.X1 <= outer.X1 &&
+		inner.Y0 >= outer.Y0 && inner.Y1 <= outer.Y1
+}
+
+// sameBox compares two boxes edge by edge, to a tolerance.
+func sameBox(a, b doc.CellRect, tol float64) bool {
+	return near(a.X0, b.X0, tol) && near(a.Y0, b.Y0, tol) &&
+		near(a.X1, b.X1, tol) && near(a.Y1, b.Y1, tol)
+}
+
+func boxOf(r *doc.TextRun) doc.CellRect {
+	return doc.CellRect{X0: r.X, Y0: r.Y, X1: r.X + r.Width, Y1: r.Y + r.Height}
+}
+
+// reached reports whether a box takes in any part of a run, and boxed whether it
+// takes in the whole of it.
+func reached(box doc.CellRect, r *doc.TextRun) bool { return overlaps(box, boxOf(r)) }
+func boxed(box doc.CellRect, r *doc.TextRun) bool   { return within(boxOf(r), box) }
+
+// labelsTakenIn is the page's text runs a figure's crop reaches that its drawn box
+// did not — the labels growth bought, counted rather than described.
+//
+// It asks whether the crop reaches the run and not whether it holds all of it, and
+// that is the difference between 34 labels on page 521 and 23. A claimed label may
+// be cut short: figure 1 there reaches x=397 where its own longest label ends at
+// 469, because the neighbouring drawing's labels start at 400. A containment test
+// reads that label as not taken in when a reader can see most of it and, crucially,
+// can see which part the leader points at.
+func labelsTakenIn(f *doc.Figure, page *doc.PageRuns) []*doc.TextRun {
+	var out []*doc.TextRun
+	for i := range page.Runs {
+		r := &page.Runs[i]
+		if strings.TrimSpace(r.Text) == "" {
+			continue
+		}
+		if reached(f.Rect, r) && !reached(f.DrawnExtent(), r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// runContaining finds the one run holding a piece of text, and fails if the page
+// does not print it exactly once — a label asserted by name is worth nothing if the
+// name matches two runs or none.
+func runContaining(t *testing.T, page *doc.PageRuns, text string) *doc.TextRun {
+	t.Helper()
+	var found *doc.TextRun
+	n := 0
+	for i := range page.Runs {
+		if strings.Contains(page.Runs[i].Text, text) {
+			found = &page.Runs[i]
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("page %d prints %q in %d runs, expected exactly one", page.No, text, n)
+	}
+	return found
+}
+
+// union is the key set of two page-keyed censuses, so a page present in one and
+// absent from the other is still compared.
+func union(a, b map[int]int) map[int]int {
+	out := make(map[int]int, len(a)+len(b))
+	for k := range a {
+		out[k] = 0
+	}
+	for k := range b {
+		out[k] = 0
+	}
+	return out
 }
 
 func sortedPageNumbers(m map[int]int) []int {
