@@ -431,8 +431,13 @@ What it is worth, over both whole documents:
 | labels taken in | 0 | **229** |
 
 **The columns manual does not move at any setting**, which is the same shape of
-evidence the merge rests on: its two claims are both blocked by prose in the
-corridor, so this is the other document's change entirely. Of the sequential
+evidence the merge rests on, so this is the other document's change entirely. Both of
+its claims are FALSE and both are blocked, and that is the clearest statement of what
+the conservative rule is for: page 1's cover figure claims the title
+`РУКОВОДСТВО ПО ЭКСПЛУАТАЦИИ` and page 22's claims eight lines of German prose about
+emptying the DryBOX. The terminator signal is not precise on its own — a small shape
+near a line of text will do — and what makes it safe is that an edge does not move
+unless the region it would add holds nothing but claims. Of the sequential
 manual's 55, **22 are on pages 5 and 6** — the front-matter diagram plates, which
 fall outside every language region and are never converted — leaving 33 on pages a
 reader is served. Page 521's three drawings take 9, 11 and 14 labels.

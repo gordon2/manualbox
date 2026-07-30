@@ -1080,11 +1080,18 @@ func trimToPicture(area CellRect, text []TextRun) CellRect {
 //	labels taken in                           0               233
 //
 // The columns manual does not move at any setting, which is the same shape of
-// evidence [mergeOverlapping] rests on: its two claims are both blocked by prose in
-// the corridor, so this change is the other document's entirely. Of the sequential
-// manual's 55, **22 are on pages 5 and 6** — the front-matter diagram plates, which
-// fall outside every language region and are never converted — leaving 33 on pages a
-// reader is served.
+// evidence [mergeOverlapping] rests on, so this change is the other document's
+// entirely. Both of its claims are FALSE and both are blocked, which is worth
+// stating plainly because it is what the conservative rule is for: page 1's cover
+// figure claims the title `РУКОВОДСТВО ПО ЭКСПЛУАТАЦИИ`, and page 22's claims eight
+// lines of German prose about emptying the DryBOX. The terminator signal is not
+// precise on its own — a small shape near a line of text will do — and what makes
+// it safe is that an edge does not move unless the region it would add holds
+// nothing but claims.
+//
+// Of the sequential manual's 55, **22 are on pages 5 and 6** — the front-matter
+// diagram plates, which fall outside every language region and are never converted —
+// leaving 33 on pages a reader is served.
 //
 // The cost is overlapping crops, and it is confined: 13 pairs of grown boxes
 // overlap, every single one of them on those two plate pages, and none on any page a
