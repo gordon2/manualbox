@@ -39,6 +39,62 @@ func attributeOn(f *Figure, regions []Region, scope ...string) (ConvertedFigure,
 	return attribute(f, regions, onPage, inScope, scope)
 }
 
+// TestAGrownCropDoesNotChangeAFiguresLanguage is the funnel's one unforgivable
+// failure, asserted where it can actually be refuted.
+//
+// [growToLabels] grows a figure's box sideways onto the labels its leaders point at,
+// so a drawing in the German column can end up with a CROP that reaches into the
+// Polish one. If [attribute] asked that crop which region it lies inside, the answer
+// would be "none" — a figure straddling two regions is language-neutral — and the
+// picture would be handed to every household in scope. A German drawing served to a
+// Russian reader is the exact promise the funnel makes and may not break.
+//
+// It is asserted here, on geometry, because **neither fixture can refute it.** The
+// only document with side-by-side language columns is the columns manual, and it
+// grows nothing at all — both its claims are prose and both are blocked; the only
+// document that grows has whole-page regions, where there is no neighbouring column
+// to reach into. So the fixture-level check of this is a vacuous pass by
+// construction, and a hand-built figure is the only thing that can fail when the
+// rule is wrong. Verified by making [attribute] read Rect: this test fails and the
+// two fixture ones do not.
+//
+// The geometry is page 14's real regions and a figure 100 units wider than its own
+// ink, which is the order of growth measured — page 521's lidar drawing grew 134.
+func TestAGrownCropDoesNotChangeAFiguresLanguage(t *testing.T) {
+	grown := figureAt(340, 660) // the crop reaches 76 units into the Polish column
+	grown.InkRect = CellRect{X0: 340, Y0: 241, X1: 560, Y1: 431}
+
+	got, ok := attributeOn(grown, page14(), "de", "pl")
+	if !ok {
+		t.Fatal("a figure whose drawing is inside the German column was dropped")
+	}
+	if !reflect.DeepEqual(got.Langs, []string{"de"}) {
+		t.Errorf("langs = %v, want just de: the crop grew into the Polish column but "+
+			"the DRAWING is German, and a picture's language is the picture's", got.Langs)
+	}
+	if got.Neutral {
+		t.Error("a figure whose drawing sits inside one region reported itself as " +
+			"language-neutral, so every household in scope would be served it")
+	}
+	if got.RegionX0 != 323 {
+		t.Errorf("RegionX0 = %v, want the German region's 323", got.RegionX0)
+	}
+
+	// And the other direction, so this cannot be satisfied by ignoring the crop
+	// entirely: a drawing that genuinely straddles two columns is still neutral,
+	// grown or not.
+	straddling := figureAt(340, 660)
+	straddling.InkRect = CellRect{X0: 340, Y0: 241, X1: 660, Y1: 431}
+	got, ok = attributeOn(straddling, page14(), "de", "pl")
+	if !ok {
+		t.Fatal("a figure straddling two regions was dropped")
+	}
+	if !got.Neutral {
+		t.Error("a DRAWING straddling the German and Polish columns is nobody's " +
+			"column and must be neutral")
+	}
+}
+
 // TestAFigureInsideARegionBelongsToItsLanguage is rule 2's first half.
 func TestAFigureInsideARegionBelongsToItsLanguage(t *testing.T) {
 	got, ok := attributeOn(figureAt(340, 560), page14(), "de", "pl")
