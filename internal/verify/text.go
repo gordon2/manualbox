@@ -177,14 +177,25 @@ const (
 	// `pdftohtml` returns unshaped letter forms, so a word can be both reversed and
 	// unshaped and then only the shaping shows. It cannot see a reversed PALINDROME.
 	//
-	// And it cannot see a reordering that PRESERVES THE WORD SET, which is not
-	// hypothetical — page 204's support URL arrives with its seventeen runs in
-	// reverse order, `faqs-and- manuals-user/pages/com.dreametech.global://https`,
-	// and every one of those tokens is present in the reference, so set membership is
-	// blind to it by construction. [checkOrder] asks that question of blocks and
-	// nothing asks it of words. The report caught that block only sideways, as a
-	// [KindJoinHyphen], and it is written up as doc's bug rather than papered over
-	// here.
+	// AND IT CANNOT SEE A REORDERING THAT PRESERVES THE WORD SET, which is the
+	// limitation worth knowing about, because it is the one that has actually cost
+	// something twice. A zero from [KindRightToLeft] means no word is stored as its own
+	// reverse. It does not mean the words are in the right order.
+	//
+	// Set membership per page is what [checkText] compares, for the reasons given
+	// there, so word ORDER is outside it by construction. Both of doc/bidi.go's
+	// run-order defects were invisible here: page 204's support URL arrived with its
+	// seventeen runs reversed, and page 211's list marker `1.` arrived as `. 1`, and in
+	// both cases every token was still present in the reference. The first surfaced
+	// sideways as a [KindJoinHyphen] and the SECOND DID NOT SURFACE AT ALL — it was
+	// caught only because a pinned block count moved by 43.
+	//
+	// [checkOrder] asks the order question of blocks and nothing asks it of words. That
+	// gap is deliberately open, and conversion.md carries the design: what the
+	// comparison would be against — `pdftotext`'s byte order already IS reading order
+	// once the bidi controls are stripped, which the tokeniser does anyway — and what
+	// makes it real work, which is matching lines to a per-page reference and not
+	// reporting the reflow and column interleaving that are already reported elsewhere.
 	minReversibleWords = 1
 )
 

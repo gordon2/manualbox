@@ -597,23 +597,125 @@ Two independent checks hold it there, off comparisons sharing no code:
 backwards, and `registry.TestHebrewIsFoundTypedForwards` fails if the word for
 "manual" is findable backwards.
 
-**One reversal survives, at run granularity, and nothing can see it.** Page 204 stores
-the support URL as
-`faqs-and- manuals-user/pages/com.dreametech.global://https`. Poppler paints that URL
-as **seventeen runs**, splitting at every `:`, `/`, `.` and `-` because the punctuation
-is set in a different font, and `joinRunsRightToLeft` reverses the order of a line's
-runs — right for the Arabic, wrong for a left-to-right island spread across runs, whose
-visual order is already its logical order. Page 188's Hebrew twin is unaffected because
-there the same URL is one run.
+### The run-level order of a mixed line, which is where both remaining defects live
 
-The word check cannot see it: every one of those tokens is present in `pdftotext`, and
-that comparison is set membership, so a reordering that preserves the word set is
-invisible to it by construction. `checkOrder` asks that question of blocks and nothing
-asks it of words. The report catches the block only sideways, as a `join-hyphen-space`
-on `إىل faqs-and- manuals-us`, which is the 73rd of those findings and the reason that
-count moved.
+Getting a line's DIRECTION right does not get its RUN ORDER right, and this is now the
+only part of bidi handling still wrong. Both defects here were found by `internal/verify`
+rather than by reading the code, and neither was found by the check that names the
+defect — see the next section for why that matters more than either bug.
 
-Worth knowing what this does *not* break: the language signals are unaffected. The
+**First: a left-to-right island spanning several runs was reversed.** *Fixed.* Page 204
+prints the support URL
+
+```
+https://global.dreametech.com/pages/user-manuals-and-faqs
+```
+
+and poppler cuts it into **seventeen runs**, breaking at every `:`, `/`, `.` and `-`
+because the punctuation is set in a different font from the words. Reversing the order
+of a line's runs is right for the Arabic prose around it and wrong for those seventeen,
+whose visual order already *is* their logical order, so the line came out
+`faqs-and- manuals-user/pages/com.dreametech.global://https`. Page 188's Hebrew twin
+never showed it, because there the same URL is a single run — the same way the
+character-level version of this bug hid from the `pdftotext` comparison. A line is not a
+reliable witness to how poppler will cut it up.
+
+**Second: a run of neutrals belonging to the right-to-left text is treated as an
+island.** *Open.* The fix for the first defect holds a maximal stretch of runs with no
+right-to-left character in printed order, and `hasRightToLeft` asks whether a run
+contains a right-to-left **letter** — so a run of only digits, punctuation or spaces
+answers no, and neutrals that take their direction from the surrounding Arabic or Hebrew
+are frozen in printed order as though they were left-to-right content.
+
+Page 211's Arabic maintenance list is the worked example. Its first item is five runs:
+
+| x | run |
+|---|---|
+| 728 | `)` |
+| 732 | `LDS` |
+| 752 | `( رزيللاب ةفاسملا رعشتسم` |
+| 850 | `  .` |
+| 859 | `1` |
+
+Only the run at 752 holds a right-to-left letter. So `1` and `  .` form one island and
+keep their printed order, giving `. 1` where the page prints `1.`; `)` and `LDS` form
+another, giving `)LDS` where the page prints `(LDS)`. The block reads
+`. 1 مستشعر المسافة بالليزر ( )LDS` instead of `1. مستشعر المسافة بالليزر (LDS)`.
+
+The cost is not cosmetic. `leadingMarker` no longer recognises `. 1` as a marker, so the
+six printed list items on that page merge into the paragraph above them, and the same
+happens on pages 189, 194, 195, 205 and 210: **43 blocks and the list structure of six
+Hebrew and Arabic pages.** The block count is back at 16,055, which was also its value
+before any of this work, and that is a coincidence — page 194 is now 7 blocks *below*
+where it started. Page 204's laser standard loses a space the same way, `IEC60825` for
+`IEC 60825`, which the glued-words check reports.
+
+The distinction the run-level test is missing is one `leftToRightIsland` already draws at
+character level: a lone neutral does not start an island, and a space joins one only when
+the runes on **both** sides do. At run level the same both-sides rule would resolve both
+defects together — a neutral-only run joins the island when it sits between two runs that
+carry a strong left-to-right letter, and goes with the reversal otherwise. That keeps the
+URL's punctuation runs inside the island, because each sits between `https` and `global`
+and their like, and puts `1`, `  .` and `)` back with the Arabic, because nothing
+left-to-right stands on the far side of them. It is not built, and the numbers above are
+pinned as measured so the gap stays visible.
+
+### THE CHECK THAT NAMES THIS DEFECT CANNOT SEE EITHER OF THESE BUGS
+
+This is the most useful thing the whole exercise produced, and it is a statement about
+`internal/verify` rather than about bidi.
+
+`right-to-left-reversed` reports **0** on both manuals and that zero is honest: it means
+no word is stored as its own reverse. Both defects above are word ORDER, not word
+spelling, and the word check compares **set membership per page** — for the reason
+`checkText` gives, that a multiset would report a legitimate difference of one occurrence
+and a sequence would report the reading order `checkOrder` is about. So a reordering that
+preserves the word set is invisible to it *by construction*:
+
+| defect | word set | how it actually surfaced |
+|---|---|---|
+| URL's 17 runs reversed | unchanged — `https`, `global`, `com`, `pages` all still present | sideways, as one `join-hyphen-space` on `إىل faqs-and- manuals-us` |
+| list marker `1.` → `. 1` | unchanged — `1` is still on the page | **not at all**; found only because 43 blocks vanished from a pinned count |
+
+The second row is the warning. Nothing in the report named it. It was caught because a
+fixture test pins the block count of a real document and the number moved, which is an
+argument for pinning counts you cannot yet explain.
+
+`checkOrder` asks the order question of **blocks** and nothing asks it of **words**. That
+is the gap, and it is deliberately still open.
+
+#### What a word-order check would have to compare against
+
+The reference is usable, and that is the part worth recording, because it is not obvious.
+`pdftotext` returns a right-to-left line in logical order wrapped in U+202B…U+202C — so
+once those controls are stripped, **the reference's byte order already IS reading order**,
+and `tokensMin` strips them today for a different reason (CONTRIBUTING.md records that a
+bidi control is not a separator). No bidi algorithm has to be reimplemented to get a
+ground-truth sequence; it is already sitting in `Input.Text` unused.
+
+What makes it real work is everything around that:
+
+- **Sequence, not set, and per line rather than per page.** A block joins printed lines
+  that the reference keeps separate, and reflows them, so exact position cannot be
+  compared. The tractable form is a longest common subsequence over one page's tokens,
+  reporting **pairs present in both readings whose relative order differs** — `https`
+  before `global` in the reference and after it in ours; `1` before `.` and after it.
+- **Lines have to be matched first.** The reference is per-page text and the defects are
+  per-line, which is the step that makes this non-trivial and is the honest reason it is
+  not built.
+- **Two legitimate reorderings must not report.** Hyphenation and reflow already cost
+  `maxInventedShare` its 0.34 rather than 0, and the same disagreements would show up
+  here as transpositions. Column interleaving is worse: it is a real transposition of
+  every word between two columns, so a page already reporting `reading-order` must not
+  also report it as word transposition for the same cause.
+- **What it would have bought:** both defects on this page, by name, at the line they
+  are on, instead of one hyphen finding and one silent count change.
+
+Until then the honest statement is the one at
+`verify.minReversibleWords`: a zero from `right-to-left-reversed` means no word is
+spelled backwards, and it does not mean the words are in the right order.
+
+Worth knowing what none of this breaks: the language signals are unaffected. The
 character-repertoire and script signals count characters, so order is irrelevant to
 them, and the printed page tag already strips bidi controls for the reason
 `stripFormatting` documents. It is the readable text, and therefore search and
@@ -812,20 +914,21 @@ What it reports today:
 | reading order | **0** | 37 over 26 pages |
 | figures clipped | **22 of 46** | **74 of 163** |
 | figures with a blank band | 4 | 6 |
-| hyphen-space joins | 276 blocks | 73 blocks |
+| hyphen-space joins | 276 blocks | 72 blocks |
 | words absent from the reference | 4 | 160 |
 | right-to-left reversed | none, no such script | **none** |
 
 The last two rows moved together when `bidi.go` landed, and in opposite directions for
 one reason. Reversed pages fell from 32 to 6 and then to 0 because the text is no
-longer reversed; absent words rose from 153 to 160 because the 25 pages that are
-Hebrew or Arabic but *not* reversed stopped being named as pages and are now judged
-block by block like every other page. What is left on them is Arabic shaping and
-combining-mark disagreement, which is neither tool's to fix. See
-`verify.minReversibleWords`, which also records why a zero here is a weaker statement
-than it looks — the word comparison cannot see page 204's run-reversed URL.
+longer reversed; absent words rose from 153 to 160 because the pages that are Hebrew or
+Arabic but *not* reversed stopped being named as pages and are now judged block by block
+like every other page. What is left on them is Arabic shaping, combining-mark
+disagreement, and the turned-round list markers described above — none of it a reversal
+and none of it either tool's to fix.
 
-The 73rd hyphen-space join is that URL.
+**A zero on the last row is a weaker statement than it looks**, and the section above
+says why: it means no word is stored as its own reverse, not that the words are in the
+right order.
 
 **Coverage is clean on both, which is the reassuring one:** nothing is being silently
 dropped. The least-covered page of either manual is 0.801, and that is the

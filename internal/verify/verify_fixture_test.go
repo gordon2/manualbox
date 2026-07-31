@@ -229,20 +229,40 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// furniture pass existed, and the rise of 104 is the tab being un-glued from the
 	// running head it had joined on 104 pages.
 	//
-	// 16,098 since doc/bidi.go put right-to-left lines into logical order, in two
-	// steps, and every block of the rise is on a Hebrew or Arabic page — measured page
-	// by page against each previous conversion, nothing else moved either time. They
-	// are not new text. A list marker leads its line only in logical order, so
-	// `– يجب إزالة البطارية` was one run-on line and is now the list item it is
-	// printed as: +42 over the ten pages 189-216 when the repair landed, then +1 on
-	// page 191 alone when the region's language took over deciding direction, which
-	// gave that page's `Dreamehome אפלקציית` line to the repair for the first time.
-	// The furniture count did not move, and neither did the figures.
-	if len(conv.Blocks) != 16098 || len(conv.Figures) != 134 {
+	// 16,055 blocks, and this number has been up and back down for reasons that are
+	// all in doc/bidi.go. Every move is on a Hebrew or Arabic page, measured page by
+	// page against each previous conversion; the furniture count and the figures have
+	// never moved.
+	//
+	//	15,951  before the furniture pass
+	//	16,055  after it, the tab un-glued from a running head on 104 pages
+	//	16,097  right-to-left lines read in logical order: +42 over ten pages, because
+	//	        a list marker leads its line only in logical order, so
+	//	        `– يجب إزالة البطارية` became the list item it is printed as
+	//	16,098  +1 on page 191, when the region's language took over deciding
+	//	        direction and gave that page's `Dreamehome אפלקציית` line to the repair
+	//	16,055  −43 over six pages, and THIS ONE IS A REGRESSION, not a refinement
+	//
+	// Landing back on the old total is a coincidence and the distribution is not the
+	// same: pages 189, 194, 195, 205, 210 and 211 lost the list structure the repair
+	// had given them, page 194 falling 7 below where it started. The Arabic
+	// maintenance list on page 211 was six `list-item` blocks reading
+	// `1. مستشعر المسافة بالليزر (LDS)` and is now one paragraph reading
+	// `. 1 مستشعر المسافة بالليزر ( )LDS`, its markers turned round and its six items
+	// merged into the paragraph above.
+	//
+	// The cause is in bidi.go's run-level island test and is written up in
+	// conversion.md: `hasRightToLeft` asks whether a run holds a right-to-left LETTER,
+	// so a run of only digits, punctuation or spaces answers no and is held in printed
+	// order as though it were left-to-right content. That marker is two such runs, the
+	// digit at x=859 and the period at x=850. The number is pinned as measured so the
+	// regression stays visible, which is the stance rules_fixture_test.go takes for the
+	// printed-index parser.
+	if len(conv.Blocks) != 16055 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 16098 and 134 (16097 while a line's own characters decided its "+
-			"direction, 16055 before right-to-left lines were read in order)",
-			len(conv.Blocks), len(conv.Figures))
+			"was 16055 and 134 — see the table above before assuming which way is "+
+			"better, because this count has been 16098 with MORE list structure than "+
+			"it has now", len(conv.Blocks), len(conv.Figures))
 	}
 	if got := len(conv.FurnitureBlocks()); got != 1105 {
 		t.Errorf("%d furniture block(s), was 1105", got)
@@ -309,29 +329,31 @@ func TestCheckTheSequentialManual(t *testing.T) {
 			"page was named instead of judged)", got)
 	}
 
-	// 73, and the 1 that arrived with the region deciding direction is page 204 block
-	// 5 — the Arabic support-URL line, reported as `إىل faqs-and- manuals-us`. It is
-	// not a hyphenation fault and this check is catching a different bug sideways:
-	// poppler paints that URL as SEVENTEEN runs, splitting at every `:`, `/`, `.` and
-	// `-` because the punctuation is set in another font, and doc's
-	// joinRunsRightToLeft reverses the order of a line's runs — correct for the
-	// Arabic, wrong for a left-to-right island spread over runs, so the URL arrives
-	// token-reversed. Page 188's Hebrew twin is unaffected because there the same URL
-	// is one run. Written up as doc's bug; [verify.minReversibleWords] records why the
-	// right-to-left check cannot see it.
-	if got := rep.Count(verify.KindJoinHyphen); got != 73 {
-		t.Errorf("hyphen joins: %d block(s), was 73 (72 before page 204's URL came "+
-			"apart)", got)
+	// Back to 72. It was 73 for one commit, when page 204's support URL arrived with
+	// its seventeen runs reversed and this check caught it sideways as
+	// `إىل faqs-and- manuals-us`. The URL is whole again — the line now reads
+	// `يُرجى االنتقال إىل https://global.dreametech.com/pages/user-manuals -and-faqs`
+	// — and that finding is gone with it.
+	if got := rep.Count(verify.KindJoinHyphen); got != 72 {
+		t.Errorf("hyphen joins: %d block(s), was 72 (73 while page 204's URL was "+
+			"stored run-reversed)", got)
 	}
-	// 6, and the 3 that appeared with the bidi repair are on Hebrew page 200 and
-	// Arabic pages 206 and 207. They are not new damage: these pages print two
-	// columns that the conversion interleaves into one line, and in visual order the
-	// two halves met inside a word the comparison could not recognise. Reading the
-	// line in logical order is what makes `סוללות|מדריך` — the right column's
-	// "batteries" against the left column's "guide" — legible as a glued pair.
-	if got := rep.Count(verify.KindJoinGlued); got != 6 {
-		t.Errorf("glued words: %d, was 6 (3 before right-to-left lines were read "+
-			"in order)", got)
+	// 7. Three arrived with the bidi repair and are not new damage — Hebrew page 200
+	// and Arabic 206, 207 print two columns that the conversion interleaves into one
+	// line, and in visual order the two halves met inside a word the comparison could
+	// not recognise, so reading the line logically is what makes `סוללות|מדריך` legible
+	// as a glued pair.
+	//
+	// The 7th is `iec|60825` on page 204 and it IS new damage, from the same run-level
+	// island test as the block count above: the laser standard prints
+	// `IEC 60825-1:2014/EN 60825-1:2014/A11:2021`, poppler cuts it into runs at the
+	// font changes, and the space between `IEC` and `60825` is lost when those runs are
+	// held in printed order. Better than it was — `IEC` and `EN` are in printed order
+	// now where they used to be reversed — and still wrong, so it is pinned as
+	// measured rather than tidied away.
+	if got := rep.Count(verify.KindJoinGlued); got != 7 {
+		t.Errorf("glued words: %d, was 7 (6 before page 204's laser standard lost a "+
+			"space, 3 before right-to-left lines were read in order)", got)
 	}
 
 	// 2 blank bands where there were 6 before the clip was read. Merging candidate

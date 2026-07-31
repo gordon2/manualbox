@@ -199,10 +199,17 @@ the same question as "is this page Hebrew" only while every Hebrew page was brok
 It now needs evidence of a reversal — see `verify.minReversibleWords`, which records
 why that is a count and not a share.
 
-One reversal is left and no check can see it: page 204 stores the support URL
-token-reversed, because poppler paints it as seventeen runs and the right-to-left
-join reverses run order. Every one of those words is present in the reference, so a
-word-set comparison is blind to it by construction.
+**A zero there means no word is spelled backwards. It does not mean the words are in
+the right order, and that gap has cost something twice.** The word check compares set
+membership per page, so word order is outside it by construction — and both of
+`bidi.go`'s run-order defects were invisible to it. Page 204's support URL arrived with
+its seventeen runs reversed and surfaced only sideways, as a hyphen-join finding. Page
+211's Arabic list marker `1.` arrives as `. 1`, which turns six printed list items into
+one paragraph on each of six pages, and **nothing in the report named it at all** — it
+was caught because a pinned block count moved by 43. That second one is still open;
+`internal/verify` asks the order question of blocks and nothing asks it of words.
+The design of the check that would, and the reason it is not built, is in
+[docs/design/conversion.md](docs/design/conversion.md).
 
 Deliberately not built yet, each for a stated reason:
 

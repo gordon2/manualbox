@@ -173,12 +173,12 @@ that line was joined left to right and left reversed. `internal/verify` reported
 same page from the other side, off a comparison sharing no code with this one. Giving
 the decision to the **region's language**, with the majority as fallback, closed both.
 
-**One thing search still can't be asked about.** Page 204 stores the same URL
-token-reversed — `faqs-and- manuals-user/pages/com.dreametech.global://https` — because
-poppler paints it as seventeen runs and the right-to-left join reverses run order. The
-words are all there, so the index finds them and only the reading is wrong; no query
-can reveal it and none is pinned here. It is `internal/doc`'s, recorded in
-conversion.md.
+**One thing search still can't be asked about.** Word ORDER. Page 204's support URL was
+stored token-reversed for one commit and page 211's Arabic list markers are stored turned
+round today, `. 1` for `1.`. Every word is present either way, so the index finds them
+all and only the reading is wrong — no query reveals it, and none is pinned here. It is
+`internal/doc`'s, and conversion.md carries both instances and why the verifier's
+word check cannot see them either.
 
 ## Ranking
 
