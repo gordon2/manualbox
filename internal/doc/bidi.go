@@ -55,6 +55,13 @@ import (
 // right is all this can do for Arabic. It is still worth doing: the words are now in
 // the order they are read in, so search finds them.
 //
+// **Brackets come out right, and that is measured rather than assumed.** A bracket is
+// bidi class ON, so it is not an island and reverses with the text around it — which
+// is correct here, because poppler emits the glyph the page DRAWS. On the sequential
+// manual's page 190 a parenthesised aside arrives as `)םייפיצפס םירוזאב קר ןימז(`,
+// closing glyph first, and reversing puts the opening one back at the start. Five
+// such runs on pages 189 and 190; none needs mirroring.
+//
 // **The language signals were never affected and are not changed here.** They count
 // characters, and a reversed string has the same characters; the printed page tag
 // already strips bidi controls for the reason [stripFormatting] gives. What was
@@ -120,18 +127,41 @@ func visualToLogical(s string) string {
 }
 
 // leftToRightIsland reports whether the rune at i runs left to right inside
-// right-to-left text. A space counts only when the next rune does too, so a trailing
-// space is not dragged into the island.
+// right-to-left text.
+//
+// A space counts only when the runes on BOTH sides of it do, and the second half of
+// that was a real defect rather than a refinement. Requiring only the next rune —
+// which is what keeps `Dreame L40 Ultra` one island — also swallows the space that
+// SEPARATES the island from the right-to-left word before it, so the space came out
+// on the wrong side of the island and, once [collapseSpaces] had run, the word and
+// the island were one token: `מכשירMopExtend` for a page printing
+// `מכשיר MopExtend`. A lost word boundary is a lost search hit, which is most of
+// what this file exists to repair.
+//
+// It bites on real pages and only where poppler emits both scripts in ONE run, which
+// is why page 185 never showed it and the pdftotext comparison could not see it: the
+// digit there is a run of its own. Measured over the sequential manual's
+// right-to-left pages, the runs that mix scripts are page 188's three
+// (`Class 1 רזייל`, `IEC 60825-1:2014`), page 189's `Wi-Fi ןווחמ`, and one each on
+// the Arabic pages 201 and 202. Found by the agent writing this file's tests, from a
+// case the brief did not list.
 func leftToRightIsland(rs []rune, i int) bool {
 	switch p, _ := bidi.LookupRune(rs[i]); p.Class() {
 	case bidi.L, bidi.EN, bidi.AN, bidi.ES, bidi.ET, bidi.CS:
 		return true
 	}
-	if rs[i] == ' ' && i+1 < len(rs) {
-		switch p, _ := bidi.LookupRune(rs[i+1]); p.Class() {
-		case bidi.L, bidi.EN, bidi.AN:
-			return true
-		}
+	if rs[i] == ' ' && i > 0 && i+1 < len(rs) {
+		return strongLeftToRight(rs[i-1]) && strongLeftToRight(rs[i+1])
+	}
+	return false
+}
+
+// strongLeftToRight reports whether a rune is a letter or digit that reads left to
+// right — what a space has to sit between to belong to an island.
+func strongLeftToRight(r rune) bool {
+	switch p, _ := bidi.LookupRune(r); p.Class() {
+	case bidi.L, bidi.EN, bidi.AN:
+		return true
 	}
 	return false
 }

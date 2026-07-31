@@ -59,7 +59,7 @@ func TestVisualToLogicalReproducesTheReferenceReading(t *testing.T) {
 //
 // Stated as "the island survives and its reversal does not appear" rather than as a
 // whole expected string, because the island's own SPACING is a separate and currently
-// wrong thing — see TestASpaceBeforeAnIslandIsSwallowedByIt, which pins it.
+// wrong thing — see TestAnIslandKeepsTheSpaceThatSeparatesIt, which was that defect.
 //
 // One digit is not enough to see this: a naive whole-string reversal is
 // indistinguishable on `8` and wrong on `10`, which is why both are here.
@@ -125,52 +125,39 @@ func TestATrailingSpaceIsNotDraggedIntoAnIsland(t *testing.T) {
 	}
 }
 
-// TestASpaceBeforeAnIslandIsSwallowedByIt pins a defect rather than a guarantee, so
-// that it stays visible.
+// TestAnIslandKeepsTheSpaceThatSeparatesIt is the defect this test was written to
+// pin, now fixed rather than pinned.
 //
-// [leftToRightIsland] takes a space whose next rune is left to right, which is what
-// keeps `Dreame L40 Ultra` in one piece. But it takes that space wherever it sits,
-// including where the rune BEFORE it is right-to-left — so the island the reversal
-// then puts back is " MopExtend" rather than "MopExtend", and the space comes out on
-// the wrong side of it. `מכשיר MopExtend מברשת` is read as `מכשירMopExtend  מברשת`:
-// the word before the island is glued to it, and after [collapseSpaces] the doubled
-// space on the other side is one.
+// [leftToRightIsland] used to take a space whose NEXT rune was left to right — which
+// is what keeps `Dreame L40 Ultra` in one piece — wherever it sat, including where
+// the rune before it was Hebrew. The island put back was then " MopExtend", the space
+// landed on the wrong side of it, and after [collapseSpaces] the word before it was
+// glued on: `מכשירMopExtend` for a page printing `מכשיר MopExtend`. That is a lost
+// word boundary and therefore a lost search hit.
 //
-// It costs a word boundary, which is a search hit, so it is not only cosmetic. It is
-// invisible on page 185 because the digit there is a run of its own and each run is
-// converted separately, and it is not covered by the pdftotext comparison for the
-// same reason. Change bidi.go and this test should fail; that is what it is for.
-func TestASpaceBeforeAnIslandIsSwallowedByIt(t *testing.T) {
+// A space now has to sit BETWEEN two left-to-right runes to belong to an island. The
+// case is real rather than constructed: poppler emits both scripts in one run on
+// five of the sequential manual's right-to-left pages — `Wi-Fi ןווחמ` on 189,
+// `Class 1 רזייל` on 188 — and it is invisible on page 185, where every digit is a
+// run of its own, which is why the pdftotext comparison never caught it.
+func TestAnIslandKeepsTheSpaceThatSeparatesIt(t *testing.T) {
 	for _, tc := range []struct {
-		name              string
-		visual            string
-		reads, shouldRead string
+		name   string
+		visual string
+		want   string
 	}{
-		{"a Latin word inside Hebrew", "תשרבמ MopExtend רישכמ",
-			"מכשירMopExtend  מברשת", "מכשיר MopExtend מברשת"},
-		{"a number at the logical end", "8 ליגל תחתמ",
-			"מתחת לגיל8 ", "מתחת לגיל 8"},
+		{"a Latin name between two Hebrew words", "תשרבמ MopExtend רישכמ", "מכשיר MopExtend מברשת"},
+		{"a digit at the end of a Hebrew phrase", "8 ליגל תחתמ", "מתחת לגיל 8"},
+		{"a hyphenated Latin name, from page 189", "ןווחמ Wi-Fi", "Wi-Fi מחוון"},
+		{"a phrase whose own spaces must survive", "שדח Dreame L40 Ultra רישכמ", "מכשיר Dreame L40 Ultra חדש"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := visualToLogical(tc.visual)
-			if got == tc.shouldRead {
-				t.Errorf("visualToLogical(%q) now reads %q — the gap this pins is fixed, "+
-					"so delete this test and fold the case into the reference table",
-					tc.visual, got)
-				return
-			}
-			if got != tc.reads {
-				t.Errorf("visualToLogical(%q)\n = %q\nthe pinned reading was %q and the page prints %q",
-					tc.visual, got, tc.reads, tc.shouldRead)
+			if got := visualToLogical(tc.visual); got != tc.want {
+				t.Errorf("visualToLogical(%q)\n = %q\nwant %q", tc.visual, got, tc.want)
 			}
 		})
 	}
 }
-
-// TestVisualToLogicalIsItsOwnInverse is the property behind the whole file: the
-// repair is a reordering and nothing else, so applying it twice returns the string it
-// started from. That holds even for the strings the case above pins as misspaced —
-// the misplacement is symmetric.
 func TestVisualToLogicalIsItsOwnInverse(t *testing.T) {
 	for _, s := range []string{
 		"שומיש תולבגה",
