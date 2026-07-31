@@ -349,6 +349,9 @@ func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable, fur *Furniture) [
 
 	tol := baselineToleranceFraction * medianHeight(inside)
 	body := regionBody(inside)
+	// The REGION's language decides direction, not the characters of one line. See
+	// [lineIsRightToLeft] for the six lines that made this necessary.
+	rtlRegion := IsRightToLeftLanguage(r.Lang)
 
 	// The table walk takes the runs that sit in a cell, and the column walk takes
 	// what is left. See [cellRunsOfRegion] for why membership is a cell and not a
@@ -361,13 +364,13 @@ func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable, fur *Furniture) [
 	for gi := range groups {
 		group := &groups[gi]
 		var blocks []Block
-		if lines := groupLines(group.runs, tol); len(lines) > 0 {
+		if lines := groupLines(group.runs, tol, rtlRegion); len(lines) > 0 {
 			pitch := columnPitch(lines)
 			blocks = blocksOfColumn(lines, pitch, group.measure, body)
 		}
 		// Indexed rather than ranged by value: gocritic rejects copying a struct this
 		// size per iteration, and CONTRIBUTING.md records why.
-		blocks = mergeTablesByDepth(blocks, group.tables, tol)
+		blocks = mergeTablesByDepth(blocks, group.tables, tol, rtlRegion)
 		for i := range blocks {
 			b := &blocks[i]
 			b.Page = r.Page
@@ -712,7 +715,7 @@ func placeTables(groups []readingGroup, celled []cellRuns) {
 // table page — the column manual's tables sit at the foot of their column or fill
 // the page, and the sequential manual's are the whole page under a heading — so the
 // band split would be built against no example.
-func mergeTablesByDepth(blocks []Block, tables []cellRuns, tol float64) []Block {
+func mergeTablesByDepth(blocks []Block, tables []cellRuns, tol float64, rtlRegion bool) []Block {
 	if len(tables) == 0 {
 		return blocks
 	}
@@ -727,13 +730,13 @@ func mergeTablesByDepth(blocks []Block, tables []cellRuns, tol float64) []Block 
 	next := 0
 	for i := range blocks {
 		for next < len(tables) && tables[next].table.Box.Y0 <= blocks[i].Y0 {
-			out = append(out, tableBlocks(&tables[next], tol)...)
+			out = append(out, tableBlocks(&tables[next], tol, rtlRegion)...)
 			next++
 		}
 		out = append(out, blocks[i])
 	}
 	for ; next < len(tables); next++ {
-		out = append(out, tableBlocks(&tables[next], tol)...)
+		out = append(out, tableBlocks(&tables[next], tol, rtlRegion)...)
 	}
 	return out
 }
@@ -752,7 +755,7 @@ func mergeTablesByDepth(blocks []Block, tables []cellRuns, tol float64) []Block 
 // cell. The grid position travels in the note rather than in a field, for the reason
 // [Block] gives about its key — the block vocabulary is not widened here, so nothing
 // stored or served has to change to hold a table.
-func tableBlocks(t *cellRuns, tol float64) []Block {
+func tableBlocks(t *cellRuns, tol float64, rtlRegion bool) []Block {
 	order := make([]int, 0, len(t.cells))
 	for i := range t.cells {
 		if len(t.cells[i]) > 0 {
@@ -770,7 +773,7 @@ func tableBlocks(t *cellRuns, tol float64) []Block {
 	out := make([]Block, 0, len(order))
 	for _, i := range order {
 		cell := &t.table.Cells[i]
-		lines := groupLines(t.cells[i], tol)
+		lines := groupLines(t.cells[i], tol, rtlRegion)
 		texts := make([]string, 0, len(lines))
 		b := Block{Kind: BlockTable,
 			X0: math.Inf(1), X1: math.Inf(-1), Y0: math.Inf(1), Y1: math.Inf(-1)}
@@ -833,7 +836,7 @@ type textLine struct {
 // one would be the wrong one. The tolerance is small on purpose: runs of one line
 // carry the same top to the unit in both documents, so it has rounding to absorb
 // and nothing more.
-func groupLines(runs []TextRun, tol float64) []textLine {
+func groupLines(runs []TextRun, tol float64, rtl bool) []textLine {
 	ordered := make([]TextRun, len(runs))
 	copy(ordered, runs)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -856,13 +859,13 @@ func groupLines(runs []TextRun, tol float64) []textLine {
 	}
 
 	for i := range lines {
-		lines[i].finish()
+		lines[i].finish(rtl)
 	}
 	return lines
 }
 
 // finish computes everything a line's runs imply, once they are all in.
-func (l *textLine) finish() {
+func (l *textLine) finish(rtlRegion bool) {
 	sort.SliceStable(l.runs, func(i, j int) bool { return l.runs[i].X < l.runs[j].X })
 
 	l.y, l.bottom = math.Inf(1), math.Inf(-1)
@@ -888,7 +891,7 @@ func (l *textLine) finish() {
 
 	// A right-to-left line arrives reversed twice over — see bidi.go — and this is
 	// the one place a line's order is decided, so it is the one place that repairs it.
-	if lineIsRightToLeft(l.runs) {
+	if lineIsRightToLeft(l.runs, rtlRegion) {
 		l.text = joinRunsRightToLeft(l.runs)
 	} else {
 		l.text = joinRuns(l.runs)

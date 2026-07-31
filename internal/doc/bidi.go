@@ -44,7 +44,9 @@ import (
 // right, wrapping it in the bidi controls U+202B and U+202C. So every line here has
 // a free second opinion, which is the same stance internal/verify takes, and the
 // check that measures this defect — 32 pages and 8,120 words reported reversed on
-// the sequential manual — is the one that says whether the fix worked.
+// the sequential manual — is the one that says whether the fix worked. It is also
+// what found the two defects in the first version of this file: see
+// [lineIsRightToLeft] and [leftToRightIsland].
 //
 // # What this does NOT fix, measured
 //
@@ -67,17 +69,55 @@ import (
 // already strips bidi controls for the reason [stripFormatting] gives. What was
 // wrong was the readable text, and therefore search and, later, translation.
 
+// IsRightToLeftLanguage reports whether a language is written right to left.
+//
+// The scripts these documents actually contain, and no more: a list is honest about
+// what has been seen, where a table of every RTL script would be a claim about
+// documents this project has never read. Hebrew and Arabic are the sequential
+// manual's; the others are here because they are the rest of the right-to-left world
+// a household might plausibly configure, and because getting one wrong costs a
+// section rather than a line.
+func IsRightToLeftLanguage(lang string) bool {
+	switch BaseLanguage(lang) {
+	case "he", "ar", "fa", "ur", "ps", "sd", "ug", "yi", "dv", "ku", "arc":
+		return true
+	}
+	return false
+}
+
 // lineIsRightToLeft reports whether a line's base direction is right to left.
 //
-// By majority of the strong characters rather than by the first of them, which is
-// what the Unicode algorithm's P2 rule uses. The rule cannot be used here and the
-// reason is this file's whole subject: P2 wants the first character in LOGICAL
-// order, and logical order is precisely what has been lost. The majority is
-// available before the repair and agrees with P2 on every line of both documents
-// that has any strong character at all — measured, because the two disagree only on
-// a line that opens against its own direction, and the sequential manual's Hebrew
-// and Arabic sections have none.
-func lineIsRightToLeft(runs []TextRun) bool {
+// The REGION's language decides it, and counting the line's own characters is the
+// fallback. That order is the correction to what shipped first, and six lines of the
+// sequential manual are why.
+//
+// The first version counted strong characters and took the majority — which cannot
+// be the Unicode algorithm's P2 rule, since P2 wants the first character in LOGICAL
+// order and logical order is precisely what has been lost. Its header claimed the
+// majority "agrees with P2 on every line of both documents". That was wrong, and it
+// was wrong in the way that matters: a Hebrew line carrying a URL has more Latin than
+// Hebrew, so it was read left to right and never repaired. Page 188 prints
+//
+//	https://global.dreametech.com/pages/user-manuals-and-faqs :האבה תבותכב ןייעל שי
+//
+// — about 55 Latin letters against 30 Hebrew. The same shape appears on 204 (its
+// Arabic twin), `Dreamehome תייצקלפא` on 191, `Dreamehome App قيبطت ليزنت` on 207,
+// and a Wi-Fi label on 189 and 205. Those six lines were every word the verifier
+// still reported as reversed, and the one Hebrew query that still had to be typed
+// backwards to find anything.
+//
+// The region's language is the right authority because it is a document-wide answer
+// to a question one line cannot settle, and because the whole probe exists to
+// establish it. A line only ever gets this treatment inside a region a language was
+// named for.
+//
+// A line with NO right-to-left character is left alone whatever its region says, and
+// that guard is load-bearing rather than defensive: a pure-Latin line is entirely one
+// island, so reversing its runes is a no-op, but reversing the ORDER OF ITS RUNS is
+// not — a two-run Latin line in a Hebrew region would come out backwards. That is the
+// case the mutation testing on this file found by accident, when a one-run control
+// line read identically in both directions and proved nothing.
+func lineIsRightToLeft(runs []TextRun, rtlRegion bool) bool {
 	var rtl, ltr int
 	for i := range runs {
 		for _, r := range runs[i].Text {
@@ -89,7 +129,13 @@ func lineIsRightToLeft(runs []TextRun) bool {
 			}
 		}
 	}
-	return rtl > 0 && rtl >= ltr
+	if rtl == 0 {
+		return false
+	}
+	if rtlRegion {
+		return true
+	}
+	return rtl >= ltr
 }
 
 // visualToLogical turns one visually-ordered right-to-left string into the order it

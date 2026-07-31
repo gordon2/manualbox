@@ -36,10 +36,11 @@ export function readerLanguages(gate: Gate): ReaderLanguage[] {
  * would not be free. So every inline offset here is logical — `ms`, `me`, `ps`,
  * `pe`, `text-start` — and `dir` comes from the block rather than from the app.
  *
- * There is a defect underneath that this screen cannot fix, and it is stated where a
- * reader will meet it rather than left to be discovered: the stored text of a
- * right-to-left language is in *visual* order, so it renders mirrored. See
- * [DirectionWarning].
+ * The defect this screen used to have to apologise for is fixed underneath it: the
+ * stored text of a right-to-left language was in *visual* order and rendered
+ * mirrored, and internal/doc now puts it back into the order it is written in. What
+ * is left is Arabic letter shaping, which no part of this pipeline can do anything
+ * about, and it is stated where a reader will meet it — see [ShapingWarning].
  */
 export function Reader({
   doc,
@@ -143,8 +144,8 @@ export function Reader({
           </Card>
         ) : (
           <>
-            {languages.some((l) => l.lang === lang && isMirrored(l.lang)) ? (
-              <DirectionWarning name={shown?.name ?? lang ?? ""} />
+            {languages.some((l) => l.lang === lang && isUnshaped(l.lang)) ? (
+              <ShapingWarning name={shown?.name ?? lang ?? ""} />
             ) : null}
             {startPage !== undefined && !pages.some((page) => page.page === startPage) ? (
               // Following a hit lands on a page in the hit's own language. Switching
@@ -200,20 +201,42 @@ function summary(
  * and digits real manuals mix in, and it would double-reverse the day the pipeline is
  * fixed. The fix belongs where the text is read.
  */
-function DirectionWarning({ name }: { name: string }) {
+/**
+ * What is still wrong with an Arabic-script language, now that the order is right.
+ *
+ * This used to say the text below reads backwards, which was true and is not any
+ * more: internal/doc puts a right-to-left line back into the order it is written in,
+ * and the verifier that measured the defect went from 8,120 reversed words to none.
+ * Saying so anyway would be worse than saying nothing.
+ *
+ * What is left is real but narrower and belongs to Arabic alone. The letters arrive
+ * in their isolated forms rather than joined — `السالمة` where the page prints
+ * `السلامة` — because the document's font maps its glyphs that way, and pdftotext,
+ * which is checked against for everything else here, reads them identically. It is
+ * not an ordering fault and nothing in the pipeline can join them.
+ *
+ * Hebrew gets no warning now, because there is nothing left to warn a reader about.
+ */
+function ShapingWarning({ name }: { name: string }) {
   return (
     <div className="rounded-md border border-warn/30 px-3.5 py-3 text-sm text-warn">
-      {name} is written right to left, and the text below reads backwards. The tool that reads a
-      PDF&rsquo;s layout returns a right-to-left line in the order it is printed rather than the
-      order it is read, and that is stored as it arrived. The letters, not this page, are what is
-      out of order — fixing it belongs where the document is read.
+      {name} is written right to left, and it reads in the right order here. Its letters, though,
+      arrive one by one instead of joined up, because that is how this document&rsquo;s font maps
+      them — a second, independent reader of the same file sees exactly the same thing. The words
+      are right; the letter shapes are not.
     </div>
   );
 }
 
-/** Whether this language's stored text is known to arrive mirrored. */
-function isMirrored(lang: string): boolean {
-  return dirOf(lang) === "rtl";
+/**
+ * Whether this language's letters are known to arrive unshaped.
+ *
+ * The Arabic script, not every right-to-left one: Hebrew does not join its letters,
+ * so it has nothing to lose this way.
+ */
+function isUnshaped(lang: string): boolean {
+  const base = (lang || "").split("-")[0]?.toLowerCase() ?? "";
+  return ["ar", "fa", "ur", "ps", "sd", "ug", "ku"].includes(base);
 }
 
 /** What is happening to a document that has no reader yet. */

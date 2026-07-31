@@ -188,34 +188,76 @@ func TestVisualToLogicalIsItsOwnInverse(t *testing.T) {
 // By majority rather than by the first character, for the reason the function's own
 // note gives: the Unicode P2 rule wants the first character in LOGICAL order, and
 // logical order is what has been lost.
+//
+// The region's language now decides and the majority is the fallback, so each case
+// states both answers. The row that made the change necessary is the URL line: its
+// Latin outweighs its Hebrew, so the majority reads it left to right and the six
+// lines like it across pages 188 to 207 were never repaired. See [lineIsRightToLeft].
 func TestLineIsRightToLeftByMajorityOfTheStrongCharacters(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		texts []string
-		want  bool
+		name      string
+		texts     []string
+		want      bool // with no region language to go on
+		wantInRTL bool // inside a region a right-to-left language was named for
 	}{
-		{"Hebrew", []string{"שומיש תולבגה"}, true},
-		{"Arabic, unshaped", []string{"ةمالسلا تاداشرإ"}, true},
-		{"mostly Hebrew with a Latin island", []string{"תשרבמ MopExtend רישכמ"}, true},
-		{"Hebrew and a digit across two runs", []string{"8", "ליגל תחתמ"}, true},
+		{"Hebrew", []string{"שומיש תולבגה"}, true, true},
+		{"Arabic, unshaped", []string{"ةمالسلا تاداشرإ"}, true, true},
+		{"mostly Hebrew with a Latin island", []string{"תשרבמ MopExtend רישכמ"}, true, true},
+		{"Hebrew and a digit across two runs", []string{"8", "ליגל תחתמ"}, true, true},
 
-		{"Latin", []string{"Sicherheitshinweise"}, false},
-		{"Cyrillic", []string{"Меры предосторожности"}, false},
-		{"Greek", []string{"Οδηγίες ασφαλείας"}, false},
-		{"Japanese", []string{"安全上のご注意"}, false},
+		// Page 188: about 55 Latin letters of URL against 30 Hebrew. The majority gets
+		// this wrong, the region gets it right, and this row is the whole reason the
+		// region is asked first.
+		{"a Hebrew line carrying a URL", []string{
+			"https://global.dreametech.com/pages/user-manuals-and-faqs :האבה תבותכב ןייעל שי",
+		}, false, true},
+		{"Dreamehome in a Hebrew line, page 191", []string{"Dreamehome תייצקלפא"}, false, true},
 
-		{"no strong characters at all", []string{"", "  ", "10 – 22"}, false},
-		{"nothing at all", nil, false},
+		{"Latin", []string{"Sicherheitshinweise"}, false, false},
+		{"Cyrillic", []string{"Меры предосторожности"}, false, false},
+		{"Greek", []string{"Οδηγίες ασφαλείας"}, false, false},
+		{"Japanese", []string{"安全上のご注意"}, false, false},
+
+		// A line with no right-to-left character is left alone whatever its region
+		// says: reversing its runes is a no-op, but reversing the ORDER of its runs is
+		// not, so a two-run Latin line in a Hebrew region would come out backwards.
+		{"Latin inside a right-to-left region", []string{"Wi-Fi", "5 GHz"}, false, false},
+		{"no strong characters at all", []string{"", "  ", "10 – 22"}, false, false},
+		{"nothing at all", nil, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runs := make([]TextRun, len(tc.texts))
 			for i, s := range tc.texts {
 				runs[i] = TextRun{Text: s}
 			}
-			if got := lineIsRightToLeft(runs); got != tc.want {
-				t.Errorf("lineIsRightToLeft(%q) = %v, want %v", tc.texts, got, tc.want)
+			if got := lineIsRightToLeft(runs, false); got != tc.want {
+				t.Errorf("lineIsRightToLeft(%q, no region language) = %v, want %v",
+					tc.texts, got, tc.want)
+			}
+			if got := lineIsRightToLeft(runs, true); got != tc.wantInRTL {
+				t.Errorf("lineIsRightToLeft(%q, right-to-left region) = %v, want %v",
+					tc.texts, got, tc.wantInRTL)
 			}
 		})
+	}
+}
+
+// TestARightToLeftLanguageIsNamedByItsBaseTag pins the list [IsRightToLeftLanguage]
+// keeps, including that it reads a regional tag through BaseLanguage the way every
+// other language decision in this package does.
+func TestARightToLeftLanguageIsNamedByItsBaseTag(t *testing.T) {
+	for _, tc := range []struct {
+		lang string
+		want bool
+	}{
+		{"he", true}, {"ar", true}, {"fa", true}, {"ur", true},
+		{"he-IL", true}, {"ar-EG", true},
+		{"de", false}, {"ru", false}, {"ja", false}, {"", false},
+		{"pt-BR", false},
+	} {
+		if got := IsRightToLeftLanguage(tc.lang); got != tc.want {
+			t.Errorf("IsRightToLeftLanguage(%q) = %v, want %v", tc.lang, got, tc.want)
+		}
 	}
 }
 
