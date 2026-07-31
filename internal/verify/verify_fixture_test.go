@@ -219,17 +219,25 @@ func TestCheckTheColumnManual(t *testing.T) {
 
 // TestCheckTheSequentialManual is the 560-page, 34-language fixture, and it is
 // where the checks find defects nothing had recorded: the Thai section's words
-// arrive broken, and 32 pages of Hebrew and Arabic arrive backwards.
+// arrive broken, and its Hebrew and Arabic used to arrive backwards.
 func TestCheckTheSequentialManual(t *testing.T) {
 	conv, rep := checked(t, "dreame-l40-ultra")
 
-	// 16,055 blocks, of which 1,105 are page furniture: the 34 language tabs, one on
+	// 16,097 blocks, of which 1,105 are page furniture: the 34 language tabs, one on
 	// every page of every section, and 552 folios. It was 15,951 before doc's
 	// furniture pass existed, and the rise of 104 is the tab being un-glued from the
 	// running head it had joined on 104 pages.
-	if len(conv.Blocks) != 16055 || len(conv.Figures) != 134 {
+	//
+	// 16,097 since doc/bidi.go put right-to-left lines into logical order, and every
+	// one of the 42 new blocks is on one of the ten Hebrew or Arabic pages 189-216 —
+	// measured page by page against the previous conversion, nothing else moved. They
+	// are not new text. A list marker leads its line only in logical order, so
+	// `– يجب إزالة البطارية` was one run-on line and is now the list item it is
+	// printed as. The furniture count did not move, and neither did the figures.
+	if len(conv.Blocks) != 16097 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 16055 and 134", len(conv.Blocks), len(conv.Figures))
+			"was 16097 and 134 (16055 before right-to-left lines were read in order)",
+			len(conv.Blocks), len(conv.Figures))
 	}
 	if got := len(conv.FurnitureBlocks()); got != 1105 {
 		t.Errorf("%d furniture block(s), was 1105", got)
@@ -247,43 +255,77 @@ func TestCheckTheSequentialManual(t *testing.T) {
 		t.Errorf("median coverage %.3f, was 0.997 (1.000 before furniture was excluded)", m)
 	}
 
-	// The right-to-left defect, named once per page instead of once per word: 32
-	// pages, and it would otherwise be over eight thousand findings.
-	if got := rep.Count(verify.KindRightToLeft); got != 32 {
-		t.Errorf("right-to-left: %d page(s), was 32", got)
+	// The right-to-left defect, and this pair of numbers is the evidence that
+	// doc/bidi.go fixed it. Measured over this whole document, both ways:
+	//
+	//	                                       before   after
+	//	pages reported right-to-left-reversed    32        6
+	//	words absent from pdftotext on them   8,120       80
+	//	...of those, present when reversed    7,938       18
+	//
+	// The last row is the one that means it: a word absent from the reference but
+	// present in it backwards is the signature of visual order, and 99.8% of them are
+	// gone. The "before" column was re-measured on this base rather than quoted, by
+	// putting joinRuns back at doc/blocks.go's one call site.
+	//
+	// 6 pages and not 0 because the repair does not reach every line, and the check
+	// was sharpened so that those six are exactly the ones it names — see
+	// [verify.minReversibleWords], which carries the cause. The 26 pages that dropped
+	// off were never reversed after the fix; they were being reported for having any
+	// absent word at all while reading right to left.
+	if got := rep.Count(verify.KindRightToLeft); got != 6 {
+		t.Errorf("right-to-left: %d page(s), was 6 (32 before the lines were read "+
+			"in order, and 25 before the check stopped naming pages with no reversal "+
+			"on them)", got)
 	}
-	rtl := 0
+	absent, reversible := 0, 0
 	for i := range rep.Findings {
 		if rep.Findings[i].Kind != verify.KindRightToLeft {
 			continue
 		}
-		rtl += rep.Findings[i].Count
-		// Got is how many of the absent words are present reversed, which is the
-		// evidence that this is the pdftohtml visual-order defect and not damage.
-		if rep.Findings[i].Got < 0.8*float64(rep.Findings[i].Count) {
-			t.Errorf("page %d: only %.0f of %d absent words are present reversed",
-				rep.Findings[i].Page, rep.Findings[i].Got, rep.Findings[i].Count)
+		absent += rep.Findings[i].Count
+		// Got is how many of the absent words are present reversed. It is now what
+		// raises the finding at all, so every one of these must carry some.
+		reversible += int(rep.Findings[i].Got)
+		if rep.Findings[i].Got < 1 {
+			t.Errorf("page %d is named right-to-left-reversed with %.0f reversed "+
+				"words on it", rep.Findings[i].Page, rep.Findings[i].Got)
 		}
 	}
-	if rtl < 8000 {
-		t.Errorf("the right-to-left pages hold %d absent words, was 8120", rtl)
+	if absent != 80 || reversible != 18 {
+		t.Errorf("the right-to-left pages hold %d absent words, %d of them present "+
+			"reversed; was 80 and 18 (8120 and 7938 before the fix)", absent, reversible)
 	}
 
 	// A defect nothing had recorded, and this check is how it was found: 142 of these
-	// 153 blocks are on pages 473-488, the Thai section, where `pdftohtml -xml`
+	// blocks are on pages 473-488, the Thai section, where `pdftohtml -xml`
 	// returns an unmapped glyph for SARA AA (U+FFFD) that `pdftotext` maps correctly
 	// — so the block's words are broken where that vowel belongs, "ล้�งผ้�ถูพื้น"
-	// against the printed "ล้างผ้าถูพื้น". The other 11 are Latin pages where the two
+	// against the printed "ล้างผ้าถูพื้น". 11 more are Latin pages where the two
 	// tools divide a hyphenated compound differently.
-	if got := rep.Count(verify.KindInvented); got != 153 {
-		t.Errorf("invented text: %d block(s), was 153", got)
+	//
+	// 160 and not 153 because the 19 right-to-left pages that are no longer named as
+	// a page are now judged block by block like every other page, which is the point
+	// of naming them: 7 of their blocks hold more than [maxInventedShare] of words
+	// the reference does not have, and those 7 are the same Arabic shaping and
+	// combining-mark disagreements the Latin 11 are, not a reversal.
+	if got := rep.Count(verify.KindInvented); got != 160 {
+		t.Errorf("invented text: %d block(s), was 160 (153 while every right-to-left "+
+			"page was named instead of judged)", got)
 	}
 
 	if got := rep.Count(verify.KindJoinHyphen); got != 72 {
 		t.Errorf("hyphen joins: %d block(s), was 72", got)
 	}
-	if got := rep.Count(verify.KindJoinGlued); got != 3 {
-		t.Errorf("glued words: %d, was 3", got)
+	// 6, and the 3 that appeared with the bidi repair are on Hebrew page 200 and
+	// Arabic pages 206 and 207. They are not new damage: these pages print two
+	// columns that the conversion interleaves into one line, and in visual order the
+	// two halves met inside a word the comparison could not recognise. Reading the
+	// line in logical order is what makes `סוללות|מדריך` — the right column's
+	// "batteries" against the left column's "guide" — legible as a glued pair.
+	if got := rep.Count(verify.KindJoinGlued); got != 6 {
+		t.Errorf("glued words: %d, was 6 (3 before right-to-left lines were read "+
+			"in order)", got)
 	}
 
 	// 2 blank bands where there were 6 before the clip was read. Merging candidate
@@ -330,8 +372,19 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// columns puts the intervals out of order. 36 findings over 34 sections — it was
 	// 37 until the furniture pass took a tab out of the block that carried it, which
 	// left that block under minOrderChars.
-	if got := rep.Count(verify.KindReadingOrder); got != 36 {
-		t.Errorf("reading order: %d finding(s), was 36 (37 before the furniture pass)", got)
+	//
+	// 38 since the bidi repair, and the 2 are a second real class this document had
+	// been hiding rather than a regression. Arabic page 216, the battery-disposal
+	// page, prints two columns; the conversion reads them interleaved, block 3 in the
+	// right column at x=664-863, block 4 in the LEFT at x=351-587 and further down,
+	// then block 5 back in the right. That interleave was always there — its Hebrew
+	// twin on page 200 still has it, invisible, because those two columns are joined
+	// inside one block. What changed is that a list marker leads its line in logical
+	// order, so page 216's line came apart into the per-column blocks the check can
+	// see between.
+	if got := rep.Count(verify.KindReadingOrder); got != 38 {
+		t.Errorf("reading order: %d finding(s), was 38 (36 before right-to-left lines "+
+			"were read in order, 37 before the furniture pass)", got)
 	}
 	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 24 {
 		t.Errorf("reading-order findings cover %d pages, was 26 — a class this "+

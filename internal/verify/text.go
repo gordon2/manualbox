@@ -98,6 +98,70 @@ const (
 	// numbers — and every other page of either manual is exactly 0.000. 0.5 sits in
 	// the middle of that, and nothing between 0.05 and 0.6 changes the answer.
 	rtlShare = 0.5
+
+	// minReversibleWords is how many of a right-to-left page's words must be absent
+	// from `pdftotext` AND present in it reversed before the page is reported as
+	// [KindRightToLeft] rather than block by block.
+	//
+	// # Why the check needed this at all
+	//
+	// It used to fire on a right-to-left page with any absent word whatsoever, which
+	// was the same question as "is this page Hebrew or Arabic" for as long as the
+	// whole page arrived backwards. Once doc/bidi.go put the order right it stopped
+	// naming anything: 25 pages of the sequential manual still fire on 220 absent
+	// words in 6,834, three of them on one page of 510, and a finding called
+	// `right-to-left-reversed` that reports pages which are not reversed can never
+	// reach zero and means nothing when it does not.
+	//
+	// The evidence for reversal was already being counted and not used: a word that
+	// is absent from the reference and present in it BACKWARDS was not extracted
+	// wrong in some general way, it was extracted in visual order. That is the
+	// signature, and nothing else this pipeline does produces it.
+	//
+	// # Why a count and not a share, which is the interesting part
+	//
+	// Swept over the sequential manual, absent words that are present reversed:
+	//
+	//	before bidi.go   32 pages, 8,120 absent, 7,938 reversible; per-page share
+	//	                 0.913 (page 188) to 1.000, on 8 pages exactly 1.000
+	//	after            25 pages,   220 absent,    18 reversible; per-page share
+	//	                 0.600, 0.538, 0.125, 0.100, 0.091, 0.059 and nineteen 0.000
+	//
+	// A share threshold has a real gap to sit in — nothing between 0.600 and 0.913 —
+	// and it is the wrong rule anyway, because those 18 words are not noise. Every
+	// one is a genuine Hebrew or Arabic word still reversed — `תבותכב` where the page
+	// prints `בכתובת`, `ليلد` where it prints `دليل` — and they share one cause.
+	// doc's lineIsRightToLeft decides a line by majority of its strong characters, so
+	// a line whose Latin outweighs its Hebrew is joined left to right and never
+	// repaired: the manual's support URL under a Hebrew sentence on page 188 and its
+	// Arabic twin on 204, `Dreamehome תייצקלפא` on 191, and
+	// `Dreamehome App قيبطت ليزنت` on 207.
+	//
+	// So a share of 0.65 would report zero pages while six pages are still reversed,
+	// and measured, it does not merely rename them: pages 188, 204 and 207 fall
+	// through to a [KindInvented] block, but 189, 191 and 205 hold one reversed word
+	// in a block that is otherwise right, which is under [maxInventedShare] and under
+	// [minInventedTokens], and they vanish. A count of 1 keeps all six.
+	//
+	// # What this can and cannot see now
+	//
+	// It sees a page holding at least one word that this pipeline read backwards and
+	// `pdftotext` did not. It is still named per page, which now overstates the
+	// extent: the fault left is one LINE on each of those pages, not the page.
+	//
+	// It cannot see a reversal both tools make — they do not share code, so this has
+	// no example, but it is not ruled out. It cannot see a reversed word whose
+	// reverse is missing from the reference for a second reason, which is why Arabic
+	// costs it: `pdftohtml` returns unshaped letter forms, so a word can be both
+	// reversed and unshaped and then only the shaping is visible. And it cannot see
+	// a reversed PALINDROME, which is a real hole and an empty one.
+	//
+	// The floor is 1 and not 2 because there is no noise for a higher floor to
+	// remove: over the nineteen right-to-left pages that hold no reversal, 140 absent
+	// words produced not one coincidental match. The risk it accepts is a short token
+	// whose reverse is another word on the same page — `שי` for `יש` is the only
+	// two-rune match in the corpus, and it sits among five unambiguous ones.
+	minReversibleWords = 1
 )
 
 // checkCoverage answers "did we drop content", by comparing the blocks of a page
@@ -181,11 +245,17 @@ func checkCoverage(in Input, scope []int) ([]PageCoverage, []Finding) {
 // # Right-to-left is a known defect and gets its own finding
 //
 // conversion.md records that `pdftohtml -xml` returns a right-to-left line in
-// visual order, so every Hebrew and Arabic page would otherwise report hundreds
-// of invented words. A page more than [rtlShare] right-to-left by token gets one
-// [KindRightToLeft] finding instead, and that finding carries the confirmation:
-// how many of the absent tokens are present in `pdftotext` when reversed rune for
-// rune. The day the extraction is fixed, this stops firing in one place.
+// visual order, and doc/bidi.go now repairs it. Where the repair does not reach,
+// a page would report hundreds of invented words; a page that is more than
+// [rtlShare] right-to-left by token AND carries at least [minReversibleWords]
+// words absent from `pdftotext` but present in it reversed gets one
+// [KindRightToLeft] finding instead of one per block.
+//
+// Both halves of that are needed and the second is the one measured hardest: being
+// Hebrew is not being backwards, so a right-to-left page whose absent words are
+// ordinary disagreement is judged block by block like any other. The reversal
+// itself is the evidence, it is what the finding's name claims, and it is what
+// makes the count able to reach zero. See [minReversibleWords].
 func checkText(in Input, scope []int) []Finding {
 	return checkTextWith(in, scope, defaultTextGuards)
 }
@@ -198,11 +268,12 @@ type textGuards struct {
 	maxInvented float64
 	minAbsent   int
 	rtl         float64
+	reversible  int
 }
 
 var defaultTextGuards = textGuards{
 	minToken: minTokenRunes, maxInvented: maxInventedShare,
-	minAbsent: minInventedTokens, rtl: rtlShare,
+	minAbsent: minInventedTokens, rtl: rtlShare, reversible: minReversibleWords,
 }
 
 func checkTextWith(in Input, scope []int, g textGuards) []Finding {
@@ -284,7 +355,13 @@ func checkTextWith(in Input, scope []int, g textGuards) []Finding {
 			out = append(out, byPage[p]...)
 			continue
 		}
-		if st.absent == 0 {
+		if st.absent == 0 || st.reversible < g.reversible {
+			// Absent words with no reversal behind them are ordinary disagreement
+			// between the two extractions, whatever direction the page reads in, so
+			// they are judged block by block like every other page. See
+			// [minReversibleWords] for what happens to a page that is judged the
+			// other way round.
+			out = append(out, byPage[p]...)
 			continue
 		}
 		out = append(out, Finding{

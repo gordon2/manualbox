@@ -200,6 +200,47 @@ func TestRightToLeftIsOneNamedFindingPerPage(t *testing.T) {
 	}
 }
 
+// TestRightToLeftNeedsAReversalAndNotJustHebrew is the sharpening the bidi repair
+// forced, and it is the half of the check that measured worst: for as long as every
+// Hebrew page arrived backwards, "is this page right to left" and "is this page
+// reversed" were the same question, and once doc/bidi.go split them the check kept
+// answering the first while claiming the second. On the sequential manual that was
+// 25 pages reported over 220 absent words in 6,834, three of them on one page of
+// 510 — see [verify.minReversibleWords].
+//
+// Here the page is Hebrew and correctly ordered, and one word of it disagrees with
+// the reference the way the two extractions ordinarily do. Nothing about it is
+// backwards, so it is not a right-to-left finding; it is judged block by block like
+// any other page.
+func TestRightToLeftNeedsAReversalAndNotJustHebrew(t *testing.T) {
+	printed := rtlEmbed + "הגבלות שימוש על המכשיר בטמפרטורה" + popDirectional
+	in := verify.Input{
+		// "בטמפרטורה" against the printed "בטמפרטורה" — one word the reference
+		// spells differently, which is what a combining mark or a shaping difference
+		// looks like. Its reverse is nowhere on the page.
+		Blocks: []doc.Block{block(185, 0, 55, 800, 95, "הגבלות שימוש על המכשיר בטמפרטורת")},
+		Text:   []doc.Page{page(185, printed)},
+	}
+	rep := verify.Inspect(in)
+	if got := rep.Count(verify.KindRightToLeft); got != 0 {
+		t.Fatalf("a Hebrew page with no reversed word on it was named "+
+			"right-to-left-reversed: %+v", rep.Findings)
+	}
+	// One absent word in five is under maxInventedShare, so the block check is quiet
+	// too — which is the point: the page is fine and the report says nothing.
+	if got := rep.Count(verify.KindInvented); got != 0 {
+		t.Errorf("invented text reported %d block(s) on one ordinary disagreement", got)
+	}
+
+	// The same page with a block that really is assembled wrong falls through to the
+	// block check rather than disappearing, so nothing is hidden by the sharpening.
+	in.Blocks = []doc.Block{block(185, 0, 55, 800, 95, "אבגד הוזח חטיכ למנס")}
+	if got := verify.Inspect(in).Count(verify.KindInvented); got != 1 {
+		t.Errorf("a right-to-left block full of words the page never printed reported "+
+			"%d invented-text finding(s), want 1", got)
+	}
+}
+
 func TestRightToLeftQuietWhenTheOrderIsRight(t *testing.T) {
 	printed := rtlEmbed + "הגבלות שימוש על המכשיר" + popDirectional
 	in := verify.Input{

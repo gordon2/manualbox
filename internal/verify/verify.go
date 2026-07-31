@@ -51,11 +51,13 @@ const (
 	// this and not [KindCoverage], which is why both checks exist: interleaved
 	// columns preserve every character and destroy every word.
 	KindInvented Kind = "invented-text"
-	// KindRightToLeft is [KindInvented] for a page whose script reads right to
-	// left, named separately because the cause is known and recorded — see
-	// [checkText] and conversion.md. One finding per page rather than one per
-	// word, so that a Hebrew section costs the report a line instead of a
-	// thousand.
+	// KindRightToLeft says a page reads right to left AND still holds text this
+	// pipeline read backwards: words absent from `pdftotext` that are present in it
+	// reversed. Named apart from [KindInvented] because the cause is known and
+	// recorded — see [minReversibleWords] and conversion.md — and reported once per
+	// page rather than once per word, so a Hebrew section costs the report a line
+	// instead of a thousand. Being right to left is not enough on its own: that made
+	// this fire on pages that were correct.
 	KindRightToLeft Kind = "right-to-left-reversed"
 	// KindJoinHyphen, KindJoinGlued and KindJoinSpace are the three shapes of a
 	// suspicious join: a hyphen followed by a space mid-word, two words glued with
