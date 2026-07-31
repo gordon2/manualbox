@@ -95,9 +95,11 @@ func TestNoTextIsStoredReversed(t *testing.T) {
 // So a share would have called page 191 clean while `אפלקציית` was stored as
 // `תייצקלפא`, and the check would have read zero for the wrong reason.
 func TestAShareOfAbsentWordsWouldHideAReversal(t *testing.T) {
-	// The page as pdftotext reads it, wrapped in the bidi controls it uses.
-	const printed = "‫אפלקציית Dreamehome תואמתמ הוראות בטמפרטורה גבוהה " +
-		"ובלחות רבה יש להימנע משימוש‬"
+	// The page as pdftotext reads it, wrapped in the bidi controls it uses. Written
+	// as escapes because they are invisible, the reason verify_test.go's rtlEmbed
+	// gives — a test whose input cannot be seen in the source is one nobody can check.
+	const printed = "\u202b" + "אפלקציית Dreamehome תואמתמ הוראות בטמפרטורה גבוהה " +
+		"ובלחות רבה יש להימנע משימוש" + "\u202c"
 	in := Input{
 		Blocks: []doc.Block{
 			// One reversed word, in a short block of its own, as page 191 has it.
