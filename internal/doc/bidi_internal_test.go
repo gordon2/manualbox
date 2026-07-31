@@ -366,3 +366,43 @@ func TestRegionBlocksReadsARightToLeftLineLogically(t *testing.T) {
 			got[1].Text, wantGerman)
 	}
 }
+
+// TestAMultiRunLeftToRightIslandKeepsItsOrder is a regression this file shipped and
+// the verifier caught, so the geometry is the real one.
+//
+// pdftohtml splits a run at a font change, and page 204 of the sequential manual sets
+// the punctuation of its support URL in one font and the words in another — so
+// `https://global.dreametech.com/pages/user-manuals-and-faqs` arrives as SEVENTEEN
+// runs, broken at every `:`, `/`, `.` and `-`. Reversing the order of a line's runs
+// is right for the Arabic prose beside it and wrong for those seventeen, and the line
+// came out `faqs-and- manuals-user/pages/com.dreametech.global://https`.
+//
+// Page 188's Hebrew twin prints the same URL as ONE run and never showed it, which is
+// the same way the character-level version of this bug hid from the pdftotext
+// comparison. A line is not a reliable witness to how poppler will cut it up.
+func TestAMultiRunLeftToRightIslandKeepsItsOrder(t *testing.T) {
+	const url = "https://global.dreametech.com/pages/user-manuals-and-faqs"
+	parts := []string{"https", "://", "global", ".", "dreametech", ".", "com", "/",
+		"pages", "/", "user", "-", "manuals", "-", "and", "-", "faqs"}
+
+	var runs []TextRun
+	x := 300.0
+	for _, p := range parts {
+		w := float64(len([]rune(p))) * 6
+		runs = append(runs, TextRun{X: x, Y: 100, Width: w, Height: 14, Text: p})
+		x += w
+	}
+	// The Arabic prose sits to the right of the URL, as it does on the page, so it is
+	// read first.
+	const arabic = "لىإ لاقتنلاا ىجرُي"
+	runs = append(runs, TextRun{X: x + 8, Y: 100, Width: 200, Height: 14, Text: arabic})
+
+	got := joinRunsRightToLeft(runs)
+	if !strings.Contains(got, url) {
+		t.Errorf("joinRunsRightToLeft(...)\n = %q\ndoes not hold the URL %q in one piece", got, url)
+	}
+	if !strings.HasPrefix(got, visualToLogical(arabic)) {
+		t.Errorf("joinRunsRightToLeft(...)\n = %q\ndoes not begin with the Arabic, which is "+
+			"the rightmost run and therefore read first", got)
+	}
+}

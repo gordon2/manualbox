@@ -212,25 +212,78 @@ func strongLeftToRight(r rune) bool {
 	return false
 }
 
-// joinRunsRightToLeft is [joinRuns] for a line that reads right to left: the runs
-// are taken from the rightmost, and each one's text is put back into logical order.
+// joinRunsRightToLeft is [joinRuns] for a line that reads right to left: the runs are
+// taken from the rightmost, EXCEPT that a stretch of runs which is entirely
+// left-to-right keeps its own order.
+//
+// That exception is [leftToRightIsland] one level up, and it is not hypothetical — it
+// was a regression this file shipped and the verifier caught. A left-to-right island
+// can span many runs, because poppler splits a run at a font change: page 204 of the
+// sequential manual sets the punctuation of
+//
+//	https://global.dreametech.com/pages/user-manuals-and-faqs
+//
+// in one font and the words in another, so that URL arrives as SEVENTEEN runs, broken
+// at every `:`, `/`, `.` and `-`. Reversing the order of a line's runs is right for
+// the Arabic prose around it and wrong for those seventeen, whose visual order already
+// IS their logical order: the line came out reading
+// `faqs-and- manuals-user/pages/com.dreametech.global://https`.
+//
+// Page 188's Hebrew twin never showed it, because there the same URL is a single run —
+// the same reason the character-level version of this bug hid from the pdftotext
+// comparison. A line is not a reliable witness to how poppler will cut it up.
 //
 // The runs slice is not reordered — the caller's geometry is computed from it and
-// every other reader of a line wants it left to right. Only the text is built the
-// other way round.
+// every other reader of a line wants it left to right. Only the text is built this
+// way round.
 func joinRunsRightToLeft(runs []TextRun) string {
+	order := make([]int, 0, len(runs))
+	for i := len(runs) - 1; i >= 0; {
+		if hasRightToLeft(runs[i].Text) {
+			order = append(order, i)
+			i--
+			continue
+		}
+		// A maximal stretch of runs with no right-to-left character in them: one
+		// island, emitted in the order it is printed.
+		j := i
+		for j >= 0 && !hasRightToLeft(runs[j].Text) {
+			j--
+		}
+		for k := j + 1; k <= i; k++ {
+			order = append(order, k)
+		}
+		i = j
+	}
+
 	var b strings.Builder
-	for i := len(runs) - 1; i >= 0; i-- {
-		if i < len(runs)-1 {
-			// The previous run in READING order is the one to the right of this one,
-			// so the gap between them is measured from this run's right edge.
-			prev := &runs[i+1]
-			gap := prev.X - runs[i].right()
-			if gap > 0 && !endsWithSpace(prev.Text) && !startsWithSpace(runs[i].Text) {
+	for n, i := range order {
+		if n > 0 {
+			prev := &runs[order[n-1]]
+			cur := &runs[i]
+			// Whichever way round the two sit on the page, the gap is between their
+			// facing edges: reading order and left-to-right order are not the same
+			// thing here, so the subtraction cannot assume one of them.
+			gap := cur.X - prev.right()
+			if cur.X < prev.X {
+				gap = prev.X - cur.right()
+			}
+			if gap > 0 && !endsWithSpace(prev.Text) && !startsWithSpace(cur.Text) {
 				b.WriteByte(' ')
 			}
 		}
 		b.WriteString(visualToLogical(runs[i].Text))
 	}
 	return collapseSpaces(b.String())
+}
+
+// hasRightToLeft reports whether a string carries any right-to-left letter.
+func hasRightToLeft(s string) bool {
+	for _, r := range s {
+		switch p, _ := bidi.LookupRune(r); p.Class() {
+		case bidi.R, bidi.AL:
+			return true
+		}
+	}
+	return false
 }
