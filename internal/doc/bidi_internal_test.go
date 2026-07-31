@@ -289,8 +289,11 @@ func TestRegionBlocksReadsARightToLeftLineLogically(t *testing.T) {
 	)
 	// Two paragraphs on one page: Hebrew at the top, German lower down, far enough
 	// apart that the gap rule keeps them separate blocks.
+	//
+	// The German line is TWO runs on one baseline, which is what makes it a real
+	// control: a line of one run reads the same in either direction, so it would
+	// pass even if the direction test said every line was right to left.
 	hebrew := []string{"שומיש תולבגה", "תוחיטב תוארוה"}
-	german := []string{"Lesen Sie die Anleitung", "vor der Verwendung"}
 
 	p := &PageRuns{No: 185, Width: pageWidth, Height: pageHeight}
 	y := 20.0
@@ -300,10 +303,15 @@ func TestRegionBlocksReadsARightToLeftLineLogically(t *testing.T) {
 		y += 22
 	}
 	y += 66
-	for _, s := range german {
-		p.Runs = append(p.Runs, TextRun{X: 55, Y: y, Width: 600, Height: body + 5, Text: s,
+	for _, r := range []struct {
+		x, w float64
+		text string
+	}{
+		{55, 240, "Lesen Sie die Anleitung"},
+		{300, 200, "vor der Verwendung"},
+	} {
+		p.Runs = append(p.Runs, TextRun{X: r.x, Y: y, Width: r.w, Height: body + 5, Text: r.text,
 			Font: Font{Size: body, Family: "Test-Face"}})
-		y += 22
 	}
 
 	got := RegionBlocks(p, &Region{Page: 185, X0: 0, X1: pageWidth, Lang: "he"}, nil, nil)
