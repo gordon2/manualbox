@@ -183,8 +183,12 @@ Thai run is one token, so the index is `trigram remove_diacritics 1` — 880 KB 
 query under three characters is in the index at all, which is a real hole in Chinese
 and Japanese, so those are answered by an `instr` scan instead and the response's
 `mode` says which path ran. Verified through the API on both real manuals: German,
-Russian, Japanese and Thai all find a real word; **Hebrew only backwards**, because
-the stored Hebrew is in visual order — that is extraction's problem, not the index's.
+Russian, Japanese and Thai all find a real word, and **so does Hebrew, typed
+forwards** — `מדריך` finds 4 blocks where it used to find 0, because
+`internal/doc/bidi.go` now stores right-to-left text in logical order. One block of
+page 188 is still backwards and a test pins it: that page sets the support URL and a
+Hebrew sentence on one line, and `lineIsRightToLeft` gives the line to the Latin
+majority. Extraction's problem, not the index's, as it always was.
 The whole measurement is [docs/design/search.md](docs/design/search.md).
 
 Deliberately not built yet, each for a stated reason:

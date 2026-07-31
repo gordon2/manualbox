@@ -151,14 +151,26 @@ Hebrew. **It is on**, and it has to be set explicitly: `unicode61` folds by defa
 but `trigram` does not, and with it off `Gerat` finds 0 of the 96 blocks holding
 `Gerät`. The index is 4,096 bytes *smaller* with folding on.
 
-### What no tokeniser fixes
+### What no tokeniser fixes, and what stopped needing one
 
-**The stored Hebrew is in visual order.** `internal/doc` reads the runs a
-right-to-left page paints and the PDF paints them reversed, so the word for "manual"
-is stored as its own reverse: findable by a query typed backwards (5 blocks) and not
-by one a Hebrew speaker would type (0 blocks). That is upstream of the index, in
-extraction, and belongs to `internal/doc`. Search cannot repair it and does not
-pretend to.
+**The stored Hebrew used to be in visual order, and is not any more.**
+`internal/doc` reads the runs a right-to-left page paints and the PDF paints them
+reversed, so the word for "manual" was stored as its own reverse: findable by a
+query typed backwards (5 blocks) and not by one a Hebrew speaker would type (0
+blocks). That was upstream of the index, in extraction, and search could not repair
+it and did not pretend to.
+
+`internal/doc/bidi.go` repaired it there, and the measurement has turned over —
+`מדריך` typed forwards now finds **4** blocks and typed backwards **1**, over the
+same Hebrew section. `internal/registry`'s `TestHebrewIsFoundTypedForwards` is that
+measurement, run against the real manual.
+
+The remaining 1 is one line of page 188, which prints the support URL and a Hebrew
+sentence together. `doc`'s `lineIsRightToLeft` decides a line's direction by
+majority of its strong characters, the URL's Latin outweighs the Hebrew, and the
+line is joined left to right and left reversed. `internal/verify` reports the same
+page from the other side — see `minReversibleWords` — off a comparison that shares
+no code with this one. Still extraction's, still not the index's.
 
 ## Ranking
 
