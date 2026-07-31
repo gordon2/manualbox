@@ -224,13 +224,11 @@ func TestCheckTheColumnManual(t *testing.T) {
 func TestCheckTheSequentialManual(t *testing.T) {
 	conv, rep := checked(t, "dreame-l40-ultra")
 
-	// 16,097 blocks, of which 1,105 are page furniture: the 34 language tabs, one on
-	// every page of every section, and 552 folios. It was 15,951 before doc's
-	// furniture pass existed, and the rise of 104 is the tab being un-glued from the
-	// running head it had joined on 104 pages.
+	// 16,055 blocks, of which 1,105 are page furniture: the 34 language tabs, one on
+	// every page of every section, and 552 folios.
 	//
-	// 16,055 blocks, and this number has been up and back down for reasons that are
-	// all in doc/bidi.go. Every move is on a Hebrew or Arabic page, measured page by
+	// This number has been up and back down, for reasons that are all in doc/bidi.go
+	// after the first two. Every move is on a Hebrew or Arabic page, measured page by
 	// page against each previous conversion; the furniture count and the figures have
 	// never moved.
 	//
