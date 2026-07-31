@@ -406,3 +406,41 @@ func TestAMultiRunLeftToRightIslandKeepsItsOrder(t *testing.T) {
 			"the rightmost run and therefore read first", got)
 	}
 }
+
+// TestANeutralRunAtTheEdgeOfAnIslandReversesWithTheText is the mirror of
+// [TestAMultiRunLeftToRightIslandKeepsItsOrder], and the two together are why the
+// island rule needs both its ends anchored.
+//
+// Keeping a whole stretch of non-right-to-left runs in printed order — which is what
+// fixed the seventeen-run URL — froze a printed list marker too, because a run holding
+// only `1` or `  .` has no right-to-left LETTER in it. Page 211 of the sequential
+// manual lost the structure of an Arabic maintenance list that way: six list items
+// became one paragraph, and 43 blocks went with it across six pages, because
+// [leadingMarker] stops recognising `. 1`.
+//
+// The geometry is that page's line at top=171. Its runs are `)`, `LDS`, the Arabic,
+// `  .` and `1`, and only the Arabic run holds a right-to-left letter. The island is
+// the part BETWEEN the outermost runs carrying a left-to-right letter, so `LDS` is in
+// it and `1`, `  .` and `)` are not.
+func TestANeutralRunAtTheEdgeOfAnIslandReversesWithTheText(t *testing.T) {
+	runs := []TextRun{
+		{X: 728, Y: 171, Width: 4, Height: 14, Text: ")"},
+		{X: 732, Y: 171, Width: 20, Height: 14, Text: "LDS"},
+		{X: 752, Y: 171, Width: 98, Height: 14, Text: "( رزيللاب ةفاسملا رعشتسم"},
+		{X: 850, Y: 171, Width: 9, Height: 14, Text: "  ."},
+		{X: 859, Y: 171, Width: 6, Height: 14, Text: "1"},
+	}
+	const want = "1. مستشعر المسافة بالليزر (LDS)"
+	if got := joinRunsRightToLeft(runs); got != want {
+		t.Errorf("joinRunsRightToLeft(...)\n = %q\nwant %q", got, want)
+	}
+
+	// And the consequence that was actually lost: the marker is recognisable again,
+	// so the line is a list item rather than the middle of a paragraph.
+	l := textLine{runs: runs}
+	l.finish(true)
+	if marker, _ := leadingMarker(&l); marker != "1." {
+		t.Errorf("leadingMarker = %q, want \"1.\": the printed list marker is what the "+
+			"43 lost blocks were", marker)
+	}
+}

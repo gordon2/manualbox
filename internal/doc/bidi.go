@@ -244,14 +244,43 @@ func joinRunsRightToLeft(runs []TextRun) string {
 			i--
 			continue
 		}
-		// A maximal stretch of runs with no right-to-left character in them: one
-		// island, emitted in the order it is printed.
+		// A maximal stretch of runs holding no right-to-left letter. Its island is the
+		// part BETWEEN the outermost runs that hold a left-to-right letter; a run of
+		// only digits, punctuation or spaces at either end belongs to the
+		// right-to-left text beside it and reverses with it. That is the both-sides
+		// rule [leftToRightIsland] applies to characters, applied to runs, and the
+		// second half of it is what a printed list marker needs.
 		j := i
 		for j >= 0 && !hasRightToLeft(runs[j].Text) {
 			j--
 		}
-		for k := j + 1; k <= i; k++ {
-			order = append(order, k)
+		lo, hi := j+1, i
+		first, last := -1, -1
+		for k := lo; k <= hi; k++ {
+			if hasLeftToRight(runs[k].Text) {
+				if first < 0 {
+					first = k
+				}
+				last = k
+			}
+		}
+		switch {
+		case first < 0:
+			// Nothing left-to-right anywhere in the stretch: it is all neutral, so all
+			// of it reverses.
+			for k := hi; k >= lo; k-- {
+				order = append(order, k)
+			}
+		default:
+			for k := hi; k > last; k-- {
+				order = append(order, k)
+			}
+			for k := first; k <= last; k++ {
+				order = append(order, k)
+			}
+			for k := first - 1; k >= lo; k-- {
+				order = append(order, k)
+			}
 		}
 		i = j
 	}
@@ -275,6 +304,17 @@ func joinRunsRightToLeft(runs []TextRun) string {
 		b.WriteString(visualToLogical(runs[i].Text))
 	}
 	return collapseSpaces(b.String())
+}
+
+// hasLeftToRight reports whether a string carries any left-to-right letter — what an
+// island has to be anchored by at both ends.
+func hasLeftToRight(s string) bool {
+	for _, r := range s {
+		if p, _ := bidi.LookupRune(r); p.Class() == bidi.L {
+			return true
+		}
+	}
+	return false
 }
 
 // hasRightToLeft reports whether a string carries any right-to-left letter.
