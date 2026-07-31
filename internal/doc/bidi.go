@@ -233,11 +233,30 @@ func strongLeftToRight(r rune) bool {
 // the same reason the character-level version of this bug hid from the pdftotext
 // comparison. A line is not a reliable witness to how poppler will cut it up.
 //
+// # Where this rule stops, stated rather than guessed at
+//
+// A run of only digits at the OUTER end of an island goes with the right-to-left text,
+// because the both-sides rule sees a left-to-right letter on one side of it only. Built
+// as a synthetic line — Arabic, then `A`, then `11:2021` as its own run — that puts the
+// number at the wrong end. It is left alone deliberately: neither document contains
+// that shape. On page 204, where the laser standard really does end in `11:2021`, those
+// digits share a run WITH the Arabic that follows them, so no rule at this level can
+// separate them at all and the run-level question never arises. Inventing the rule from
+// the synthetic case would be fitting one to an example no page prints.
+//
 // The runs slice is not reordered — the caller's geometry is computed from it and
 // every other reader of a line wants it left to right. Only the text is built this
 // way round.
 func joinRunsRightToLeft(runs []TextRun) string {
 	order := make([]int, 0, len(runs))
+	// Which runs are emitted in the order they are printed. Those must NOT go through
+	// [visualToLogical]: they are already in logical order, and for a run holding only
+	// digits and punctuation the character-level repair is not the identity — it moves
+	// a space that has a strong neighbour on one side only. Page 204's ` 60825- 1:2014/`
+	// came out `1:2014/ 60825- `, halves transposed at the `- 1`, which is how the
+	// laser standard `IEC 60825-1:2014/EN 60825-1:2014/A11:2021` lost a space and
+	// swapped two of its parts.
+	printed := make([]bool, len(runs))
 	for i := len(runs) - 1; i >= 0; {
 		if hasRightToLeft(runs[i].Text) {
 			order = append(order, i)
@@ -277,6 +296,7 @@ func joinRunsRightToLeft(runs []TextRun) string {
 			}
 			for k := first; k <= last; k++ {
 				order = append(order, k)
+				printed[k] = true
 			}
 			for k := first - 1; k >= lo; k-- {
 				order = append(order, k)
@@ -301,7 +321,11 @@ func joinRunsRightToLeft(runs []TextRun) string {
 				b.WriteByte(' ')
 			}
 		}
-		b.WriteString(visualToLogical(runs[i].Text))
+		if printed[i] {
+			b.WriteString(runs[i].Text)
+		} else {
+			b.WriteString(visualToLogical(runs[i].Text))
+		}
 	}
 	return collapseSpaces(b.String())
 }
