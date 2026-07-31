@@ -100,7 +100,8 @@ const (
 	//
 	// Still 32 after doc/bidi.go, because reversing a line does not change which
 	// script its characters are in. What changed is that 7 of the 32 now hold no
-	// absent word at all, so only 25 reach [minReversibleWords] to be judged.
+	// absent word at all, so only 25 reach [minReversibleWords] to be judged, and
+	// none of those 25 is judged against it any more: see that constant.
 	rtlShare = 0.5
 
 	// minReversibleWords is how many of a right-to-left page's words must be absent
@@ -123,49 +124,67 @@ const (
 	// wrong in some general way, it was extracted in visual order. That is the
 	// signature, and nothing else this pipeline does produces it.
 	//
-	// # Why a count and not a share, which is the interesting part
+	// # Why a count and not a share, which is the part worth keeping
 	//
-	// Swept over the sequential manual, absent words that are present reversed:
+	// Three measurements over the sequential manual, absent words present reversed:
 	//
-	//	before bidi.go   32 pages, 8,120 absent, 7,938 reversible; per-page share
-	//	                 0.913 (page 188) to 1.000, on 8 pages exactly 1.000
-	//	after            25 pages,   220 absent,    18 reversible; per-page share
-	//	                 0.600, 0.538, 0.125, 0.100, 0.091, 0.059 and nineteen 0.000
+	//	before bidi.go        32 pages, 8,120 absent, 7,938 reversible; per-page
+	//	                      share 0.913 (page 188) to 1.000, 8 pages at 1.000
+	//	majority direction    25 pages,   220 absent,    18 reversible; per-page
+	//	                      share .600 .538 .125 .100 .091 .059, nineteen 0.000
+	//	region direction      25 pages,   202 absent,     0 reversible; ALL 0.000
 	//
-	// A share threshold has a real gap to sit in — nothing between 0.600 and 0.913 —
-	// and it is the wrong rule anyway, because those 18 words are not noise. Every
-	// one is a genuine Hebrew or Arabic word still reversed — `תבותכב` where the page
-	// prints `בכתובת`, `ليلد` where it prints `دليل` — and they share one cause.
-	// doc's lineIsRightToLeft decides a line by majority of its strong characters, so
-	// a line whose Latin outweighs its Hebrew is joined left to right and never
-	// repaired: the manual's support URL under a Hebrew sentence on page 188 and its
-	// Arabic twin on 204, `Dreamehome תייצקלפא` on 191, and
-	// `Dreamehome App قيبطت ليزنت` on 207.
+	// A share of the absent words is the obvious rule, it had a real gap to sit in at
+	// the middle measurement — nothing between 0.600 and 0.913 — and it was the wrong
+	// rule, because those 18 words were not noise. Every one was a genuine word still
+	// reversed: `תבותכב` where the page prints `בכתובת`, `ليلد` for `دليل`. A share of
+	// 0.65 would have reported zero while six pages were reversed, and measured, it
+	// would not merely have renamed them: pages 188, 204 and 207 fell through to a
+	// [KindInvented] block, but 189, 191 and 205 held one reversed word in a block
+	// that was otherwise right — under both [maxInventedShare] and
+	// [minInventedTokens] — and vanished entirely.
 	//
-	// So a share of 0.65 would report zero pages while six pages are still reversed,
-	// and measured, it does not merely rename them: pages 188, 204 and 207 fall
-	// through to a [KindInvented] block, but 189, 191 and 205 hold one reversed word
-	// in a block that is otherwise right, which is under [maxInventedShare] and under
-	// [minInventedTokens], and they vanish. A count of 1 keeps all six.
+	// That is why the rule is a count, and it is worth keeping the argument even
+	// though the corpus can no longer make it: the third row is zero, so a sweep over
+	// this document would now choose anything. The argument is kept where it stays
+	// falsifiable instead — TestAShareOfAbsentWordsWouldHideAReversal builds the
+	// measured page-191 shape by hand and fails if the rule is ever changed back.
 	//
-	// # What this can and cannot see now
+	// # There is nothing under the floor, and 1 is still the only value
+	//
+	// The sweep chose the RULE, never the VALUE. 1 is not fitted to anything: it is
+	// the statement that one word of evidence is evidence. 0 restores the defect this
+	// constant was added to remove, since it requires no evidence at all, and any
+	// value above 1 asserts that some quantity of reversed text is acceptable, which
+	// nothing here would defend and which the corpus gives no basis for. So it stays
+	// at 1 with its measurements recorded as history, and the load-bearing test moved
+	// from "which threshold" to "is it zero" — see [TestNoTextIsStoredReversed].
+	//
+	// The one number that did fit the data is gone with it: the floor was 1 rather
+	// than 2 because over the nineteen right-to-left pages holding no reversal, 140
+	// absent words produced not one coincidental match. `שי` for `יש` was the only
+	// two-rune match in the whole corpus and it sat among five unambiguous ones.
+	//
+	// # What this can and cannot see
 	//
 	// It sees a page holding at least one word that this pipeline read backwards and
-	// `pdftotext` did not. It is still named per page, which now overstates the
-	// extent: the fault left is one LINE on each of those pages, not the page.
+	// `pdftotext` did not. It is named per page, which overstated the extent while
+	// there was anything to overstate: the residual was one LINE on each page.
 	//
-	// It cannot see a reversal both tools make — they do not share code, so this has
-	// no example, but it is not ruled out. It cannot see a reversed word whose
-	// reverse is missing from the reference for a second reason, which is why Arabic
-	// costs it: `pdftohtml` returns unshaped letter forms, so a word can be both
-	// reversed and unshaped and then only the shaping is visible. And it cannot see
-	// a reversed PALINDROME, which is a real hole and an empty one.
+	// It cannot see a reversal both tools make — they share no code, so this has no
+	// example, but it is not ruled out. It cannot see a reversed word whose reverse is
+	// missing from the reference for a second reason, which is what Arabic costs it:
+	// `pdftohtml` returns unshaped letter forms, so a word can be both reversed and
+	// unshaped and then only the shaping shows. It cannot see a reversed PALINDROME.
 	//
-	// The floor is 1 and not 2 because there is no noise for a higher floor to
-	// remove: over the nineteen right-to-left pages that hold no reversal, 140 absent
-	// words produced not one coincidental match. The risk it accepts is a short token
-	// whose reverse is another word on the same page — `שי` for `יש` is the only
-	// two-rune match in the corpus, and it sits among five unambiguous ones.
+	// And it cannot see a reordering that PRESERVES THE WORD SET, which is not
+	// hypothetical — page 204's support URL arrives with its seventeen runs in
+	// reverse order, `faqs-and- manuals-user/pages/com.dreametech.global://https`,
+	// and every one of those tokens is present in the reference, so set membership is
+	// blind to it by construction. [checkOrder] asks that question of blocks and
+	// nothing asks it of words. The report caught that block only sideways, as a
+	// [KindJoinHyphen], and it is written up as doc's bug rather than papered over
+	// here.
 	minReversibleWords = 1
 )
 

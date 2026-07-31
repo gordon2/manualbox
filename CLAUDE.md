@@ -184,12 +184,25 @@ query under three characters is in the index at all, which is a real hole in Chi
 and Japanese, so those are answered by an `instr` scan instead and the response's
 `mode` says which path ran. Verified through the API on both real manuals: German,
 Russian, Japanese and Thai all find a real word, and **so does Hebrew, typed
-forwards** — `מדריך` finds 4 blocks where it used to find 0, because
-`internal/doc/bidi.go` now stores right-to-left text in logical order. One block of
-page 188 is still backwards and a test pins it: that page sets the support URL and a
-Hebrew sentence on one line, and `lineIsRightToLeft` gives the line to the Latin
-majority. Extraction's problem, not the index's, as it always was.
+forwards** — `מדריך` finds 5 blocks forwards and 0 backwards, the exact inverse of
+what it did, because `internal/doc/bidi.go` stores right-to-left text in logical
+order and the **region's language** decides direction. A fixture test pins both
+numbers; the claim had lived in prose with nothing under it.
 The whole measurement is [docs/design/search.md](docs/design/search.md).
+
+**Right-to-left text is no longer stored reversed, and that is asserted rather than
+believed.** `internal/verify`'s `right-to-left-reversed` check reports **0 pages**
+where it reported 32, and `TestNoTextIsStoredReversed` fails on a single word that is
+absent from `pdftotext` and present in it backwards. Getting there needed the check
+sharpened first: it fired on any right-to-left page with any absent word, which was
+the same question as "is this page Hebrew" only while every Hebrew page was broken.
+It now needs evidence of a reversal — see `verify.minReversibleWords`, which records
+why that is a count and not a share.
+
+One reversal is left and no check can see it: page 204 stores the support URL
+token-reversed, because poppler paints it as seventeen runs and the right-to-left
+join reverses run order. Every one of those words is present in the reference, so a
+word-set comparison is blind to it by construction.
 
 Deliberately not built yet, each for a stated reason:
 

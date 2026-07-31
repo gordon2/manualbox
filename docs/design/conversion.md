@@ -568,26 +568,50 @@ digits these manuals mix into RTL prose, and it double-reverses the day the extr
 is fixed. **The fix belongs in `internal/doc`** — either reverse an RTL run's runes at
 extraction, or take the order from `pdftotext`'s bidi-controlled output.
 
-**It is now built, at the one place a line's order is decided.**
-`internal/doc/bidi.go` reverses a right-to-left line and puts its left-to-right
-islands back, so `8` stays `8` and `MopExtend` stays `MopExtend`; that file's header
-carries the measurements. What it bought, over the whole sequential manual: the pages
-`internal/verify` reports as reversed went from 32 to 6, the words absent from
-`pdftotext` on them from 8,120 to 80, and the ones absent forwards but present
-backwards — the signature of visual order — from 7,938 to 18. Searching for `מדריך`
-typed forwards went from 0 blocks to 4.
+**It is now built, at the one place a line's order is decided, and it is measured to
+zero.** `internal/doc/bidi.go` reverses a right-to-left line and puts its
+left-to-right islands back, so `8` stays `8` and `MopExtend` stays `MopExtend`; that
+file's header carries the measurements. Over the whole sequential manual, in the two
+steps it took:
 
-**What is left is one line shape, and it is named rather than estimated.**
-`lineIsRightToLeft` decides a line by majority of its strong characters, so a line
-whose Latin outweighs its Hebrew or Arabic is joined left to right and never
-repaired: the support URL set under a Hebrew sentence on page 188 and its Arabic twin
-on 204, `Dreamehome תייצקלפא` on 191, `Dreamehome App قيبطت ليزنت` on 207. Six pages,
-eighteen words. Two independent checks report it — `verify`'s `minReversibleWords`
-and `registry`'s `TestHebrewIsFoundTypedForwards` — and both reach zero together.
+| | before | line's own majority | region's language |
+|---|---|---|---|
+| pages `verify` reports reversed | 32 | 6 | **0** |
+| words absent from `pdftotext` on them | 8,120 | 80 | — |
+| ...of those, present when reversed | 7,938 | 18 | **0** |
+| `מדריך` found typed forwards | 0 blocks | 4 | **5** |
+| `מדריך` found typed backwards | 5 blocks | 1 | **0** |
 
-The reader still renders every right-to-left section with a warning naming the cause,
-and that warning is now wrong about almost all of them. Correcting it is a frontend
-change and is not done here.
+The middle column is worth keeping because it is a lesson about authority. Deciding a
+line's direction by the majority of its own strong characters looks safe and is not: a
+Hebrew line carrying a URL has more Latin than Hebrew, so it was read left to right
+and never repaired. Those six lines — the support URL under a Hebrew sentence on page
+188 and its Arabic twin on 204, `Dreamehome תייצקלפא` on 191,
+`Dreamehome App قيبطت ليزنت` on 207, a Wi-Fi label on 189 and 205 — were the entire
+residual. The **region's language** decides now, with the majority as fallback, which
+is the right authority: a document-wide answer to a question one line cannot settle,
+and establishing it is what the probe is for.
+
+Two independent checks hold it there, off comparisons sharing no code:
+`verify.TestNoTextIsStoredReversed` fails on one word absent forwards and present
+backwards, and `registry.TestHebrewIsFoundTypedForwards` fails if the word for
+"manual" is findable backwards.
+
+**One reversal survives, at run granularity, and nothing can see it.** Page 204 stores
+the support URL as
+`faqs-and- manuals-user/pages/com.dreametech.global://https`. Poppler paints that URL
+as **seventeen runs**, splitting at every `:`, `/`, `.` and `-` because the punctuation
+is set in a different font, and `joinRunsRightToLeft` reverses the order of a line's
+runs — right for the Arabic, wrong for a left-to-right island spread across runs, whose
+visual order is already its logical order. Page 188's Hebrew twin is unaffected because
+there the same URL is one run.
+
+The word check cannot see it: every one of those tokens is present in `pdftotext`, and
+that comparison is set membership, so a reordering that preserves the word set is
+invisible to it by construction. `checkOrder` asks that question of blocks and nothing
+asks it of words. The report catches the block only sideways, as a `join-hyphen-space`
+on `إىل faqs-and- manuals-us`, which is the 73rd of those findings and the reason that
+count moved.
 
 Worth knowing what this does *not* break: the language signals are unaffected. The
 character-repertoire and script signals count characters, so order is irrelevant to
@@ -788,15 +812,20 @@ What it reports today:
 | reading order | **0** | 37 over 26 pages |
 | figures clipped | **22 of 46** | **74 of 163** |
 | figures with a blank band | 4 | 6 |
-| hyphen-space joins | 276 blocks | 72 blocks |
+| hyphen-space joins | 276 blocks | 73 blocks |
 | words absent from the reference | 4 | 160 |
-| right-to-left reversed | none, no such script | 6 pages, 18 words |
+| right-to-left reversed | none, no such script | **none** |
 
-The last two rows moved together when `bidi.go` landed, and in opposite directions
-for one reason. Reversed pages fell from 32 to 6 because the text is no longer
-reversed; absent words rose from 153 to 160 because the 19 pages that are Hebrew or
-Arabic but *not* reversed stopped being named as pages and are now judged block by
-block like every other page. See `verify.minReversibleWords`.
+The last two rows moved together when `bidi.go` landed, and in opposite directions for
+one reason. Reversed pages fell from 32 to 6 and then to 0 because the text is no
+longer reversed; absent words rose from 153 to 160 because the 25 pages that are
+Hebrew or Arabic but *not* reversed stopped being named as pages and are now judged
+block by block like every other page. What is left on them is Arabic shaping and
+combining-mark disagreement, which is neither tool's to fix. See
+`verify.minReversibleWords`, which also records why a zero here is a weaker statement
+than it looks — the word comparison cannot see page 204's run-reversed URL.
+
+The 73rd hyphen-space join is that URL.
 
 **Coverage is clean on both, which is the reassuring one:** nothing is being silently
 dropped. The least-covered page of either manual is 0.801, and that is the

@@ -160,17 +160,25 @@ query typed backwards (5 blocks) and not by one a Hebrew speaker would type (0
 blocks). That was upstream of the index, in extraction, and search could not repair
 it and did not pretend to.
 
-`internal/doc/bidi.go` repaired it there, and the measurement has turned over —
-`מדריך` typed forwards now finds **4** blocks and typed backwards **1**, over the
-same Hebrew section. `internal/registry`'s `TestHebrewIsFoundTypedForwards` is that
-measurement, run against the real manual.
+`internal/doc/bidi.go` repaired it there, and the measurement is now the exact
+inverse of the paragraph above: `מדריך` typed forwards finds **5** blocks and typed
+backwards **0**, over the same Hebrew section. `internal/registry`'s
+`TestHebrewIsFoundTypedForwards` is that measurement, run against the real manual,
+and it exists because this claim had lived in prose with no test under it.
 
-The remaining 1 is one line of page 188, which prints the support URL and a Hebrew
-sentence together. `doc`'s `lineIsRightToLeft` decides a line's direction by
-majority of its strong characters, the URL's Latin outweighs the Hebrew, and the
-line is joined left to right and left reversed. `internal/verify` reports the same
-page from the other side — see `minReversibleWords` — off a comparison that shares
-no code with this one. Still extraction's, still not the index's.
+It took two steps. The repair first read 4 and 1: one line of page 188 prints the
+support URL and a Hebrew sentence together, `lineIsRightToLeft` decided direction by
+majority of a line's strong characters, the URL's Latin outweighed the Hebrew, and
+that line was joined left to right and left reversed. `internal/verify` reported the
+same page from the other side, off a comparison sharing no code with this one. Giving
+the decision to the **region's language**, with the majority as fallback, closed both.
+
+**One thing search still can't be asked about.** Page 204 stores the same URL
+token-reversed — `faqs-and- manuals-user/pages/com.dreametech.global://https` — because
+poppler paints it as seventeen runs and the right-to-left join reverses run order. The
+words are all there, so the index finds them and only the reading is wrong; no query
+can reveal it and none is pinned here. It is `internal/doc`'s, recorded in
+conversion.md.
 
 ## Ranking
 
