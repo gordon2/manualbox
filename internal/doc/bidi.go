@@ -233,16 +233,31 @@ func strongLeftToRight(r rune) bool {
 // the same reason the character-level version of this bug hid from the pdftotext
 // comparison. A line is not a reliable witness to how poppler will cut it up.
 //
-// # Where this rule stops, stated rather than guessed at
+// # Where this rule stops, and why it stops there
 //
 // A run of only digits at the OUTER end of an island goes with the right-to-left text,
-// because the both-sides rule sees a left-to-right letter on one side of it only. Built
-// as a synthetic line — Arabic, then `A`, then `11:2021` as its own run — that puts the
-// number at the wrong end. It is left alone deliberately: neither document contains
-// that shape. On page 204, where the laser standard really does end in `11:2021`, those
-// digits share a run WITH the Arabic that follows them, so no rule at this level can
-// separate them at all and the run-level question never arises. Inventing the rule from
-// the synthetic case would be fitting one to an example no page prints.
+// because the both-sides rule sees a left-to-right letter on one side of it only. That
+// is deliberate, and the reason is not the one first written here.
+//
+// The first reason given was that no page prints the shape. It was wrong, and the
+// correction came from scanning every line of both manuals that holds a right-to-left
+// character — 1,136 of them — for exactly it. Three lines have it, all in the sequential
+// manual, and **all three come out right**:
+//
+//	page 196   `GHz`, ` `, `5`            -> `בחיבור Wi-Fi של 5 GHz`
+//	page 205   `AI`, ` `, `IR`, ` .`, `11` -> `11. AI IR كاميرا`
+//	page 205   `AI`, ` `, `HD`, ` .`, `12` -> `12. AI HD كامير`
+//
+// So the rule is right where the digits LEAD their phrase — a quantity, a list marker —
+// and wrong only where they TRAIL a Latin token, which was a synthetic line: Arabic,
+// then `A`, then `11:2021` as its own run. That case is structural rather than absent: a
+// trailing number belongs to the Latin token beside it and a printer sets it in the same
+// run, which is precisely what page 204 does with `A11:2021`. So at run level the wrong
+// case is unreachable, and reaching it would need a mixed-run split at character level.
+//
+// Kept as a limit with that reason, because the shape a document prints is a fact to be
+// measured and not a claim to be made — this comment made the claim and the measurement
+// contradicted it.
 //
 // The runs slice is not reordered — the caller's geometry is computed from it and
 // every other reader of a line wants it left to right. Only the text is built this
