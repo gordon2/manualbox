@@ -61,6 +61,10 @@ const (
 	// page rather than once per word, so a Hebrew section costs the report a line
 	// instead of a thousand. Being right to left is not enough on its own: that made
 	// this fire on pages that were correct.
+	//
+	// It reports nothing on either manual now, and that is the one finding here of
+	// which a zero is the goal rather than a suspicion — the defect it names was
+	// fixed in doc/bidi.go. verify.TestNoTextIsStoredReversed is what holds it there.
 	KindRightToLeft Kind = "right-to-left-reversed"
 	// KindJoinHyphen, KindJoinGlued and KindJoinSpace are the three shapes of a
 	// suspicious join: a hyphen followed by a space mid-word, two words glued with
