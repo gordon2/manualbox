@@ -198,6 +198,11 @@ func TestRightToLeftIsOneNamedFindingPerPage(t *testing.T) {
 		t.Errorf("want 4 absent words all 4 reversible, got %d absent and %.0f reversible",
 			f.Count, f.Got)
 	}
+	// The sample is the evidence, so it has to be legible as evidence: each word as
+	// stored, with the spelling the page prints beside it.
+	if !strings.Contains(f.Sample, "שומיש for שימוש") {
+		t.Errorf("the sample does not show the reversal it is reporting: %q", f.Sample)
+	}
 }
 
 // TestRightToLeftNeedsAReversalAndNotJustHebrew is the sharpening the bidi repair

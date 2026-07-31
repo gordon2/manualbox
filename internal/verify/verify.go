@@ -19,11 +19,14 @@
 //
 // A finding is evidence, not a verdict. Two of the five checks fire on defects
 // this project has deliberately accepted — a hyphen followed by a space is
-// recorded in conversion.md as the smaller error, and right-to-left text is a
+// recorded in conversion.md as the smaller error, and right-to-left text was a
 // known extraction defect with its own named finding so that fixing it later
-// turns off one [KindRightToLeft] rather than thousands of [KindInvented]. A
-// report with no findings would mean the checks are broken, not that the
-// conversion is perfect.
+// would turn off one [KindRightToLeft] rather than thousands of [KindInvented].
+// It was fixed, that is exactly what happened, and the finding then had to be
+// sharpened before it would go quiet on the pages that were no longer wrong: see
+// [minReversibleWords], which is the clearest example here of a check outliving
+// the shape of the defect it was written for. A report with no findings would mean
+// the checks are broken, not that the conversion is perfect.
 package verify
 
 import (

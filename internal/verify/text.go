@@ -97,6 +97,10 @@ const (
 	// word — its Hebrew and Arabic sections, the rest of each page being Latin part
 	// numbers — and every other page of either manual is exactly 0.000. 0.5 sits in
 	// the middle of that, and nothing between 0.05 and 0.6 changes the answer.
+	//
+	// Still 32 after doc/bidi.go, because reversing a line does not change which
+	// script its characters are in. What changed is that 7 of the 32 now hold no
+	// absent word at all, so only 25 reach [minReversibleWords] to be judged.
 	rtlShare = 0.5
 
 	// minReversibleWords is how many of a right-to-left page's words must be absent
@@ -106,12 +110,13 @@ const (
 	// # Why the check needed this at all
 	//
 	// It used to fire on a right-to-left page with any absent word whatsoever, which
-	// was the same question as "is this page Hebrew or Arabic" for as long as the
-	// whole page arrived backwards. Once doc/bidi.go put the order right it stopped
-	// naming anything: 25 pages of the sequential manual still fire on 220 absent
-	// words in 6,834, three of them on one page of 510, and a finding called
-	// `right-to-left-reversed` that reports pages which are not reversed can never
-	// reach zero and means nothing when it does not.
+	// was the same question as "is this page Hebrew or Arabic" for as long as every
+	// such page arrived backwards. Once doc/bidi.go put the order right, the two
+	// questions came apart and the check went on answering the first while its name
+	// and its Detail string claimed the second: 25 pages of the sequential manual
+	// still fired, on 220 absent words in 6,834, three of them on one page of 510.
+	// A finding that reports pages which are not reversed cannot reach zero, and
+	// says nothing on the way there.
 	//
 	// The evidence for reversal was already being counted and not used: a word that
 	// is absent from the reference and present in it BACKWARDS was not extracted
@@ -290,7 +295,7 @@ func checkTextWith(in Input, scope []int, g textGuards) []Finding {
 
 	type pageState struct {
 		tokens, rtl, absent, reversible int
-		sample                          string
+		reversed                        string
 	}
 	state := make(map[int]*pageState, len(scope))
 	byPage := make(map[int][]Finding, len(scope))
@@ -321,13 +326,16 @@ func checkTextWith(in Input, scope []int, g textGuards) []Finding {
 			st.absent++
 			if have[reverse(t)] {
 				st.reversible++
+				// The word as stored and as the page prints it, side by side. This is
+				// the readable proof and it is why the finding exists at all, so it is
+				// collected here rather than reconstructed from the page later.
+				if len([]rune(st.reversed)) < sampleRunes {
+					st.reversed += t + " for " + reverse(t) + "; "
+				}
 			}
 		}
 		if len(absent) == 0 {
 			continue
-		}
-		if st.sample == "" {
-			st.sample = strings.Join(absent, " ")
 		}
 		if len(absent) < g.minAbsent ||
 			float64(len(absent))/float64(len(toks)) <= g.maxInvented {
@@ -367,11 +375,17 @@ func checkTextWith(in Input, scope []int, g textGuards) []Finding {
 		out = append(out, Finding{
 			Kind: KindRightToLeft, Page: p,
 			Count: st.absent, Total: st.tokens,
+			// Got is the reversed words counted, Want the fewest that raise this at
+			// all — the same "measurement and the bound it failed" every other finding
+			// carries, where this one used to put the absent count in Want and so read
+			// as though every absent word were expected to reverse.
 			Got:  float64(st.reversible),
-			Want: float64(st.absent),
-			// The excerpt is the absent words themselves, which read as the printed
-			// words backwards and are the readable proof of the cause.
-			Sample: excerpt(st.sample),
+			Want: float64(g.reversible),
+			// The excerpt is the reversed words with the printed spelling beside each,
+			// which is the readable proof of the cause. It was the absent words, which
+			// was the same list while whole pages were reversed and is mostly ordinary
+			// disagreement now.
+			Sample: excerpt(strings.TrimSuffix(st.reversed, "; ")),
 			Detail: fmt.Sprintf("page %d reads right to left: %d of %d words are absent "+
 				"from pdftotext, %d of them present when reversed — the known "+
 				"pdftohtml visual-order defect, see docs/design/conversion.md",

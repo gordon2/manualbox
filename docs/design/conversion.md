@@ -566,8 +566,28 @@ the same mirrored letters flush left.
 And reversing in the view would be wrong twice over: it mangles the Latin words and
 digits these manuals mix into RTL prose, and it double-reverses the day the extraction
 is fixed. **The fix belongs in `internal/doc`** — either reverse an RTL run's runes at
-extraction, or take the order from `pdftotext`'s bidi-controlled output — and it is
-unbuilt. Until then the reader renders those sections with a warning naming the cause.
+extraction, or take the order from `pdftotext`'s bidi-controlled output.
+
+**It is now built, at the one place a line's order is decided.**
+`internal/doc/bidi.go` reverses a right-to-left line and puts its left-to-right
+islands back, so `8` stays `8` and `MopExtend` stays `MopExtend`; that file's header
+carries the measurements. What it bought, over the whole sequential manual: the pages
+`internal/verify` reports as reversed went from 32 to 6, the words absent from
+`pdftotext` on them from 8,120 to 80, and the ones absent forwards but present
+backwards — the signature of visual order — from 7,938 to 18. Searching for `מדריך`
+typed forwards went from 0 blocks to 4.
+
+**What is left is one line shape, and it is named rather than estimated.**
+`lineIsRightToLeft` decides a line by majority of its strong characters, so a line
+whose Latin outweighs its Hebrew or Arabic is joined left to right and never
+repaired: the support URL set under a Hebrew sentence on page 188 and its Arabic twin
+on 204, `Dreamehome תייצקלפא` on 191, `Dreamehome App قيبطت ليزنت` on 207. Six pages,
+eighteen words. Two independent checks report it — `verify`'s `minReversibleWords`
+and `registry`'s `TestHebrewIsFoundTypedForwards` — and both reach zero together.
+
+The reader still renders every right-to-left section with a warning naming the cause,
+and that warning is now wrong about almost all of them. Correcting it is a frontend
+change and is not done here.
 
 Worth knowing what this does *not* break: the language signals are unaffected. The
 character-repertoire and script signals count characters, so order is irrelevant to
@@ -769,8 +789,14 @@ What it reports today:
 | figures clipped | **22 of 46** | **74 of 163** |
 | figures with a blank band | 4 | 6 |
 | hyphen-space joins | 276 blocks | 72 blocks |
-| words absent from the reference | 4 | 153 |
-| right-to-left reversed | none, no such script | 32 pages, 8,120 words |
+| words absent from the reference | 4 | 160 |
+| right-to-left reversed | none, no such script | 6 pages, 18 words |
+
+The last two rows moved together when `bidi.go` landed, and in opposite directions
+for one reason. Reversed pages fell from 32 to 6 because the text is no longer
+reversed; absent words rose from 153 to 160 because the 19 pages that are Hebrew or
+Arabic but *not* reversed stopped being named as pages and are now judged block by
+block like every other page. See `verify.minReversibleWords`.
 
 **Coverage is clean on both, which is the reassuring one:** nothing is being silently
 dropped. The least-covered page of either manual is 0.801, and that is the
