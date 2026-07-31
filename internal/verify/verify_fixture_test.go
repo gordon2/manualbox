@@ -239,28 +239,31 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	//	        `– يجب إزالة البطارية` became the list item it is printed as
 	//	16,098  +1 on page 191, when the region's language took over deciding
 	//	        direction and gave that page's `Dreamehome אפלקציית` line to the repair
-	//	16,055  −43 over six pages, and THIS ONE IS A REGRESSION, not a refinement
+	//	16,055  −43 over six pages: a REGRESSION, and the only thing that caught it
+	//	16,098  the same 43 back, page for page identical to the reading above it
 	//
-	// Landing back on the old total is a coincidence and the distribution is not the
-	// same: pages 189, 194, 195, 205, 210 and 211 lost the list structure the repair
-	// had given them, page 194 falling 7 below where it started. The Arabic
-	// maintenance list on page 211 was six `list-item` blocks reading
-	// `1. مستشعر المسافة بالليزر (LDS)` and is now one paragraph reading
-	// `. 1 مستشعر المسافة بالليزر ( )LDS`, its markers turned round and its six items
-	// merged into the paragraph above.
+	// THE SEQUENCE IS THE POINT, because the number alone lies twice. 16,055 appears
+	// twice and means opposite things: once as the honest total before any right-to-left
+	// repair, and once as a regression that had cost six pages their list structure —
+	// page 194 was 7 blocks BELOW its original at that point, so even the distribution
+	// was not the same document. Anyone moving this number should read the sequence
+	// before deciding which direction is good. Higher has meant better every time so
+	// far, because every rise has been a printed list becoming list blocks.
 	//
-	// The cause is in bidi.go's run-level island test and is written up in
-	// conversion.md: `hasRightToLeft` asks whether a run holds a right-to-left LETTER,
-	// so a run of only digits, punctuation or spaces answers no and is held in printed
-	// order as though it were left-to-right content. That marker is two such runs, the
-	// digit at x=859 and the period at x=850. The number is pinned as measured so the
-	// regression stays visible, which is the stance rules_fixture_test.go takes for the
-	// printed-index parser.
-	if len(conv.Blocks) != 16055 || len(conv.Figures) != 134 {
+	// The regression and its repair are both in bidi.go's run-level island test, and
+	// conversion.md carries them. `hasRightToLeft` asks whether a run holds a
+	// right-to-left LETTER, so a run of only digits, punctuation or spaces answered no
+	// and was held in printed order as though it were left-to-right content: page 211's
+	// marker is two such runs, the digit at x=859 and the period at x=850, and it came
+	// out `. 1 مستشعر المسافة بالليزر ( )LDS` where the page prints
+	// `1. مستشعر المسافة بالليزر (LDS)`. An island is now the part BETWEEN the outermost
+	// runs carrying a left-to-right letter, so those two reverse with the Arabic beside
+	// them, `leadingMarker` sees `1.` again, and the six list items are six blocks.
+	if len(conv.Blocks) != 16098 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 16055 and 134 — see the table above before assuming which way is "+
-			"better, because this count has been 16098 with MORE list structure than "+
-			"it has now", len(conv.Blocks), len(conv.Figures))
+			"was 16098 and 134 — read the sequence above before deciding which way is "+
+			"better, because 16055 has been both the honest total and a regression that "+
+			"cost six pages their lists", len(conv.Blocks), len(conv.Figures))
 	}
 	if got := len(conv.FurnitureBlocks()); got != 1105 {
 		t.Errorf("%d furniture block(s), was 1105", got)
@@ -342,16 +345,29 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// not recognise, so reading the line logically is what makes `סוללות|מדריך` legible
 	// as a glued pair.
 	//
-	// The 7th is `iec|60825` on page 204 and it IS new damage, from the same run-level
-	// island test as the block count above: the laser standard prints
-	// `IEC 60825-1:2014/EN 60825-1:2014/A11:2021`, poppler cuts it into runs at the
-	// font changes, and the space between `IEC` and `60825` is lost when those runs are
-	// held in printed order. Better than it was — `IEC` and `EN` are in printed order
-	// now where they used to be reversed — and still wrong, so it is pinned as
-	// measured rather than tidied away.
+	// The 7th is `iec|60825` on page 204, it is STILL HERE after the island rule was
+	// anchored at both ends, and it is a third mechanism rather than a leftover of the
+	// second. The page prints the laser standard
+	// `IEC 60825-1:2014/EN 60825-1:2014/A11:2021` and poppler cuts it at the font
+	// changes, so two of its runs are pure digits and punctuation:
+	//
+	//	x=180  " 60825-1:2014/"   stored as "60825-1:2014/ "
+	//	x=316  " 60825- 1:2014/"  stored as "1:2014/ 60825- "
+	//
+	// Those runs are correctly kept in printed order now — they sit between `IEC`, `EN`
+	// and `A` — but they are still passed through visualToLogical, which reverses the
+	// whole string and then puts back only the maximal left-to-right islands. A space is
+	// an island member only when the runes BOTH sides of it are strongly left-to-right,
+	// so the space in `- 1` is not, and it becomes a split point: the two halves come
+	// back transposed, and the leading space of the first run ends up trailing, which is
+	// the space `iec|60825` is missing.
+	//
+	// A run that is being emitted in printed order is already in logical order and does
+	// not need that repair at all. Reported, not fixed; conversion.md has it.
 	if got := rep.Count(verify.KindJoinGlued); got != 7 {
-		t.Errorf("glued words: %d, was 7 (6 before page 204's laser standard lost a "+
-			"space, 3 before right-to-left lines were read in order)", got)
+		t.Errorf("glued words: %d, was 7 (3 before right-to-left lines were read in "+
+			"order; the 7th is page 204's laser standard and is a live defect, so a 6 "+
+			"here is good news that needs the comment above updated)", got)
 	}
 
 	// 2 blank bands where there were 6 before the clip was read. Merging candidate

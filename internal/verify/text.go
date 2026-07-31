@@ -179,16 +179,25 @@ const (
 	//
 	// AND IT CANNOT SEE A REORDERING THAT PRESERVES THE WORD SET, which is the
 	// limitation worth knowing about, because it is the one that has actually cost
-	// something twice. A zero from [KindRightToLeft] means no word is stored as its own
+	// something. A zero from [KindRightToLeft] means no word is stored as its own
 	// reverse. It does not mean the words are in the right order.
 	//
-	// Set membership per page is what [checkText] compares, for the reasons given
-	// there, so word ORDER is outside it by construction. Both of doc/bidi.go's
-	// run-order defects were invisible here: page 204's support URL arrived with its
-	// seventeen runs reversed, and page 211's list marker `1.` arrived as `. 1`, and in
-	// both cases every token was still present in the reference. The first surfaced
-	// sideways as a [KindJoinHyphen] and the SECOND DID NOT SURFACE AT ALL — it was
-	// caught only because a pinned block count moved by 43.
+	// Set membership per page is what [checkText] compares, for the reasons given there,
+	// so word ORDER is outside it by construction — and ALL THREE of doc/bidi.go's
+	// run-order defects were invisible here, every token still present in the reference
+	// each time:
+	//
+	//	page 204's support URL, its seventeen runs reversed — surfaced sideways as a
+	//	  [KindJoinHyphen], the side effect rather than the defect
+	//	page 211's list marker `1.` stored as `. 1` — DID NOT SURFACE AT ALL, and was
+	//	  caught only because a pinned block count moved by 43
+	//	page 204's laser standard, `EN1:2014/ 60825-` for `EN 60825- 1:2014/` — sideways
+	//	  again, as a [KindJoinGlued] on the one space the transposition also lost
+	//
+	// Not one was reported by the check whose name describes it. Two were caught by
+	// another check reacting to a side effect and one by an unexplained pinned count,
+	// which is the argument conversion.md makes for pinning counts before you can
+	// explain them.
 	//
 	// [checkOrder] asks the order question of blocks and nothing asks it of words. That
 	// gap is deliberately open, and conversion.md carries the design: what the

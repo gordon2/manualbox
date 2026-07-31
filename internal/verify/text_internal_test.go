@@ -24,12 +24,14 @@ import (
 //	majority direction    25 pages,   220 absent,    18 reversible on 6 pages
 //	region direction      25 pages,   202 absent,     0 reversible
 //	run-level islands     27 pages,   235 absent,     0 reversible
+//	islands anchored      25 pages,   202 absent,     0 reversible
 //
-// The last row is not an improvement and not a reversal either: the run-level island
-// test turned six Arabic and Hebrew list markers round, `. 1` for `1.`, which adds
-// absent words and brings two more pages over [rtlShare] without any of them being
-// backwards. Reversible stays 0, which is what this test is for. The rest is
-// [KindInvented]'s business and the regression is written up in conversion.md.
+// The third row was neither an improvement nor a reversal: a run-level island test that
+// swallowed neutral runs turned six Arabic and Hebrew list markers round, `. 1` for
+// `1.`, which added absent words and brought two more pages over [rtlShare] without any
+// of them being backwards. Anchoring the island at both ends put it back, exactly. The
+// reversible column is 0 through all of it, which is what this test is for; the rest is
+// [KindInvented]'s business and conversion.md has the story.
 //
 // A sweep over an empty population would accept any value and prove nothing, so the
 // assertion moved from "which threshold" to "is it zero" — which is stronger, and is
@@ -66,9 +68,8 @@ func TestNoTextIsStoredReversed(t *testing.T) {
 	}
 	t.Logf("  %d page(s), %d absent word(s), %d present reversed", len(rows), absent, reversible)
 
-	// The assertion. 235 absent words remain and none is backwards: Arabic shaping,
-	// combining-mark disagreement, and the turned-round list markers described above —
-	// all [KindInvented]'s business, and none of it a reversal.
+	// The assertion. 202 absent words remain and none is backwards: Arabic shaping and
+	// combining-mark disagreement, [KindInvented]'s business, and none of it a reversal.
 	if reversible != 0 {
 		t.Errorf("%d word(s) on page(s) %v are absent from pdftotext and present in it "+
 			"reversed; doc/bidi.go is meant to leave none, and each word is logged "+

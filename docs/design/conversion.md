@@ -620,12 +620,12 @@ never showed it, because there the same URL is a single run — the same way the
 character-level version of this bug hid from the `pdftotext` comparison. A line is not a
 reliable witness to how poppler will cut it up.
 
-**Second: a run of neutrals belonging to the right-to-left text is treated as an
-island.** *Open.* The fix for the first defect holds a maximal stretch of runs with no
-right-to-left character in printed order, and `hasRightToLeft` asks whether a run
+**Second: a run of neutrals belonging to the right-to-left text was treated as part of
+the island.** *Fixed.* The fix for the first defect held a maximal stretch of runs with
+no right-to-left character in printed order, and `hasRightToLeft` asks whether a run
 contains a right-to-left **letter** — so a run of only digits, punctuation or spaces
-answers no, and neutrals that take their direction from the surrounding Arabic or Hebrew
-are frozen in printed order as though they were left-to-right content.
+answered no, and neutrals that take their direction from the surrounding Arabic or Hebrew
+were frozen in printed order as though they were left-to-right content.
 
 Page 211's Arabic maintenance list is the worked example. Its first item is five runs:
 
@@ -637,36 +637,65 @@ Page 211's Arabic maintenance list is the worked example. Its first item is five
 | 850 | `  .` |
 | 859 | `1` |
 
-Only the run at 752 holds a right-to-left letter. So `1` and `  .` form one island and
-keep their printed order, giving `. 1` where the page prints `1.`; `)` and `LDS` form
-another, giving `)LDS` where the page prints `(LDS)`. The block reads
+Only the run at 752 holds a right-to-left letter. So `1` and `  .` formed one island and
+kept their printed order, giving `. 1` where the page prints `1.`; `)` and `LDS` formed
+another, giving `)LDS` where the page prints `(LDS)`. The block read
 `. 1 مستشعر المسافة بالليزر ( )LDS` instead of `1. مستشعر المسافة بالليزر (LDS)`.
 
-The cost is not cosmetic. `leadingMarker` no longer recognises `. 1` as a marker, so the
-six printed list items on that page merge into the paragraph above them, and the same
-happens on pages 189, 194, 195, 205 and 210: **43 blocks and the list structure of six
-Hebrew and Arabic pages.** The block count is back at 16,055, which was also its value
-before any of this work, and that is a coincidence — page 194 is now 7 blocks *below*
-where it started. Page 204's laser standard loses a space the same way, `IEC60825` for
-`IEC 60825`, which the glued-words check reports.
+The cost was not cosmetic. `leadingMarker` does not recognise `. 1` as a marker, so the
+six printed list items on that page merged into the paragraph above them, and the same
+happened on pages 189, 194, 195, 205 and 210: **43 blocks and the list structure of six
+Hebrew and Arabic pages.**
 
-The distinction the run-level test is missing is one `leftToRightIsland` already draws at
+The distinction the run-level test was missing is one `leftToRightIsland` already draws at
 character level: a lone neutral does not start an island, and a space joins one only when
-the runes on **both** sides do. At run level the same both-sides rule would resolve both
-defects together — a neutral-only run joins the island when it sits between two runs that
-carry a strong left-to-right letter, and goes with the reversal otherwise. That keeps the
-URL's punctuation runs inside the island, because each sits between `https` and `global`
-and their like, and puts `1`, `  .` and `)` back with the Arabic, because nothing
-left-to-right stands on the far side of them. It is not built, and the numbers above are
-pinned as measured so the gap stays visible.
+the runes on **both** sides do. Lifted to runs, an island is now the part **between the
+outermost runs that carry a left-to-right letter**, and a run of only digits, punctuation
+or spaces at either end belongs to the right-to-left text beside it and reverses with it.
+That keeps the URL's punctuation runs inside their island, because each sits between
+`https`, `global` and `com`, and puts `1`, `  .` and `)` back with the Arabic, because
+nothing left-to-right stands on the far side of them. Both cases are pinned on their real
+geometry in `bidi_internal_test.go`, and the 43 blocks came back page for page.
 
-### THE CHECK THAT NAMES THIS DEFECT CANNOT SEE EITHER OF THESE BUGS
+**Third: a run kept in printed order is still repaired as though it were reversed.**
+*Open.* A run that the island rule keeps in printed order is already in logical order, and
+`joinRunsRightToLeft` passes it through `visualToLogical` anyway. For a run of Latin
+letters that is a no-op — the whole string is one island, so reversing it and putting the
+island back is identity. For a run of only digits and punctuation it is not, because a
+space is an island member only when the runes on both sides are strongly left-to-right.
+
+Page 204 prints the laser standard `IEC 60825-1:2014/EN 60825-1:2014/A11:2021`, and
+poppler cuts it at the font changes into `IEC`, `EN`, `A` and two runs that are pure
+digits and punctuation. Those two are correctly held in printed order now, and still
+arrive damaged:
+
+| run | printed | stored |
+|---|---|---|
+| x=180 | `" 60825-1:2014/"` | `"60825-1:2014/ "` |
+| x=316 | `" 60825- 1:2014/"` | `"1:2014/ 60825- "` |
+
+In the first, the leading space ends up trailing, and that is the space missing from
+`IEC60825`. In the second, the space in `- 1` has `1` on one side and `-` on the other, so
+it is not an island member and becomes a split point: the two halves come back
+transposed. The line is stored as `معيار 11:2021 IEC60825-1:2014/ EN1:2014/ 60825- A`.
+
+The fix is not to widen the island rule again — it is that a run being emitted in printed
+order should not be passed through `visualToLogical` at all. Only runs that reverse with
+the right-to-left text need the character-level repair. Not built; the glued-words count
+of 7 is pinned as measured so the gap stays visible.
+
+One more thing this page shows and no run-level rule can fix: `11:2021`, the tail of the
+standard, is inside the **same run** as the Arabic that follows it. The island's last
+piece is on the wrong side of a run boundary, so separating it needs a mixed run split at
+character level, which nothing here does.
+
+### THE CHECK THAT NAMES THIS DEFECT SAW NONE OF THESE THREE BUGS
 
 This is the most useful thing the whole exercise produced, and it is a statement about
 `internal/verify` rather than about bidi.
 
 `right-to-left-reversed` reports **0** on both manuals and that zero is honest: it means
-no word is stored as its own reverse. Both defects above are word ORDER, not word
+no word is stored as its own reverse. All three defects above are word ORDER, not word
 spelling, and the word check compares **set membership per page** — for the reason
 `checkText` gives, that a multiset would report a legitimate difference of one occurrence
 and a sequence would report the reading order `checkOrder` is about. So a reordering that
@@ -674,12 +703,36 @@ preserves the word set is invisible to it *by construction*:
 
 | defect | word set | how it actually surfaced |
 |---|---|---|
-| URL's 17 runs reversed | unchanged — `https`, `global`, `com`, `pages` all still present | sideways, as one `join-hyphen-space` on `إىل faqs-and- manuals-us` |
-| list marker `1.` → `. 1` | unchanged — `1` is still on the page | **not at all**; found only because 43 blocks vanished from a pinned count |
+| URL's 17 runs reversed | unchanged — `https`, `global`, `com`, `pages` all present | sideways, as one `join-hyphen-space` |
+| list marker `1.` → `. 1` | unchanged — `1` is still on the page | **not at all**; 43 blocks vanished from a pinned count |
+| `EN 60825- 1:2014/` → `EN1:2014/ 60825-` | unchanged for the transposition; the lost space merges two tokens | sideways again, as `join-glued-words` on `iec|60825` — the side effect, not the defect |
 
-The second row is the warning. Nothing in the report named it. It was caught because a
-fixture test pins the block count of a real document and the number moved, which is an
-argument for pinning counts you cannot yet explain.
+Read the right-hand column. **Not one of the three was reported by the check whose name
+describes them.** Two were caught by a different check reacting to a side effect, and one
+was not reported at all.
+
+#### Pin the counts you cannot yet explain
+
+This is the practice that actually found the damage, and it earned its place twice.
+
+The block count of the sequential manual is pinned at an exact number with no theory
+attached to most of its history — it has been 15,951, 16,055, 16,097, 16,098, 16,055 and
+16,098 again. Twice that pin was the only thing standing between a regression and a
+release:
+
+- It **caught** the neutral-run island defect. Nothing else did. 43 blocks disappeared,
+  the number moved, and the cause was six pages of Arabic and Hebrew list markers turned
+  round.
+- It **confirmed** the repair, and more precisely than a total could: the distribution
+  came back page for page identical to the earlier reading, which is what says the same
+  43 blocks returned rather than 43 different ones appearing somewhere else.
+
+It also showed why a total is not enough on its own. 16,055 appears twice in that
+sequence and means opposite things — once the honest count before any right-to-left
+repair, once a regression in which page 194 sat 7 blocks *below* its original. A pinned
+number needs its sequence recorded beside it, which is why
+`verify_fixture_test.go` carries the whole history in a comment and its failure message
+tells the reader to read it before deciding which direction is good.
 
 `checkOrder` asks the order question of **blocks** and nothing asks it of **words**. That
 is the gap, and it is deliberately still open.
@@ -922,9 +975,8 @@ The last two rows moved together when `bidi.go` landed, and in opposite directio
 one reason. Reversed pages fell from 32 to 6 and then to 0 because the text is no
 longer reversed; absent words rose from 153 to 160 because the pages that are Hebrew or
 Arabic but *not* reversed stopped being named as pages and are now judged block by block
-like every other page. What is left on them is Arabic shaping, combining-mark
-disagreement, and the turned-round list markers described above — none of it a reversal
-and none of it either tool's to fix.
+like every other page. What is left on them is Arabic shaping and combining-mark
+disagreement — not a reversal, and not either tool's to fix.
 
 **A zero on the last row is a weaker statement than it looks**, and the section above
 says why: it means no word is stored as its own reverse, not that the words are in the

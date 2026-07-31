@@ -173,12 +173,12 @@ that line was joined left to right and left reversed. `internal/verify` reported
 same page from the other side, off a comparison sharing no code with this one. Giving
 the decision to the **region's language**, with the majority as fallback, closed both.
 
-**One thing search still can't be asked about.** Word ORDER. Page 204's support URL was
-stored token-reversed for one commit and page 211's Arabic list markers are stored turned
-round today, `. 1` for `1.`. Every word is present either way, so the index finds them
-all and only the reading is wrong — no query reveals it, and none is pinned here. It is
-`internal/doc`'s, and conversion.md carries both instances and why the verifier's
-word check cannot see them either.
+**One thing search still can't be asked about.** Word ORDER. Page 204's laser standard is
+stored `EN1:2014/ 60825-` for a printed `EN 60825- 1:2014/`, and two now-fixed defects did
+the same to that page's support URL and to page 211's Arabic list markers. Every word is
+present either way, so the index finds them all and only the reading is wrong — no query
+reveals it, and none is pinned here. It is `internal/doc`'s, and conversion.md carries all
+three instances and why the verifier's word check could not see any of them.
 
 ## Ranking
 
