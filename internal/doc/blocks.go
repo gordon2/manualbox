@@ -886,7 +886,13 @@ func (l *textLine) finish() {
 	l.size = dominantSize(sizes)
 	l.weight = dominantWeight(weights)
 
-	l.text = joinRuns(l.runs)
+	// A right-to-left line arrives reversed twice over — see bidi.go — and this is
+	// the one place a line's order is decided, so it is the one place that repairs it.
+	if lineIsRightToLeft(l.runs) {
+		l.text = joinRunsRightToLeft(l.runs)
+	} else {
+		l.text = joinRuns(l.runs)
+	}
 	l.chars = utf8.RuneCountInString(l.text)
 	l.marker, l.markerRuneOnly = leadingMarker(l)
 }

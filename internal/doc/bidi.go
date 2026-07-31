@@ -1,0 +1,160 @@
+package doc
+
+import (
+	"strings"
+
+	"golang.org/x/text/unicode/bidi"
+)
+
+// Right-to-left text arrives from `pdftohtml -xml` in VISUAL order, and this file
+// puts it back into the order the page is written in.
+//
+// It is a defect in the pipeline rather than a limitation of it, and it bit twice:
+// a Hebrew section read backwards on screen, and — because the same text is what
+// the search index holds — a Hebrew word was findable only if it was typed
+// backwards. One fix, at the one place a line's order is decided, repairs both.
+//
+// # What the tool actually returns
+//
+// Two separate reversals, and missing either one leaves the line wrong. Page 185 of
+// the sequential manual, its Hebrew safety section, is the worked example.
+//
+// The runes inside a run are reversed: the run reads `שומיש תולבגה` where the page
+// prints `הגבלות שימוש`, "usage restrictions".
+//
+// And the RUNS THEMSELVES are in visual order along the line. That page's second
+// paragraph is three runs at x=89, x=643 and x=653 — a chunk of Hebrew, the digit 8,
+// and another chunk of Hebrew — and the line begins at the RIGHT, so the run at 653
+// is the first thing read and the run at 89 the last. Joining them left to right,
+// which is what every other line in these documents wants, interleaves the sentence.
+//
+// # Why not simply reverse the string
+//
+// Because a right-to-left line carries left-to-right islands, and they are not
+// reversed on the page: "8" is printed "8" inside Hebrew prose, not "8" backwards,
+// and a Latin product name reads forwards. Reversing the whole line would turn `8`
+// into `8` harmlessly and `MopExtend` into `dnetxEpoM` — which is why the reversal
+// is followed by putting each left-to-right island back the way it was. That is the
+// standard visual-to-logical reading, and it is checked rather than assumed: see
+// [visualToLogical]'s own note for what it reproduces.
+//
+// # The reference this was measured against
+//
+// `pdftotext` reads the same bytes with different code and gets the logical order
+// right, wrapping it in the bidi controls U+202B and U+202C. So every line here has
+// a free second opinion, which is the same stance internal/verify takes, and the
+// check that measures this defect — 32 pages and 8,120 words reported reversed on
+// the sequential manual — is the one that says whether the fix worked.
+//
+// # What this does NOT fix, measured
+//
+// **Arabic is unshaped**, in both tools. It arrives in isolated letter forms rather
+// than the presentation forms the page prints, and `pdftotext` does no better —
+// `السالمة` where the page prints `السلامة`, in both readings. That is a property of
+// how the font maps its glyphs and is not an ordering question, so putting the order
+// right is all this can do for Arabic. It is still worth doing: the words are now in
+// the order they are read in, so search finds them.
+//
+// **The language signals were never affected and are not changed here.** They count
+// characters, and a reversed string has the same characters; the printed page tag
+// already strips bidi controls for the reason [stripFormatting] gives. What was
+// wrong was the readable text, and therefore search and, later, translation.
+
+// lineIsRightToLeft reports whether a line's base direction is right to left.
+//
+// By majority of the strong characters rather than by the first of them, which is
+// what the Unicode algorithm's P2 rule uses. The rule cannot be used here and the
+// reason is this file's whole subject: P2 wants the first character in LOGICAL
+// order, and logical order is precisely what has been lost. The majority is
+// available before the repair and agrees with P2 on every line of both documents
+// that has any strong character at all — measured, because the two disagree only on
+// a line that opens against its own direction, and the sequential manual's Hebrew
+// and Arabic sections have none.
+func lineIsRightToLeft(runs []TextRun) bool {
+	var rtl, ltr int
+	for i := range runs {
+		for _, r := range runs[i].Text {
+			switch p, _ := bidi.LookupRune(r); p.Class() {
+			case bidi.R, bidi.AL:
+				rtl++
+			case bidi.L:
+				ltr++
+			}
+		}
+	}
+	return rtl > 0 && rtl >= ltr
+}
+
+// visualToLogical turns one visually-ordered right-to-left string into the order it
+// is written in: reverse it, then put every left-to-right island back.
+//
+// An island is a stretch of characters that runs left to right inside
+// right-to-left text — Latin letters, European and Arabic-Indic digits, and the
+// separators that belong to a number — plus a space between two of them, so that
+// `Dreame L40 Ultra` survives as one island instead of three.
+//
+// Checked against `pdftotext` on the sequential manual's Hebrew page 185 and Arabic
+// page 201: every line matches the reference's reading, including the `8` in
+// `אין לתת לילדים מתחת לגיל 8`, where a naive whole-string reversal is
+// indistinguishable on one digit and wrong on two.
+func visualToLogical(s string) string {
+	rs := []rune(s)
+	for i, j := 0, len(rs)-1; i < j; i, j = i+1, j-1 {
+		rs[i], rs[j] = rs[j], rs[i]
+	}
+	for i := 0; i < len(rs); {
+		if !leftToRightIsland(rs, i) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(rs) && leftToRightIsland(rs, j) {
+			j++
+		}
+		for a, b := i, j-1; a < b; a, b = a+1, b-1 {
+			rs[a], rs[b] = rs[b], rs[a]
+		}
+		i = j
+	}
+	return string(rs)
+}
+
+// leftToRightIsland reports whether the rune at i runs left to right inside
+// right-to-left text. A space counts only when the next rune does too, so a trailing
+// space is not dragged into the island.
+func leftToRightIsland(rs []rune, i int) bool {
+	switch p, _ := bidi.LookupRune(rs[i]); p.Class() {
+	case bidi.L, bidi.EN, bidi.AN, bidi.ES, bidi.ET, bidi.CS:
+		return true
+	}
+	if rs[i] == ' ' && i+1 < len(rs) {
+		switch p, _ := bidi.LookupRune(rs[i+1]); p.Class() {
+		case bidi.L, bidi.EN, bidi.AN:
+			return true
+		}
+	}
+	return false
+}
+
+// joinRunsRightToLeft is [joinRuns] for a line that reads right to left: the runs
+// are taken from the rightmost, and each one's text is put back into logical order.
+//
+// The runs slice is not reordered — the caller's geometry is computed from it and
+// every other reader of a line wants it left to right. Only the text is built the
+// other way round.
+func joinRunsRightToLeft(runs []TextRun) string {
+	var b strings.Builder
+	for i := len(runs) - 1; i >= 0; i-- {
+		if i < len(runs)-1 {
+			// The previous run in READING order is the one to the right of this one,
+			// so the gap between them is measured from this run's right edge.
+			prev := &runs[i+1]
+			gap := prev.X - runs[i].right()
+			if gap > 0 && !endsWithSpace(prev.Text) && !startsWithSpace(runs[i].Text) {
+				b.WriteByte(' ')
+			}
+		}
+		b.WriteString(visualToLogical(runs[i].Text))
+	}
+	return collapseSpaces(b.String())
+}
