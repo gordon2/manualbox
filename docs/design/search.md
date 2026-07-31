@@ -173,12 +173,12 @@ that line was joined left to right and left reversed. `internal/verify` reported
 same page from the other side, off a comparison sharing no code with this one. Giving
 the decision to the **region's language**, with the majority as fallback, closed both.
 
-**One thing search still can't be asked about.** Word ORDER. Page 204's laser standard is
-stored `EN1:2014/ 60825-` for a printed `EN 60825- 1:2014/`, and two now-fixed defects did
-the same to that page's support URL and to page 211's Arabic list markers. Every word is
-present either way, so the index finds them all and only the reading is wrong — no query
-reveals it, and none is pinned here. It is `internal/doc`'s, and conversion.md carries all
-three instances and why the verifier's word check could not see any of them.
+**One thing search still can't be asked about.** Word ORDER. Three now-fixed defects in
+`internal/doc` reordered stored text without changing a single word of it — page 204's
+support URL, page 211's Arabic list markers, page 204's laser standard. Every word was
+present throughout, so the index found them all and only the reading was wrong: **no query
+reveals that class of defect**, and none is pinned here. conversion.md carries all three
+and why the verifier's word check could not see any of them either.
 
 ## Ranking
 

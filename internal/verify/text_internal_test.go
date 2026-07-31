@@ -25,13 +25,15 @@ import (
 //	region direction      25 pages,   202 absent,     0 reversible
 //	run-level islands     27 pages,   235 absent,     0 reversible
 //	islands anchored      25 pages,   202 absent,     0 reversible
+//	printed order kept    25 pages,   200 absent,     0 reversible
 //
 // The third row was neither an improvement nor a reversal: a run-level island test that
 // swallowed neutral runs turned six Arabic and Hebrew list markers round, `. 1` for
 // `1.`, which added absent words and brought two more pages over [rtlShare] without any
-// of them being backwards. Anchoring the island at both ends put it back, exactly. The
-// reversible column is 0 through all of it, which is what this test is for; the rest is
-// [KindInvented]'s business and conversion.md has the story.
+// of them being backwards. Anchoring the island at both ends put it back, exactly, and
+// the last two absent words went when page 204's laser standard stopped being repaired
+// twice over. The reversible column is 0 through all of it, which is what this test is
+// for; the rest is [KindInvented]'s business and conversion.md has the story.
 //
 // A sweep over an empty population would accept any value and prove nothing, so the
 // assertion moved from "which threshold" to "is it zero" — which is stronger, and is
@@ -68,7 +70,7 @@ func TestNoTextIsStoredReversed(t *testing.T) {
 	}
 	t.Logf("  %d page(s), %d absent word(s), %d present reversed", len(rows), absent, reversible)
 
-	// The assertion. 202 absent words remain and none is backwards: Arabic shaping and
+	// The assertion. 200 absent words remain and none is backwards: Arabic shaping and
 	// combining-mark disagreement, [KindInvented]'s business, and none of it a reversal.
 	if reversible != 0 {
 		t.Errorf("%d word(s) on page(s) %v are absent from pdftotext and present in it "+

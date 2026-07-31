@@ -599,10 +599,11 @@ backwards, and `registry.TestHebrewIsFoundTypedForwards` fails if the word for
 
 ### The run-level order of a mixed line, which is where both remaining defects live
 
-Getting a line's DIRECTION right does not get its RUN ORDER right, and this is now the
-only part of bidi handling still wrong. Both defects here were found by `internal/verify`
-rather than by reading the code, and neither was found by the check that names the
-defect — see the next section for why that matters more than either bug.
+Getting a line's DIRECTION right does not get its RUN ORDER right. Three defects lived
+here, one after another, each uncovered by fixing the one before it; all three are now
+fixed and all three were found by `internal/verify` rather than by reading the code. None
+was found by the check that names the defect — see the next section, which is the part of
+this worth more than any of the bugs.
 
 **First: a left-to-right island spanning several runs was reversed.** *Fixed.* Page 204
 prints the support URL
@@ -657,59 +658,95 @@ That keeps the URL's punctuation runs inside their island, because each sits bet
 nothing left-to-right stands on the far side of them. Both cases are pinned on their real
 geometry in `bidi_internal_test.go`, and the 43 blocks came back page for page.
 
-**Third: a run kept in printed order is still repaired as though it were reversed.**
-*Open.* A run that the island rule keeps in printed order is already in logical order, and
-`joinRunsRightToLeft` passes it through `visualToLogical` anyway. For a run of Latin
+**Third: a run kept in printed order was still repaired as though it were reversed.**
+*Fixed.* A run the island rule keeps in printed order is already in logical order, and
+`joinRunsRightToLeft` passed it through `visualToLogical` anyway. For a run of Latin
 letters that is a no-op — the whole string is one island, so reversing it and putting the
 island back is identity. For a run of only digits and punctuation it is not, because a
 space is an island member only when the runes on both sides are strongly left-to-right.
 
 Page 204 prints the laser standard `IEC 60825-1:2014/EN 60825-1:2014/A11:2021`, and
 poppler cuts it at the font changes into `IEC`, `EN`, `A` and two runs that are pure
-digits and punctuation. Those two are correctly held in printed order now, and still
-arrive damaged:
+digits and punctuation. Those two were correctly held in printed order and still arrived
+damaged:
 
-| run | printed | stored |
+| run | printed | stored, before |
 |---|---|---|
-| x=180 | `" 60825-1:2014/"` | `"60825-1:2014/ "` |
-| x=316 | `" 60825- 1:2014/"` | `"1:2014/ 60825- "` |
+| x=180 | `" 60825-1:2014/"` | `"60825-1:2014/ "` — leading space ends up trailing |
+| x=316 | `" 60825- 1:2014/"` | `"1:2014/ 60825- "` — halves swapped |
 
-In the first, the leading space ends up trailing, and that is the space missing from
-`IEC60825`. In the second, the space in `- 1` has `1` on one side and `-` on the other, so
-it is not an island member and becomes a split point: the two halves come back
-transposed. The line is stored as `معيار 11:2021 IEC60825-1:2014/ EN1:2014/ 60825- A`.
+In the second, the space in `- 1` has `1` on one side and `-` on the other, so it was not
+an island member and became a split point. The line was stored as
+`معيار 11:2021 IEC60825-1:2014/ EN1:2014/ 60825- A`; the missing space is the one the
+glued-words check reported as `iec|60825`.
 
-The fix is not to widen the island rule again — it is that a run being emitted in printed
-order should not be passed through `visualToLogical` at all. Only runs that reverse with
-the right-to-left text need the character-level repair. Not built; the glued-words count
-of 7 is pinned as measured so the gap stays visible.
+Only a run that **reverses** gets `visualToLogical` now, and the standard reads
+`IEC 60825-1:2014/ EN 60825- 1:2014/`.
 
-One more thing this page shows and no run-level rule can fix: `11:2021`, the tail of the
-standard, is inside the **same run** as the Arabic that follows it. The island's last
-piece is on the wrong side of a run boundary, so separating it needs a mixed run split at
+#### The stated limit, corrected by the corpus
+
+A digits-only run at the OUTER edge of an island goes with the right-to-left text and is
+emitted outside the island in reading order. `bidi.go` records this as a limit on the
+grounds that neither document prints the shape. **It does print it — three times — so the
+reason is wrong, though the decision is right.** Found by scanning every line of both
+manuals that holds a right-to-left character, 1,136 of them, for a digits-only run
+outside the left-to-right span of its stretch with right-to-left text *adjacent* beyond
+it. Adjacency matters: grouping a page's runs by their top alone merges a table's label
+column with its value column, and `blocks.go` groups lines within a region and a column
+group, so those are not one line. With that filter the corpus holds three, all on the
+sequential manual and none on the columns one:
+
+| page | stretch | stored | verdict |
+|---|---|---|---|
+| 196 | `GHz`, ` `, `5` | `בחיבור Wi-Fi של 5 GHz` | **correct** |
+| 205 | `AI`, ` `, `IR`, ` .`, `11` | `11. AI IR كاميرا` | marker leads, `leadingMarker` sees it |
+| 205 | `AI`, ` `, `HD`, ` .`, `12` | `12. AI HD كامير` | same |
+
+The reason the decision survives is sharper than the reason recorded. Putting an outer
+digits run outside the island is **right when the digits lead the phrase** — a quantity
+like `5 GHz`, or a list marker `11.` — and wrong only when they **trail** a Latin token,
+which is the synthetic `A` + `11:2021` shape. All three real instances are the leading
+kind, and that is not luck: a trailing number is part of the Latin token beside it and a
+printer sets it in the same run, which is exactly what page 204 does — `11:2021`, the tail
+of the standard, is inside the **same run** as the Arabic that follows it. So the trailing
+case is unreachable at run level there, and separating it would need a mixed run split at
 character level, which nothing here does.
 
-### THE CHECK THAT NAMES THIS DEFECT SAW NONE OF THESE THREE BUGS
+Page 205 is also where `pdftotext` stops being a usable referee: it reads that line
+`AI IR11.` with U+202A/U+202C embedding markers around the Latin, so its byte order is not
+plain logical order either. Neither tool is clean, which is why the verdict column above
+says what the marker does rather than claiming a match.
+
+### THE CHECK THAT NAMES THIS DEFECT SAW ONE OF THE FOUR BUGS
 
 This is the most useful thing the whole exercise produced, and it is a statement about
 `internal/verify` rather than about bidi.
 
-`right-to-left-reversed` reports **0** on both manuals and that zero is honest: it means
-no word is stored as its own reverse. All three defects above are word ORDER, not word
-spelling, and the word check compares **set membership per page** — for the reason
-`checkText` gives, that a multiset would report a legitimate difference of one occurrence
-and a sequence would report the reading order `checkOrder` is about. So a reordering that
-preserves the word set is invisible to it *by construction*:
+Four defects were found in `bidi.go`, all by measurement rather than review. **The check
+whose name describes them caught exactly the one that was a reversal, and was structurally
+blind to all three that were reorderings.**
+
+The one it caught is the direction rule: a line whose Latin outweighed its Hebrew was
+never repaired, so its words were stored as their own reverse. That is what
+`right-to-left-reversed` names, and once it was sharpened to require evidence of a
+reversal rather than merely a right-to-left page, it named those six pages and 18 words
+precisely. The sharpening earned itself here — see `verify.minReversibleWords`.
+
+The other three are word ORDER, not word spelling, and the word check compares **set
+membership per page** — for the reason `checkText` gives, that a multiset would report a
+legitimate difference of one occurrence and a sequence would report the reading order
+`checkOrder` is about. So a reordering that preserves the word set is invisible to it *by
+construction*:
 
 | defect | word set | how it actually surfaced |
 |---|---|---|
 | URL's 17 runs reversed | unchanged — `https`, `global`, `com`, `pages` all present | sideways, as one `join-hyphen-space` |
 | list marker `1.` → `. 1` | unchanged — `1` is still on the page | **not at all**; 43 blocks vanished from a pinned count |
-| `EN 60825- 1:2014/` → `EN1:2014/ 60825-` | unchanged for the transposition; the lost space merges two tokens | sideways again, as `join-glued-words` on `iec|60825` — the side effect, not the defect |
+| `EN 60825- 1:2014/` → `EN1:2014/ 60825-` | unchanged for the transposition; the lost space merges two tokens | sideways, as `join-glued-words` on `iec|60825` — the side effect, not the defect |
 
-Read the right-hand column. **Not one of the three was reported by the check whose name
-describes them.** Two were caught by a different check reacting to a side effect, and one
-was not reported at all.
+Read the right-hand column. Two were caught by a *different* check reacting to a side
+effect, and one was not reported at all. A `right-to-left-reversed` count of 0 was true
+throughout every one of them.
 
 #### Pin the counts you cannot yet explain
 

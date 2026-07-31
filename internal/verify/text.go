@@ -183,8 +183,8 @@ const (
 	// reverse. It does not mean the words are in the right order.
 	//
 	// Set membership per page is what [checkText] compares, for the reasons given there,
-	// so word ORDER is outside it by construction — and ALL THREE of doc/bidi.go's
-	// run-order defects were invisible here, every token still present in the reference
+	// so word ORDER is outside it by construction — and all three of doc/bidi.go's
+	// run-ORDER defects were invisible here, every token still present in the reference
 	// each time:
 	//
 	//	page 204's support URL, its seventeen runs reversed — surfaced sideways as a
@@ -194,10 +194,15 @@ const (
 	//	page 204's laser standard, `EN1:2014/ 60825-` for `EN 60825- 1:2014/` — sideways
 	//	  again, as a [KindJoinGlued] on the one space the transposition also lost
 	//
-	// Not one was reported by the check whose name describes it. Two were caught by
-	// another check reacting to a side effect and one by an unexplained pinned count,
-	// which is the argument conversion.md makes for pinning counts before you can
-	// explain them.
+	// Two were caught by another check reacting to a side effect and one by an
+	// unexplained pinned count, which is the argument conversion.md makes for pinning
+	// counts before you can explain them. This check reported 0 throughout all three.
+	//
+	// The contrast is what says the sharpening above was worth doing rather than merely
+	// tidy: bidi.go's FOURTH defect, the direction rule that left six lines unrepaired,
+	// really did store words as their own reverse — and this check named those six pages
+	// and 18 words exactly, which the version that fired on any right-to-left page could
+	// not have distinguished from noise.
 	//
 	// [checkOrder] asks the order question of blocks and nothing asks it of words. That
 	// gap is deliberately open, and conversion.md carries the design: what the

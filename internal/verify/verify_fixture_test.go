@@ -345,29 +345,15 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// not recognise, so reading the line logically is what makes `סוללות|מדריך` legible
 	// as a glued pair.
 	//
-	// The 7th is `iec|60825` on page 204, it is STILL HERE after the island rule was
-	// anchored at both ends, and it is a third mechanism rather than a leftover of the
-	// second. The page prints the laser standard
-	// `IEC 60825-1:2014/EN 60825-1:2014/A11:2021` and poppler cuts it at the font
-	// changes, so two of its runs are pure digits and punctuation:
-	//
-	//	x=180  " 60825-1:2014/"   stored as "60825-1:2014/ "
-	//	x=316  " 60825- 1:2014/"  stored as "1:2014/ 60825- "
-	//
-	// Those runs are correctly kept in printed order now — they sit between `IEC`, `EN`
-	// and `A` — but they are still passed through visualToLogical, which reverses the
-	// whole string and then puts back only the maximal left-to-right islands. A space is
-	// an island member only when the runes BOTH sides of it are strongly left-to-right,
-	// so the space in `- 1` is not, and it becomes a split point: the two halves come
-	// back transposed, and the leading space of the first run ends up trailing, which is
-	// the space `iec|60825` is missing.
-	//
-	// A run that is being emitted in printed order is already in logical order and does
-	// not need that repair at all. Reported, not fixed; conversion.md has it.
-	if got := rep.Count(verify.KindJoinGlued); got != 7 {
-		t.Errorf("glued words: %d, was 7 (3 before right-to-left lines were read in "+
-			"order; the 7th is page 204's laser standard and is a live defect, so a 6 "+
-			"here is good news that needs the comment above updated)", got)
+	// It was 7 for two commits, when page 204's laser standard lost the space in
+	// `IEC 60825` and transposed the halves of `EN 60825- 1:2014/`. Both came from
+	// passing a run through visualToLogical after deciding to emit it in PRINTED order:
+	// such a run is already in logical order, and reversing it splits it at any space
+	// whose neighbours are not both strongly left-to-right. Only a run that reverses
+	// gets that repair now, and the standard reads `IEC 60825-1:2014/ EN 60825- 1:2014/`.
+	if got := rep.Count(verify.KindJoinGlued); got != 6 {
+		t.Errorf("glued words: %d, was 6 (7 while page 204's laser standard was "+
+			"repaired twice over, 3 before right-to-left lines were read in order)", got)
 	}
 
 	// 2 blank bands where there were 6 before the clip was read. Merging candidate

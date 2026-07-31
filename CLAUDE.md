@@ -200,16 +200,19 @@ It now needs evidence of a reversal — see `verify.minReversibleWords`, which r
 why that is a count and not a share.
 
 **A zero there means no word is spelled backwards. It does not mean the words are in
-the right order.** The word check compares set membership per page, so word order is
-outside it by construction — and **all three** of `bidi.go`'s run-order defects were
-invisible to it. Page 204's URL arrived with its seventeen runs reversed; page 211's
+the right order.** Four defects were found in `bidi.go`, all by measurement, and the
+check whose name describes them caught **exactly the one that was a reversal** — the
+direction rule that left six lines unrepaired, which it named to the page and the word
+once it was sharpened. It was structurally blind to the other three, which were
+reorderings: the word check compares set membership per page, so word order is outside it
+by construction. Page 204's URL arrived with its seventeen runs reversed; page 211's
 Arabic list marker `1.` arrived as `. 1`, merging six printed list items into one
-paragraph on each of six pages; page 204's laser standard still arrives as
-`EN1:2014/ 60825-`. Two surfaced sideways through the joins check reacting to a side
-effect, and **one was not reported at all** — it was caught because a pinned block count
-moved by 43. Only the third is still open. `internal/verify` asks the order question of
-blocks and nothing asks it of words; the design of the check that would, and the reason
-it is not built, is in [docs/design/conversion.md](docs/design/conversion.md).
+paragraph on each of six pages; page 204's laser standard arrived as `EN1:2014/ 60825-`.
+Two surfaced sideways through the joins check reacting to a side effect, and **one was not
+reported at all** — caught only because a pinned block count moved by 43. All four are
+fixed. `internal/verify` asks the order question of blocks and nothing asks it of words;
+the design of the check that would, and the reason it is not built, is in
+[docs/design/conversion.md](docs/design/conversion.md).
 
 **Pin the counts you cannot yet explain.** That block-count pin caught the regression
 nothing else saw, and then confirmed the repair page for page. Its history also shows why
