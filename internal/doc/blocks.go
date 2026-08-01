@@ -357,7 +357,10 @@ func RegionBlocks(p *PageRuns, r *Region, tables []RuledTable, fur *Furniture) [
 	// what is left. See [cellRunsOfRegion] for why membership is a cell and not a
 	// table's box.
 	celled, prose := cellRunsOfRegion(inside, tables)
-	groups := readingGroups(prose, p, r)
+	// Columns are found from the region's text INCLUDING its furniture, and only
+	// then is the furniture left out of the strips. See [readingGroups].
+	_, layoutRuns := cellRunsOfRegion(all, tables)
+	groups := readingGroups(prose, layoutRuns, p, r)
 	placeTables(groups, celled)
 
 	var out []Block
@@ -546,8 +549,28 @@ type readingGroup struct {
 // manual's page 57 the four "columns" the detector finds over the whole page are
 // two tables' cell dividers, and reading down them is reading a troubleshooting
 // table down its question column and then down its answer column.
-func readingGroups(prose []TextRun, p *PageRuns, r *Region) []readingGroup {
-	layout := DetectColumns(prose, p.Width, p.Height)
+//
+// # prose and forLayout, and why they are two arguments
+//
+// forLayout is where the columns are found and prose is what gets sorted into
+// them, and they differ by the page furniture. Detecting on prose — the region's
+// text with the furniture already removed — makes the column split depend on which
+// runs another rule happened to claim, and that is not a theory: measured over the
+// sequential manual, three pages change their column count when the running head is
+// taken out ahead of the detector. Page 552 goes from two columns to one, so its
+// Japanese left and right headings merge into `サイドブラシ ロボット掃除機本体のセ
+// ンサーと充電端子`, and page 36's German troubleshooting grid goes from three to
+// two and merges `Problem` with `Problem`. Page 486's Thai goes the other way and
+// improves.
+//
+// Detecting on forLayout — everything the region prints, furniture included, minus
+// only the table cells — makes the answer a property of the page instead. Measured
+// over both documents: on its own it moves the sequential manual by 1 block of
+// 16,098 and changes no finding of any kind, and with the running-head clause on
+// top the reading-order count, the invented-text count, the glued-word count and
+// every figure count are exactly what they were before either change.
+func readingGroups(prose, forLayout []TextRun, p *PageRuns, r *Region) []readingGroup {
+	layout := DetectColumns(forLayout, p.Width, p.Height)
 	if len(layout.Columns) < 2 {
 		// One column, or too little text to call one. Either way the region is a
 		// single strip and its measure is what its own text reaches.

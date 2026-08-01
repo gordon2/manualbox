@@ -146,11 +146,12 @@ func isRunningHead(b *doc.Block) bool {
 // Measured: 61 claims on the column manual over 20 distinct titles, 184 on the
 // sequential manual over 77, and 0 of the 245 has no surviving content copy.
 //
-// The reversed comparison is not a nicety. [doc.FindFurniture] does not put
-// right-to-left text back into logical order — furniture reaches neither a reader
-// nor the search index, so nothing has ever needed it to — while a content block
-// does. So the Hebrew and Arabic heads are held the two ways round, and comparing
-// them naively reports 10 losses on the sequential manual that are not losses.
+// The comparison is exact, and it was not always able to be. Furniture blocks were
+// joined left to right whatever the language, which is harmless for a tab reading
+// "HE" and wrong for a Hebrew or Arabic sentence: the first version of clause 3
+// stored 10 of these heads backwards, so this test had to accept a reversed match
+// and internal/verify's `right-to-left-reversed` check went from 0 pages to 10.
+// [doc.FindFurniture] repairs the direction now and both are exact again.
 func TestFurnitureKeepsEveryTitleItClaims(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -183,7 +184,7 @@ func TestFurnitureKeepsEveryTitleItClaims(t *testing.T) {
 				}
 				heads++
 				titles[b.Text] = true
-				if content[b.Lang][b.Text] || content[b.Lang][reverseRunes(b.Text)] {
+				if content[b.Lang][b.Text] {
 					continue
 				}
 				lost++
@@ -198,16 +199,6 @@ func TestFurnitureKeepsEveryTitleItClaims(t *testing.T) {
 				tc.name, heads, len(titles), lost)
 		})
 	}
-}
-
-// reverseRunes reverses a string by rune, for the right-to-left comparison
-// [TestFurnitureKeepsEveryTitleItClaims] explains.
-func reverseRunes(s string) string {
-	r := []rune(s)
-	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
-		r[i], r[j] = r[j], r[i]
-	}
-	return string(r)
 }
 
 func allDigits(s string) bool {

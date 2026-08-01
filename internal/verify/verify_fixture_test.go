@@ -138,13 +138,21 @@ func TestCheckTheColumnManual(t *testing.T) {
 	// block of dot leaders: +16 per language over five languages is exactly the 80.
 	// Coverage did not move — the dots are still in the text, only grouped
 	// differently — and neither did the figures.
-	if len(conv.Blocks) != 2336 || len(conv.Figures) != 59 {
+	//
+	// 2,345 since the running-head clause, and the +9 is one page rather than a
+	// spread: furniture went 111 -> 172 without the total rising by 61, because 61
+	// of the 61 were already blocks of their own or were the whole of one. The nine
+	// are all on page 44, where taking the head off the Polish column changed the
+	// line pitch that page's paragraph rule measures, and two run-together blocks
+	// resolved into ten discrete printed instructions. That is the same second-order
+	// effect the tab had when it lifted the column manual's level-1 headings by 29.
+	if len(conv.Blocks) != 2345 || len(conv.Figures) != 59 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 2336 and 59 (2256 before the contents pages came apart)",
-			len(conv.Blocks), len(conv.Figures))
+			"was 2345 and 59 (2336 before the running-head clause, 2256 before the "+
+			"contents pages came apart)", len(conv.Blocks), len(conv.Figures))
 	}
-	if got := len(conv.FurnitureBlocks()); got != 111 {
-		t.Errorf("%d furniture block(s), was 111", got)
+	if got := len(conv.FurnitureBlocks()); got != 172 {
+		t.Errorf("%d furniture block(s), was 172 (111 before the running-head clause)", got)
 	}
 
 	// No page loses text. The lowest score is page 5 at 0.80, which is a page of
@@ -155,11 +163,18 @@ func TestCheckTheColumnManual(t *testing.T) {
 	// costs almost nothing: the median moved from 0.974 to 0.973 and the floor stayed
 	// at 0.801, because a tab and a folio are four characters against a page of three
 	// thousand. checkCoverage records why it is excluded anyway.
+	//
+	// A running head is not four characters, so the median fell again, 0.973 -> 0.965.
+	// That fall is the mechanism working and not a page losing text: the head is still
+	// in `pdftotext`'s reading, so it stays in the denominator while leaving the
+	// numerator. NO page is reported, which is the assertion that would catch a rule
+	// claiming a paragraph, and the floor is 8.5 points above 0.75 either way.
 	if got := rep.Count(verify.KindCoverage); got != 0 {
 		t.Errorf("coverage reported %d page(s) on a manual that drops none", got)
 	}
 	if m := rep.MedianCoverage(); m < 0.95 || m > 1.0 {
-		t.Errorf("median coverage %.3f, was 0.973 (0.974 before furniture was excluded)", m)
+		t.Errorf("median coverage %.3f, was 0.965 (0.973 before the running-head clause, "+
+			"0.974 before furniture was excluded)", m)
 	}
 
 	// Four blocks hold words the page never printed, and all four are table cells
@@ -259,14 +274,24 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// `1. مستشعر المسافة بالليزر (LDS)`. An island is now the part BETWEEN the outermost
 	// runs carrying a left-to-right letter, so those two reverse with the Arabic beside
 	// them, `leadingMarker` sees `1.` again, and the six list items are six blocks.
-	if len(conv.Blocks) != 16098 || len(conv.Figures) != 134 {
+	//	16,097  −1 on one page, when column detection stopped depending on which runs
+	//	        the furniture pass had taken out and started reading the page as
+	//	        printed. That change is in readingGroups and it is what lets the line
+	//	        below cost nothing: with it, the running-head clause moves no block
+	//	        total and no finding count at all.
+	//
+	// The furniture count moved 1,105 -> 1,289 on the same commit, and the total did
+	// not, because a running head was already a block of its own on every page it was
+	// claimed from. That is the shape to expect: a clause 3 that moved the total would
+	// be splitting or merging content, which is not what it is for.
+	if len(conv.Blocks) != 16097 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 16098 and 134 — read the sequence above before deciding which way is "+
+			"was 16097 and 134 — read the sequence above before deciding which way is "+
 			"better, because 16055 has been both the honest total and a regression that "+
 			"cost six pages their lists", len(conv.Blocks), len(conv.Figures))
 	}
-	if got := len(conv.FurnitureBlocks()); got != 1105 {
-		t.Errorf("%d furniture block(s), was 1105", got)
+	if got := len(conv.FurnitureBlocks()); got != 1289 {
+		t.Errorf("%d furniture block(s), was 1289 (1105 before the running-head clause)", got)
 	}
 
 	// Excluding the furniture moved the median from 1.000 to 0.997 and the worst
@@ -274,6 +299,11 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// furthest is page 558, which holds nothing but a tab and a folio and so scores
 	// 0.500 — it is under minCoverageText and is not judged, which is the page that
 	// constant was written for.
+	//
+	// 0.997 -> 0.996 with the running-head clause, and that fall is the mechanism
+	// rather than a loss: the head is still in `pdftotext`'s reading, so it stays in
+	// the denominator while leaving the numerator. Nothing is reported, which is the
+	// assertion that would catch a rule claiming a paragraph instead of a head.
 	if got := rep.Count(verify.KindCoverage); got != 0 {
 		t.Errorf("coverage reported %d page(s); its worst judged page scores 0.949", got)
 	}

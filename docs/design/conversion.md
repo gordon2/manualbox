@@ -884,11 +884,11 @@ Found while measuring, and both concern the column fixture:
 
 ## What building the first half settled
 
-**Page furniture IS identified now, per language and across pages.** The printed tab and
-the folio are found by `internal/doc/furniture.go` and no longer served as content: 111
-blocks on the column manual (70 tabs, 41 folios) and 1,105 on the sequential one (553
-tabs, 552 folios). On the sequential manual 471 of those tabs were arriving as level-2
-headings and 533 of the folios as paragraphs.
+**Page furniture IS identified now, per language and across pages.** The printed tab, the
+folio and the running head are found by `internal/doc/furniture.go` and no longer served as
+content: **172** blocks on the column manual (70 tabs, 41 folios, 61 heads) and **1,289**
+on the sequential one (553 tabs, 552 folios, 184 heads). On the sequential manual 471 of
+those tabs were arriving as level-2 headings and 533 of the folios as paragraphs.
 
 **The denominator was the whole problem, and the obvious choice fails.** Counted over the
 pages a *household* converted, the German tab is 16 of 59 — 0.27, below any usable cut.
@@ -908,8 +908,7 @@ replaces the share is `Page.Folio`, which `pdftotext` read through none of this 
 **Removing the tab makes the heading rule work better.** Level-1 headings on the column
 manual *rise* by 29, because an 11pt tab glued onto a heading line was diluting the body
 face the rule measures against. Page 14 read `D Trockensaugen` and now reads
-`Trockensaugen`; page 57 `D Fehlerbehebung` now `Fehlerbehebung`. Sequential page 24 is
-now exactly one heading and 12 list items, matching its render comparison.
+`Trockensaugen`; page 57 `D Fehlerbehebung` now `Fehlerbehebung`.
 
 **Marked in the model, filtered at the save boundary** — `Block.Furniture` plus
 `ContentBlocks()`, and `internal/ingest` stores only content. No migration, no change to
@@ -922,22 +921,70 @@ shows up as a drop rather than being invisible; coverage moved 0.974 → 0.973 a
 in four shipped files and is wrong in two ways: it undercounts by a factor of five, and it
 attributes the repetition to the *column* manual, which has 68 pages.
 
-**What is still not identified is the RUNNING HEAD**, and the measurement says why rather
-than leaving it open. Separating it from a genuinely repeated heading needs the occupancy
-of its height, not the text at it — 0.77 on the column manual against 0.63 for a real body
-line. But that cut removes the sequential manual's section titles, because there the
-running head **is** the section title, printed identically where the section starts and on
-every page after, with nothing distinguishing the first from the repeats. Twelve points
-apart with one document on each side. So the column manual's page 14 still opens with
-`Trockensaugen`, which a reader sees and did not ask for.
+**The RUNNING HEAD is clause 3, and what unblocked it was the sequence rather than a
+better threshold.** This was recorded here as measured-and-refused, and the refusal was
+correct on its own terms: separating a running head from a genuinely repeated heading by
+the occupancy of its height is **0.77 on the column manual against 0.63 for a real body
+line**, and that cut removes the sequential manual's section titles, because there the
+running head *is* the section title, printed identically where the section starts and on
+every page after. Twelve points apart with one document on each side.
+
+What that framing missed is that both of its options were wrong. "Remove them all" loses
+the titles, "keep them all" is the defect, and the answer is neither: **the page's first
+printed line is a running head when the page before it in the same language section
+printed the identical line.** The first page of each consecutive run keeps its title, every
+page after it loses one. The sequential manual's Russian prints `Плановое обслуживание` on
+pages 528 to 533 with a different grey-pill sub-heading under it on each; page 528 keeps
+the title and the other five stop repeating it. No occupancy figure is consulted and no
+new constant is introduced.
+
+Three things had to be got right and each is a measurement:
+
+- **Consecutive is in the *section's* page order, not the PDF's.** The column manual's
+  German holds every even page, so its head runs 14-16-18-20-22 with Polish pages in
+  between; a rule reading PDF adjacency finds no run at all.
+- **The position test is a vertical overlap of the two head bands, not a tolerance.** Text
+  equality alone is not enough — a stock phrase like `Hinweis:` opens a note and slides down
+  the page — but a tolerance would be another constant to defend. Measured, a real head
+  moves **0 units on 141 page pairs, 1 on 35, and never more than 8**, against a head 29–33
+  units tall in the sequential manual and 19 in the column one. Overlap is scale-free: the
+  head measures itself in its own type size.
+- **One line, not the matching prefix.** How far two consecutive pages agree from the top:
+  0 lines on 400 page pairs, 1 on 207, 2 on 38, never 3 with the probe allowed to look 8
+  deep. All 38 second lines are one thing — a troubleshooting table's repeated
+  `Problem | Solution` header on a continuation page, which a reader wants. The named cost
+  is the column manual's Polish head, two printed lines in one banner: pages 42 and 44 keep
+  the orphaned `AQUA-Box`. That is an **under-removal**, which is the only direction this
+  clause can fail in.
+
+**The column manual does have a running head, and it always did.** Read at 108 dpi, its
+grey top banner is `D  Trockensaugen` / `PL  Odkurzanie na sucho` — the chapter name, on
+every page of the chapter. It is claimed on 61 blocks over 20 distinct titles; the
+sequential manual on 184 over 77.
+
+**The false-positive check for clause 3 is an invariant, not a list.** A list would be 97
+titles in 39 languages and would assert only that they had been copied out of a previous
+run. Since the first page of every run keeps its head, **every string clause 3 removes must
+still be served as content in the same language** — and 0 of the 245 is not. One wrinkle:
+`FindFurniture` does not put right-to-left text back into logical order, because furniture
+reaches neither a reader nor the search index, while a content block does. So the Hebrew
+and Arabic heads are held the two ways round and a naive comparison reports 10 losses that
+are not losses.
+
+**Sequential page 24's pinned reading was itself a defect, and clause 3 found it.** It was
+pinned as "one heading and 12 list items, matching its render". Re-read at 108 dpi: page 23
+opens `Sicherheitshinweise` with an introduction and a sub-heading; page 24 reprints the
+title at the same place and then 12 more bullets, with no new section on it. What page 24
+prints is 12 list items. The heading it was serving was a third piece of furniture that had
+gone unnoticed because it is a real word.
 
 **One page cannot identify furniture, which is why this pass is where it is.** The printed
-`DE` badge comes back as a level-2 heading on 110 pages, the folio as a one-character
-paragraph, the running head as a paragraph. Nothing *on a page* separates those from
-content — the sequential manual genuinely titles sections `A`, `B` and `C` — and what
-does identify furniture is repetition in the same position *across* pages, which is a
-different input than a single region's runs. Left for the pass that has the whole
-document in view.
+`DE` badge comes back as a level-2 heading, the folio as a one-character paragraph, the
+running head as a paragraph. Nothing *on a page* separates those from content — the
+sequential manual genuinely titles sections `A`, `B` and `C`, and page 24's running head is
+set in exactly the face and place page 23's real title is — and what does identify
+furniture is repetition across pages, which is a different input than a single region's
+runs.
 
 **A paragraph break cannot always be found.** The gap factor is 1.2 of the measured
 line pitch, and on the column manual's page 62 that resolves paragraphs separated by

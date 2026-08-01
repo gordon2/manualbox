@@ -188,9 +188,11 @@ func TestConvertTheColumnManualForGerman(t *testing.T) {
 //
 // Russian occupies 22 pages of this manual where 32 other languages get 16, and
 // the extra is an illustrated maintenance section. Page 533 was rendered and
-// read: the heading "Плановое обслуживание", prose about the charging contacts,
-// the waste tank and the vents, and nine line drawings — the count here said eight
-// for a while, from a box overlay rather than from the print.
+// read: prose about the charging contacts, the waste tank and the vents, and nine
+// line drawings — the count here said eight for a while, from a box overlay rather
+// than from the print. It also carries "Плановое обслуживание" at the top, which
+// this test called page 533's heading and which the render says is the running
+// head of the section that starts on page 528.
 //
 // The same document is then converted for German, which is the comparison that
 // makes the point: 16 pages and not one picture, from the same code, on the same
@@ -245,23 +247,41 @@ func TestConvertTheSequentialManualForRussian(t *testing.T) {
 		t.Errorf("%d figures over the Russian section, measured at 65", len(conv.Figures))
 	}
 
-	// Page 533's prose, from the render. The heading is what a reader looks for and
-	// the note is the paragraph nothing else on the page repeats.
-	var heading, note bool
+	// Page 533's prose, from the render, and the title where the section it belongs
+	// to actually begins.
+	//
+	// `Плановое обслуживание` was asserted here as page 533's heading. Re-rendered at
+	// 108 dpi: it heads pages 528 to 533 identically, and each of those pages carries
+	// its own grey-pill sub-heading under it — "Компоненты" on 528, "Основание
+	// промывочной панели" on 529, "Зарядные контакты и область сигнала" on 533. So it
+	// is the section's running head, printed once as a title on 528 and repeated
+	// five times; the furniture pass's clause 3 keeps the first and takes the rest.
+	// What page 533 heads is not a section of its own.
+	var head, note, title bool
 	for i := range conv.Blocks {
 		b := &conv.Blocks[i]
-		if b.Page != 533 {
+		if !strings.Contains(b.Text, "Плановое обслуживание") {
+			if b.Page == 533 && strings.Contains(b.Text, "Поплавковый уровнемер") {
+				note = true
+			}
 			continue
 		}
-		if b.Kind == doc.BlockHeading && strings.Contains(b.Text, "Плановое обслуживание") {
-			heading = true
-		}
-		if strings.Contains(b.Text, "Поплавковый уровнемер") {
-			note = true
+		switch {
+		case b.Page == 528 && b.Kind == doc.BlockHeading:
+			title = true
+		case b.Page > 528 && b.Page <= 533 && b.Furniture:
+			head = head || b.Page == 533
+		default:
+			t.Errorf("page %d serves %q as a %s (furniture=%v); the title belongs to page 528 "+
+				"and every later printing of it is a running head", b.Page, b.Text, b.Kind, b.Furniture)
 		}
 	}
-	if !heading {
-		t.Error("page 533's heading Плановое обслуживание did not come back as a heading")
+	if !title {
+		t.Error("page 528's heading Плановое обслуживание did not come back as a heading; " +
+			"that is where the section starts and the title must survive there")
+	}
+	if !head {
+		t.Error("page 533 still serves Плановое обслуживание as content; it is a running head there")
 	}
 	if !note {
 		t.Error("page 533's note about the float gauge is missing; the render prints it under the tank drawings")

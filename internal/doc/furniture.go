@@ -623,10 +623,24 @@ func furnitureBlocks(runs []TextRun, r *Region, f *Furniture, from int) []Block 
 		if len(cur) == 0 {
 			return
 		}
+		// Right to left is repaired here for the same reason it is repaired in
+		// [textLine.finish], and it became load-bearing when clause 3 arrived. While
+		// furniture was a two-letter tab and a number, joining the runs left to right
+		// could not be wrong: "HE" reads the same either way. A running head is a
+		// SENTENCE, and the sequential manual has a Hebrew and an Arabic section, so
+		// joining those left to right stores them backwards — internal/verify's
+		// `right-to-left-reversed` check went from 0 pages to 10 on the first version
+		// of this clause and named the words. Furniture reaches neither a reader nor
+		// the index, so nothing would have read them; that is not a reason to write
+		// them down wrong.
+		text := joinRuns(cur)
+		if lineIsRightToLeft(cur, IsRightToLeftLanguage(r.Lang)) {
+			text = joinRunsRightToLeft(cur)
+		}
 		b := Block{
 			Page: r.Page, RegionX0: r.X0, Index: from + len(out),
 			Kind: BlockParagraph, Lang: r.Lang, Furniture: true, Note: curNote,
-			Text: collapseSpaces(joinRuns(cur)), Lines: 1,
+			Text: collapseSpaces(text), Lines: 1,
 			X0: math.Inf(1), X1: math.Inf(-1), Y0: math.Inf(1), Y1: math.Inf(-1),
 		}
 		for i := range cur {
