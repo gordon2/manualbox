@@ -80,7 +80,7 @@ func TestModalFolioOffset(t *testing.T) {
 			want:   nil,
 		},
 		{
-			name: "four folios, one of them outvoted, is the smallest real reading",
+			name:   "four folios, one of them outvoted, is the smallest real reading",
 			counts: []FolioOffsetCount{{Offset: 6, Pages: 3}, {Offset: 100, Pages: 1}},
 			want:   &FolioOffset{Offset: 6, Pages: 3, FolioPages: 4},
 		},

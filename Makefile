@@ -49,10 +49,17 @@ web-build: ## Build the frontend into web/dist
 web-typecheck: ## Typecheck the frontend
 	cd web && npm run typecheck
 
+# `node --test`, which runs the TypeScript directly by stripping the types. No test
+# framework and no new dependency: the alternative was adding a runner to assert
+# rules that are a few lines each.
+.PHONY: web-test
+web-test: ## Run frontend tests
+	cd web && npm test
+
 ## ---- quality ----
 
 .PHONY: check
-check: test lint web-typecheck ## Everything CI runs
+check: test lint web-typecheck web-test ## Everything CI runs
 
 .PHONY: test
 test: ## Run Go tests with race detector

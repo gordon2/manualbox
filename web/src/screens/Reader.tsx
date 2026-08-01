@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, subscribeToJobs } from "../api/client";
 import type { Block, Conversion, Doc, Figure, Gate } from "../api/types";
 import { Alert, Card } from "../ui";
-import { dirOf, readingOrder, type Flow, type ReaderPage } from "./reader-flow";
+import { contentsTarget, dirOf, readingOrder, type Flow, type ReaderPage } from "./reader-flow";
 
 /** One of the languages this document was converted for. */
 export interface ReaderLanguage {
@@ -71,6 +71,15 @@ export function Reader({
   );
   const [conversion, setConversion] = useState<Conversion | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which page the reader is currently opened at. Seeded from startPage and then
+  // owned here, because following a contents entry is the same act as following a
+  // search hit and has to move the same marker; the prop only says where to begin.
+  // Re-seeded when the prop changes, so arriving from a second search hit while the
+  // reader is already open still moves.
+  const [openedPage, setOpenedPage] = useState<number | undefined>(startPage);
+  useEffect(() => {
+    setOpenedPage(startPage);
+  }, [startPage]);
 
   const load = useCallback(async () => {
     try {
@@ -97,6 +106,16 @@ export function Reader({
 
   const pages = conversion ? readingOrder(conversion.blocks, conversion.figures) : [];
   const shown = languages.find((l) => l.lang === lang);
+
+  // What a contents entry needs to become a link. `pages` is what THIS language's
+  // conversion actually holds, which is the check that matters: the columns manual
+  // prints five languages' contents, so a German entry can name a page that is
+  // entirely Russian.
+  const jump: ContentsJump = {
+    folioOffset: conversion?.folioOffset,
+    pages: new Set(pages.map((page) => page.page)),
+    onJump: setOpenedPage,
+  };
 
   return (
     <div className="space-y-6">
@@ -147,15 +166,15 @@ export function Reader({
             {languages.some((l) => l.lang === lang && isUnshaped(l.lang)) ? (
               <ShapingWarning name={shown?.name ?? lang ?? ""} />
             ) : null}
-            {startPage !== undefined && !pages.some((page) => page.page === startPage) ? (
+            {openedPage !== undefined && !pages.some((page) => page.page === openedPage) ? (
               // Following a hit lands on a page in the hit's own language. Switching
               // language afterwards can leave that page behind entirely, and a reader
               // who scrolled nowhere deserves to know why rather than assume a bug.
               <p className="text-sm text-ink-faint">
-                Page {startPage} has nothing in {shown ? shown.name : "this language"}.
+                Page {openedPage} has nothing in {shown ? shown.name : "this language"}.
               </p>
             ) : null}
-            <ReaderPages pages={pages} documentId={doc.id} startPage={startPage} />
+            <ReaderPages pages={pages} documentId={doc.id} startPage={openedPage} jump={jump} />
           </>
         )
       ) : (
@@ -277,11 +296,14 @@ export function ReaderPages({
   pages,
   documentId,
   startPage,
+  jump,
 }: {
   pages: ReaderPage[];
   documentId: string;
   /** The page to open on, marked and scrolled to. */
   startPage?: number | undefined;
+  /** Absent: contents entries print their page number as plain text. */
+  jump?: ContentsJump | undefined;
 }) {
   return (
     <article className="space-y-8">
@@ -291,10 +313,27 @@ export function ReaderPages({
           page={page}
           documentId={documentId}
           opened={page.page === startPage}
+          jump={jump}
         />
       ))}
     </article>
   );
+}
+
+/**
+ * What a printed contents entry needs before its page number can be a link.
+ *
+ * Carried as one object through three levels rather than three props, and passed
+ * rather than put in a context, so that rendering [ReaderPages] on its own -- which
+ * is how this screen is looked at, see the note above it -- can turn linking on and
+ * off explicitly instead of inheriting whatever a provider happened to hold.
+ */
+export interface ContentsJump {
+  /** The document's one offset. Absent where the folios agreed on none. */
+  folioOffset?: number | undefined;
+  /** The pages this language's conversion holds, which is what a target must be in. */
+  pages: ReadonlySet<number>;
+  onJump: (page: number) => void;
 }
 
 /**
@@ -311,10 +350,12 @@ function PageView({
   page,
   documentId,
   opened,
+  jump,
 }: {
   page: ReaderPage;
   documentId: string;
   opened: boolean;
+  jump?: ContentsJump | undefined;
 }) {
   const scrollHere = useCallback((node: HTMLElement | null) => {
     node?.scrollIntoView({ block: "start" });
@@ -337,14 +378,22 @@ function PageView({
       </div>
       <div className="mt-4 space-y-4">
         {page.flows.map((flow, i) => (
-          <FlowView key={i} flow={flow} documentId={documentId} />
+          <FlowView key={i} flow={flow} documentId={documentId} jump={jump} />
         ))}
       </div>
     </section>
   );
 }
 
-function FlowView({ flow, documentId }: { flow: Flow; documentId: string }) {
+function FlowView({
+  flow,
+  documentId,
+  jump,
+}: {
+  flow: Flow;
+  documentId: string;
+  jump?: ContentsJump | undefined;
+}) {
   switch (flow.kind) {
     case "heading":
       return <Heading block={flow.block} level={flow.level} />;
@@ -382,7 +431,7 @@ function FlowView({ flow, documentId }: { flow: Flow; documentId: string }) {
       );
 
     case "contents":
-      return <ContentsView flow={flow} />;
+      return <ContentsView flow={flow} jump={jump} />;
 
     case "table":
       return <TableView flow={flow} />;
@@ -404,27 +453,56 @@ function FlowView({ flow, documentId }: { flow: Flow; documentId: string }) {
  * of literal dots is noise to a screen reader, and the dots are still in the block's
  * text where search and the coverage check can see them.
  *
- * The page number is NOT a link yet, and that is the honest half of this: it is the
- * page printed on the paper, and turning it into somewhere to jump needs the printed
- * page mapped onto a PDF page. Shown as what the paper says, so a reader can find it
- * by hand, until that mapping is wired through.
+ * The number the paper prints is what is shown, always, and it is what is read out:
+ * a reader who is holding the manual is looking for that number, and replacing it
+ * with the PDF's own would help nobody. Where the mapping exists the same number
+ * becomes a button that opens the PDF page it means -- see [contentsTarget] for the
+ * three cases that stay plain text, of which "this language's conversion does not
+ * hold that page" is the one that actually fires on a real document.
+ *
+ * A button rather than an anchor: there is no router and no URL for a page, so an
+ * `href` would either be a lie or a hash this app does not read back. What happens
+ * is a state change, which is what a button means.
  */
-function ContentsView({ flow }: { flow: Extract<Flow, { kind: "contents" }> }) {
+function ContentsView({
+  flow,
+  jump,
+}: {
+  flow: Extract<Flow, { kind: "contents" }>;
+  jump?: ContentsJump | undefined;
+}) {
   return (
     <ul className="max-w-prose space-y-1">
-      {flow.entries.map((entry, i) => (
-        <li
-          key={i}
-          dir={dirOf(entry.block.lang)}
-          className="flex items-baseline gap-2 text-[15px] leading-relaxed text-ink"
-        >
-          <span className="text-pretty text-start">{entry.title}</span>
-          <span aria-hidden className="mb-1 h-px flex-1 bg-rule" />
-          {entry.page ? (
-            <span className="shrink-0 tabular-nums text-ink-soft">{entry.page}</span>
-          ) : null}
-        </li>
-      ))}
+      {flow.entries.map((entry, i) => {
+        const target = jump ? contentsTarget(entry.page, jump.folioOffset, jump.pages) : null;
+        return (
+          <li
+            key={i}
+            dir={dirOf(entry.block.lang)}
+            className="flex items-baseline gap-2 text-[15px] leading-relaxed text-ink"
+          >
+            <span className="text-pretty text-start">{entry.title}</span>
+            <span aria-hidden className="mb-1 h-px flex-1 bg-rule" />
+            {entry.page ? (
+              target !== null && jump ? (
+                <button
+                  type="button"
+                  onClick={() => jump.onJump(target)}
+                  // The printed number is the label; the PDF page it opens is said
+                  // separately, because the two differ and a reader deserves to
+                  // know which one they are about to be taken to.
+                  aria-label={`Page ${entry.page}, page ${target} of the original`}
+                  className="shrink-0 rounded-sm tabular-nums text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+                >
+                  {entry.page}
+                </button>
+              ) : (
+                <span className="shrink-0 tabular-nums text-ink-soft">{entry.page}</span>
+              )
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -56,7 +56,10 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
   }, []);
 
   useEffect(() => {
-    api.instance().then(setInstance).catch(() => undefined);
+    api
+      .instance()
+      .then(setInstance)
+      .catch(() => undefined);
     void reloadJobs();
 
     // Any event means something changed; refetch rather than patching state from
@@ -213,7 +216,7 @@ function Capabilities({ instance }: { instance: Instance }) {
       note:
         instance.externalTools["pdftotext"]?.available === false
           ? `needs poppler — ${instance.externalTools["pdftotext"]?.install ?? ""}`
-          : instance.providers["convert"]?.kind ?? "",
+          : (instance.providers["convert"]?.kind ?? ""),
     },
     {
       label: "OCR scans",
@@ -221,7 +224,7 @@ function Capabilities({ instance }: { instance: Instance }) {
       note:
         instance.externalTools["tesseract"]?.available === false
           ? `needs tesseract — ${instance.externalTools["tesseract"]?.install ?? ""}`
-          : instance.providers["ocr"]?.kind ?? "",
+          : (instance.providers["ocr"]?.kind ?? ""),
     },
     {
       label: "Translate",

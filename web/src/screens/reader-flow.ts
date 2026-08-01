@@ -296,6 +296,48 @@ export function splitEntry(block: Block): { block: Block; title: string; page: s
 }
 
 /**
+ * The page of the PDF a contents entry points at, or null where it must not be a
+ * link at all.
+ *
+ * `printed` is what splitEntry pulled off the line -- the number the paper prints --
+ * and `folioOffset` is the document's one constant, from the conversion response.
+ * The map is `pdf = printed + offset`; internal/registry's folio.go carries the
+ * measurement behind that being one constant per document and the rule for when
+ * there is no honest answer.
+ *
+ * A range entry links to its first page. "Сухая уборка ... 15 - 23" goes to 15,
+ * because that is where the section starts and where a reader following the entry
+ * expects to arrive; the end of the range is a fact about the section's length, not
+ * a second destination.
+ *
+ * Three things make it not a link, and each falls back to plain text rather than a
+ * link that goes nowhere:
+ *
+ *   - No offset was served. The folios did not agree on one, so there is nothing to
+ *     add. `folioOffset` is optional for exactly this reason and must never be
+ *     defaulted to 0 -- the columns manual's real offset IS 0.
+ *   - The line carries no page number, or none this can read.
+ *   - The target is not a page this language's conversion holds. That is not a
+ *     defensive check: the columns manual prints five languages' contents pages, so
+ *     a German reader's entry can point at a page that is entirely Russian. The same
+ *     check covers a target outside the document altogether -- `pages` holds only
+ *     pages that exist and were converted, so page 0 and page 9999 fail it for the
+ *     same reason and need no separate test.
+ */
+export function contentsTarget(
+  printed: string,
+  folioOffset: number | undefined,
+  pages: ReadonlySet<number>,
+): number | null {
+  if (folioOffset === undefined) return null;
+  // The first run of digits: a range entry links to where the section starts.
+  const first = /\d+/.exec(printed);
+  if (!first) return null;
+  const target = Number(first[0]) + folioOffset;
+  return pages.has(target) ? target : null;
+}
+
+/**
  * A run of adjacent table cells, as one flow per printed table.
  *
  * A new table starts where the row number stops advancing. That is what separates

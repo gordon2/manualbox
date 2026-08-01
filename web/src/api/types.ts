@@ -132,13 +132,7 @@ export type DocumentKind = "manual" | "receipt" | "warranty" | "photo" | "other"
  * has been read for free and nothing further happens until the user decides.
  */
 export type DocumentState =
-  | "uploaded"
-  | "probing"
-  | "awaiting_scope"
-  | "declined"
-  | "converting"
-  | "ready"
-  | "failed";
+  "uploaded" | "probing" | "awaiting_scope" | "declined" | "converting" | "ready" | "failed";
 
 export interface Doc {
   id: string;
@@ -171,13 +165,7 @@ export interface Doc {
  * and saying so beats guessing.
  */
 export type LanguageSource =
-  | ""
-  | "page-tag"
-  | "index"
-  | "script"
-  | "repertoire"
-  | "detector"
-  | "reconciled";
+  "" | "page-tag" | "index" | "script" | "repertoire" | "detector" | "reconciled";
 
 export interface LanguageRun {
   source: LanguageSource;
@@ -358,6 +346,18 @@ export interface Conversion {
   lang?: string;
   blocks: Block[];
   figures: Figure[];
+  /**
+   * How far this document's PDF pages run ahead of the numbers printed on its
+   * paper: the PDF page for a printed page number is `printed + folioOffset`. It is
+   * one constant for the whole document.
+   *
+   * **Absent** where the stored folios do not agree on one, which is a different
+   * answer from zero and must not be collapsed into it: a manual whose page 1 is
+   * its cover really does have offset 0, and reading a missing field as 0 would
+   * turn every contents entry of a document with no mapping into a link to the
+   * wrong page.
+   */
+  folioOffset?: number;
   lastError?: string;
 }
 

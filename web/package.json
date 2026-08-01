@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --disable-warning=ExperimentalWarning \"*-test.ts\"",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "generate:api": "echo \"types are hand-written in src/api/types.ts; see docs/api/openapi.yaml\""

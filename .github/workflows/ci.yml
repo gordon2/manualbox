@@ -156,6 +156,13 @@ jobs:
         run: npm run typecheck
         working-directory: web
 
+      # node --test, running the TypeScript directly by stripping the types. Needs
+      # Node 22.18 or newer for that to be on without a flag; NODE_VERSION is "22",
+      # which setup-node resolves to the latest 22.x.
+      - name: Test
+        run: npm test
+        working-directory: web
+
       - name: Build
         run: npm run build
         working-directory: web
