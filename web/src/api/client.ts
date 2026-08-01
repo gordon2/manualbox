@@ -120,8 +120,7 @@ export const api = {
     return request<{ jobs: Job[] }>(`/jobs?${params}`);
   },
 
-  cancelJob: (id: string) =>
-    request<void>(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  cancelJob: (id: string) => request<void>(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
 
   locations: () => request<{ locations: Location[] }>("/locations"),
 
@@ -212,10 +211,7 @@ export const api = {
  * replays the current active jobs whenever a client connects — so a reconnect
  * re-synchronises state without any bookkeeping here.
  */
-export function subscribeToJobs(
-  onEvent: (event: JobEvent) => void,
-  onError?: () => void,
-): () => void {
+export function subscribeToJobs(onEvent: (event: JobEvent) => void, onError?: () => void): () => void {
   const source = new EventSource(`${BASE}/jobs/events`);
 
   source.addEventListener("job", (message) => {

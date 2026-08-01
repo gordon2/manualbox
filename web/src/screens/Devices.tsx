@@ -35,11 +35,9 @@ export function Devices({ onOpen }: { onOpen: (device: Device) => void }) {
         ) : null}
       </div>
 
-      {error ? (
-        <div className="mt-3">
-          <Alert>{error}</Alert>
-        </div>
-      ) : null}
+      {error ? <div className="mt-3">
+        <Alert>{error}</Alert>
+      </div> : null}
 
       {adding ? (
         <AddDevice
@@ -102,9 +100,7 @@ function AddDevice({
     setBusy(true);
     setError(null);
     try {
-      onAdded(
-        await api.createDevice({ name: name.trim(), brand: brand.trim(), model: model.trim() }),
-      );
+      onAdded(await api.createDevice({ name: name.trim(), brand: brand.trim(), model: model.trim() }));
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : "Could not add the device.");
     } finally {
@@ -124,18 +120,8 @@ function AddDevice({
           required
         />
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="Brand"
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
-            placeholder="Bosch"
-          />
-          <Field
-            label="Model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="SMS4HVW33E"
-          />
+          <Field label="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Bosch" />
+          <Field label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SMS4HVW33E" />
         </div>
         {/* Serial number and price are deliberately absent: they are encrypted
             fields and the keyring is not wired into the schema yet. */}

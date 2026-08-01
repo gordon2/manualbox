@@ -132,7 +132,13 @@ export type DocumentKind = "manual" | "receipt" | "warranty" | "photo" | "other"
  * has been read for free and nothing further happens until the user decides.
  */
 export type DocumentState =
-  "uploaded" | "probing" | "awaiting_scope" | "declined" | "converting" | "ready" | "failed";
+  | "uploaded"
+  | "probing"
+  | "awaiting_scope"
+  | "declined"
+  | "converting"
+  | "ready"
+  | "failed";
 
 export interface Doc {
   id: string;
@@ -165,7 +171,13 @@ export interface Doc {
  * and saying so beats guessing.
  */
 export type LanguageSource =
-  "" | "page-tag" | "index" | "script" | "repertoire" | "detector" | "reconciled";
+  | ""
+  | "page-tag"
+  | "index"
+  | "script"
+  | "repertoire"
+  | "detector"
+  | "reconciled";
 
 export interface LanguageRun {
   source: LanguageSource;
