@@ -304,6 +304,13 @@ func TestFurnitureKeepsASectionGenuinelyTitledA(t *testing.T) {
 // numbers are the ones furnitureMinShare records: the widest thing in either
 // manual that is NOT furniture repeats on 0.29 of its language's pages, and the
 // narrowest tab on 0.96.
+//
+// It asks the question of [doc.Furniture.Tabs] and not of Total, and that is the
+// point rather than a detail. The pages carrying the tab here are the FIRST `on` of
+// the section — consecutive — so below the cut clause 3 reads them as a running
+// head and claims all but the first, which is correct and is asserted just below.
+// Reading Total would let clause 3's answer stand in for clause 1's and the share
+// could be moved anywhere without this failing.
 func TestFurnitureShareIsWhereTheMeasurementPutIt(t *testing.T) {
 	const n = 20
 	for _, tc := range []struct {
@@ -325,9 +332,19 @@ func TestFurnitureShareIsWhereTheMeasurementPutIt(t *testing.T) {
 			return append(lines, bodyLines(95, 22.5, 5, fmt.Sprintf("Absatz %d", page))...)
 		})
 		fur := doc.FindFurniture(pages, regions, nil, nil)
-		if got := fur.Total() > 0; got != tc.want {
-			t.Errorf("a tab on %d of %d pages (%.2f): furniture=%v, want %v",
+		if got := fur.Tabs > 0; got != tc.want {
+			t.Errorf("a tab on %d of %d pages (%.2f): clause 1 claimed it = %v, want %v",
 				tc.on, n, float64(tc.on)/n, got, tc.want)
+		}
+		// Whichever clause owns it, a line printed on `on` consecutive pages leaves
+		// exactly one of them: clause 1 takes all `on` and clause 3 takes `on`-1.
+		wantHeads := tc.on - 1
+		if tc.want {
+			wantHeads = 0
+		}
+		if fur.Heads != wantHeads {
+			t.Errorf("a tab on %d of %d pages: clause 3 claimed %d head(s), want %d",
+				tc.on, n, fur.Heads, wantHeads)
 		}
 	}
 }

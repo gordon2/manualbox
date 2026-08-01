@@ -34,9 +34,11 @@ import (
 // the pass is per language, and the denominator is the pages that language's
 // regions occupy.
 //
-// Two clauses, because the two kinds of furniture differ in exactly one way — the
-// tab prints the same characters on every page and the folio prints different
-// ones — and one rule cannot have it both ways.
+// Three clauses, because the three kinds of furniture differ in what stays the
+// same — the tab prints the same characters on every page of a section, the folio
+// prints different ones on every page, and the running head prints the same
+// characters on a RUN of pages and then changes — and one rule cannot have it
+// three ways.
 //
 //  1. A TAB, OR ANY REPEATED LINE. The same text at the same height on at least
 //     [furnitureMinShare] of a language's pages, and on at least
@@ -58,27 +60,24 @@ import (
 //     none of this code, so a run agreeing with it is not a coincidence being
 //     believed on repetition alone.
 //
+//  3. A RUNNING HEAD. The page's FIRST PRINTED LINE, when the page before it in
+//     the same language section printed an identical first line. The first page of
+//     each such run keeps its line and every page after it loses one, so a title
+//     is served exactly once, where its section starts. Like the folio it needs no
+//     share and no page floor, and unlike either of the others it cannot be stated
+//     over the whole section at once, because what makes it furniture is that the
+//     repetition is CONSECUTIVE. [runningHeads] has the rule and every number under
+//     it.
+//
 // # What this deliberately does not identify
 //
-// **The running head, on the documents measured.** The column manual prints a
-// chapter name beside the tab on the same baseline — "Trockensaugen",
-// "Waschsaugen", "Reinigung der AQUA-Box" — and clause 1 does not reach it,
-// because a given chapter name is at that height on at most 6 of German's 26
-// pages, 0.23, which is exactly where a genuinely repeated heading sits
-// ("Schließen Sie den Aquafilter." is a heading on 3). The only measurement that
-// separates them is the OCCUPANCY of the height rather than the text at it: the
-// column manual's head line is occupied on 20 of 26 pages carrying 8 different
-// strings, against 19 of 26 carrying 19 different strings for the first line of
-// its body. But applying that to the sequential manual removes its section
-// titles, because there the running head IS the section title, printed at the
-// same height and in the same face on the page where the section starts as on
-// every page after it: "Sicherheitshinweise" at y=52 on 4 pages, "Fehlersuche" on
-// 3, and no page distinguishes the first from the repeats. The occupancy figures
-// that would have to separate the two documents are 0.77 against 0.63, a
-// twelve-point gap with nothing in between and one document on each side. So the
-// column manual's head survives as content, and page 14 reads "Trockensaugen"
-// where it read "D Trockensaugen". That is a smaller wrong than deleting a
-// section's titles.
+// **The second line of a two-line running head.** Clause 3 claims one line per
+// page and never more. The column manual's Polish head is two printed lines inside
+// one grey banner — "Czyszczenie pojemnika" over "AQUA-Box", read off a 108 dpi
+// render — so pages 42 and 44 keep "AQUA-Box" after losing the line above it. The
+// measurement that stopped the clause at one line is at [runningHeads]; the cost
+// is 2 pages of one language of one document, and it is an UNDER-removal, which is
+// the only direction this clause can fail in.
 //
 // **A tab that only some pages of a section print.** The share is a share, so a
 // section printing its tab on a third of its pages keeps it. Nothing in either
@@ -176,12 +175,16 @@ type Furniture struct {
 	// each return a new slice.
 	notes map[int]map[furnitureKey]string
 
-	// Tabs and Folios are how many distinct pieces of furniture each clause
+	// Tabs, Folios and Heads are how many distinct pieces of furniture each clause
 	// claimed, over the whole document: one per page per thing, so a page printing
 	// its tab twice at the same height counts once. Counted rather than derived so
-	// that a test and a report can hold the two clauses apart, which is how the rule
-	// was measured in the first place.
-	Tabs, Folios int
+	// that a test and a report can hold the three clauses apart, which is how each
+	// rule was measured in the first place.
+	//
+	// Heads counts RUNS, not lines: a running head set as two runs on one baseline
+	// is one head. The other two count runs, because a tab and a folio are each one
+	// run by construction.
+	Tabs, Folios, Heads int
 }
 
 type furnitureKey struct {
@@ -218,12 +221,12 @@ func (f *Furniture) Note(page int, r *TextRun) string {
 	return f.notes[page][keyOf(r)]
 }
 
-// Total is how many runs were claimed, both clauses together.
+// Total is how many pieces of furniture were claimed, all three clauses together.
 func (f *Furniture) Total() int {
 	if f == nil {
 		return 0
 	}
-	return f.Tabs + f.Folios
+	return f.Tabs + f.Folios + f.Heads
 }
 
 func (f *Furniture) mark(page int, k furnitureKey, note string) bool {
@@ -370,6 +373,174 @@ func (f *Furniture) findInSection(byPage map[int]*PageRuns, regions []Region,
 			}
 		}
 	}
+
+	f.runningHeads(runsOn)
+}
+
+// runningHeads is clause 3, and it runs last because it reads what the first two
+// wrote: the tab is above the head on some pages and below it on others, so "the
+// page's first printed line" is only the head once the tab is out of the way.
+//
+// # The rule
+//
+// Take the pages of one language section in order. On each, take the first
+// printed line — the runs sharing the topmost baseline, once the runs clauses 1
+// and 2 already claimed are removed. A page whose first line is identical to the
+// first line of the PREVIOUS page of the section is printing a running head, and
+// loses it. The first page of each such run keeps it.
+//
+// # Why consecutive, and why the first page of a run is kept
+//
+// This was blocked for one measured reason and the block is dissolved rather than
+// argued away. The sequential manual's running head IS its section title, printed
+// identically on the page where the sub-section starts and on every page after —
+// Russian's "Меры предосторожности" sits at y=45-46, x=61-66, as the page's first
+// line on pages 517, 518, 519 and 520 alike, and NOTHING ON THE PAGE distinguishes
+// the first occurrence from the repeats. Every earlier attempt therefore had two
+// choices, remove them all and lose the titles or keep them all and serve the
+// defect, and picked the second. The sequence is the third choice: consecutive
+// repetition has a first element even when no page does.
+//
+// Consecutive means consecutive in the SECTION's own page order, not in the PDF's.
+// The column manual's German holds every even page, so its head runs 14-16-18-20-22
+// with the Polish pages between them, and a rule reading PDF adjacency would find
+// no run at all.
+//
+// # The same place, expressed without a tolerance
+//
+// The text matching is not sufficient on its own, and the case that shows it is
+// synthetic rather than hypothetical: a stock phrase that opens a note — "Hinweis:"
+// does this on ten pages of the sequential manual's German section — is the page's
+// first line whenever the note is what the page starts with, and it slides down the
+// page as the note moves. TestFurnitureIsPositionalNotTextual is that document.
+//
+// So the two lines must also OVERLAP VERTICALLY: the band from the topmost run's
+// top to the lowest run's bottom, on this page, must intersect the same band on the
+// page before. That is a predicate and not a threshold, and it is scale-free — a
+// head measures itself in its own type size, so nothing here has to be re-measured
+// for a document set in a different one.
+//
+// Measured, it has all the room it needs and no more. Over both documents the
+// matched head moves by 0 units on 141 page pairs, 1 on 35, and never more than 8,
+// against a head 29 to 33 units tall in the sequential manual and 19 in the column
+// manual — so every real head overlaps its predecessor with two thirds of its
+// height to spare. The synthetic note moves 22.5 against a 17-unit line and misses
+// entirely.
+//
+// # Why one line and not the matching prefix
+//
+// Measured over both documents, comparing each page of a section against the one
+// before it and counting how far down the two agree: the prefix is 0 lines on 400
+// page pairs, 1 line on 207, and 2 lines on 38. Never 3, with the probe allowed to
+// look 8 deep — so 2 is where the documents stop, not where a constant did.
+//
+// All 38 of those second lines are one thing: a troubleshooting table's column
+// header, repeated where the table runs onto another page. "Problem Lösung",
+// "Проблема Решение", "Ақау Шешім" — one or two per language section of the
+// sequential manual, at y=88 to y=108 against a first line at y=46 to y=53. A
+// reader on the continuation page wants those; they are the labels on the columns
+// under them. So the clause stops at the first line.
+//
+// The two populations can be separated — by the gap between the head's bottom and
+// the next line, 2 units against 13, or 0.11 of the head's own height against 0.45
+// — but that is a cut with one document on each side, which is exactly the shape
+// of threshold that kept this clause unbuilt for so long. One line needs no
+// threshold at all, and its cost is bounded in the safe direction: the worst it can
+// do is leave a line it should have taken.
+//
+// # Why no share and no page floor
+//
+// Two consecutive pages leading with the identical line is the whole of the
+// evidence, and it is enough because the claim it supports is small — one line off
+// the second page, nothing off the first. Measured over both documents, the runs
+// found are 2 to 6 pages long and every one of them is a chapter or section title
+// verified against a 108 dpi render. The section still has to clear
+// [furnitureMinPages] before any clause runs, which is where the short-section
+// accidents were shown to live.
+func (f *Furniture) runningHeads(runsOn map[int][]TextRun) {
+	order := make([]int, 0, len(runsOn))
+	for page := range runsOn {
+		order = append(order, page)
+	}
+	sort.Ints(order)
+
+	prevText := ""
+	var prevTop, prevBottom float64
+	for _, page := range order {
+		cur := f.firstLine(page, runsOn[page])
+		text := furnitureText(joinRuns(cur))
+		top, bottom := vExtent(cur)
+		if text != "" && text == prevText && top < prevBottom && prevTop < bottom {
+			note := fmt.Sprintf("page furniture: the running head %q, printed as this page's "+
+				"first line and as the first line of page %d before it", text, prevPage(order, page))
+			marked := false
+			for i := range cur {
+				if f.mark(page, keyOf(&cur[i]), note) {
+					marked = true
+				}
+			}
+			if marked {
+				f.Heads++
+			}
+			// The head this page printed is still what the next page must match: a run
+			// of five pages is five heads and not two.
+		}
+		prevText, prevTop, prevBottom = text, top, bottom
+	}
+}
+
+// firstLine is the runs on a page's topmost printed baseline, once the runs the
+// other clauses claimed are gone.
+//
+// A line and not a run, because a head can be set in pieces: the column manual
+// puts its tab and its chapter name on one baseline, and with the tab claimed the
+// name may still arrive as more than one run.
+func (f *Furniture) firstLine(page int, runs []TextRun) []TextRun {
+	free := make([]TextRun, 0, len(runs))
+	for i := range runs {
+		if f.Note(page, &runs[i]) == "" {
+			free = append(free, runs[i])
+		}
+	}
+	if len(free) == 0 {
+		return nil
+	}
+	sort.SliceStable(free, func(i, j int) bool {
+		if free[i].Y != free[j].Y {
+			return free[i].Y < free[j].Y
+		}
+		return free[i].X < free[j].X
+	})
+	tol := baselineToleranceFraction * medianHeight(free)
+	n := 1
+	for n < len(free) && sameBaseline(free[0].Y, free[n].Y, tol) {
+		n++
+	}
+	return free[:n]
+}
+
+// vExtent is the vertical band a line of runs occupies.
+func vExtent(runs []TextRun) (top, bottom float64) {
+	if len(runs) == 0 {
+		return 0, 0
+	}
+	top, bottom = math.Inf(1), math.Inf(-1)
+	for i := range runs {
+		top = math.Min(top, runs[i].Y)
+		bottom = math.Max(bottom, runs[i].bottom())
+	}
+	return top, bottom
+}
+
+// prevPage is the page before p in an ordered slice that contains it, for a note
+// that has to name it.
+func prevPage(order []int, p int) int {
+	for i := range order {
+		if order[i] == p && i > 0 {
+			return order[i-1]
+		}
+	}
+	return 0
 }
 
 // splitFurniture divides a region's runs into content and furniture.
