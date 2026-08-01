@@ -268,6 +268,77 @@ func TestFurnitureClaimsARunningHeadThatNeverChanges(t *testing.T) {
 	}
 }
 
+// TestFurnitureRestartsARunWhenTheHeadComesBack is the one property of clause 3
+// that NEITHER real manual can hold, and it is here because a mutation test said
+// so: relaxing "the page before it" to "any earlier page of the section" changed
+// nothing on 628 real pages and was caught by no test at all. Every repeated head
+// in both fixtures is one unbroken run, so the two rules agree on both documents.
+//
+// A manual that returns to a chapter does not. This section heads pages 23 and 24
+// "Wartung", page 25 "Fehlersuche", then pages 26 and 27 "Wartung" again. Page 26
+// is the second run's FIRST page and must keep its title — a reader arriving there
+// after a different chapter needs to be told which chapter they are back in —
+// while pages 24 and 27 lose theirs. Under the relaxed rule page 26 would lose it
+// to page 24 and the section would read as though maintenance never resumed.
+//
+// Re-run against that mutant afterwards: this test fails and the other nine —
+// including both whole-document fixture tests and both verify runs — all pass. It
+// is the only thing standing between "consecutive" and "ever".
+func TestFurnitureRestartsARunWhenTheHeadComesBack(t *testing.T) {
+	titles := []string{"Wartung", "Wartung", "Fehlersuche", "Wartung", "Wartung",
+		"Zubehör", "Entsorgung", "Garantie", "Technische Daten"}
+	pages, regions := furnitureSection(len(titles), "de", func(page, i int) []line {
+		lines := []line{headLine(titles[i])}
+		return append(lines, bodyLines(95, 22.5, 5, fmt.Sprintf("Absatz auf Seite %d", page))...)
+	})
+
+	fur := doc.FindFurniture(pages, regions, nil, nil)
+	// Clause 1 must not reach any of this, and the section is nine pages rather than
+	// five to make sure of it: "Wartung" on 4 of 9 is a 0.44 share, under the 0.50
+	// cut, where 4 of 5 would be 0.80 and clause 1 would take page 23's title too.
+	// Asserted rather than assumed, because that failure mode would leave this test
+	// passing on the wrong rule.
+	if fur.Tabs != 0 {
+		t.Fatalf("clause 1 claimed %d run(s); this section is arranged so that only "+
+			"clause 3 can reach its heads", fur.Tabs)
+	}
+	if fur.Heads != 2 {
+		t.Errorf("claimed %d head(s), want 2 — page 24 repeating page 23 and page 27 "+
+			"repeating page 26", fur.Heads)
+	}
+
+	blocks := doc.RegionsBlocks(pages, regions, nil, nil, fur)
+	for _, tc := range []struct {
+		page      int
+		furniture bool
+		why       string
+	}{
+		{page: 23, furniture: false, why: "the first page of the first Wartung run"},
+		{page: 24, furniture: true, why: "a repeat of page 23"},
+		{page: 25, furniture: false, why: "a different head, and a run of one"},
+		{page: 26, furniture: false, why: "the first page of the SECOND Wartung run — " +
+			"page 25 broke the first one"},
+		{page: 27, furniture: true, why: "a repeat of page 26"},
+	} {
+		var got, found bool
+		for i := range blocks {
+			b := &blocks[i]
+			if b.Page == tc.page && b.Text == titles[tc.page-23] {
+				got, found = b.Furniture, true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("page %d serves no block reading %q at all", tc.page, titles[tc.page-23])
+			continue
+		}
+		if got != tc.furniture {
+			t.Errorf("page %d's %q: furniture=%v, want %v — %s",
+				tc.page, titles[tc.page-23], got, tc.furniture, tc.why)
+		}
+	}
+}
+
 // TestFurnitureKeepsASectionGenuinelyTitledA is the false positive the whole
 // design is arranged around. The sequential manual titles sections "A", "B", "C"
 // and "E" — 28 of its pages head a page with a bare "A" — so a one-letter line at

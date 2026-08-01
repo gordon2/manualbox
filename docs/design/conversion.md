@@ -946,9 +946,10 @@ Three things had to be got right and each is a measurement:
 - **The position test is a vertical overlap of the two head bands, not a tolerance.** Text
   equality alone is not enough — a stock phrase like `Hinweis:` opens a note and slides down
   the page — but a tolerance would be another constant to defend. Measured, a real head
-  moves **0 units on 141 page pairs, 1 on 35, and never more than 8**, against a head 29–33
-  units tall in the sequential manual and 19 in the column one. Overlap is scale-free: the
-  head measures itself in its own type size.
+  moves **0 units on 202 page pairs, 1 on 35, and never more than 8** — the sequential
+  manual supplies every non-zero, the column manual's 61 are all exactly 0 — against a head
+  29–33 units tall in the sequential manual and 19 in the column one. Overlap is
+  scale-free: the head measures itself in its own type size.
 - **One line, not the matching prefix.** How far two consecutive pages agree from the top:
   0 lines on 400 page pairs, 1 on 207, 2 on 38, never 3 with the probe allowed to look 8
   deep. All 38 second lines are one thing — a troubleshooting table's repeated

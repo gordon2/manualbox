@@ -156,9 +156,25 @@ lands in the same transaction as the blocks that justify it. There is no languag
 argument anywhere on that path: the gate showed a specific scope, and approving must
 mean that scope. `GET /documents/{id}/conversion?lang=de` serves the blocks and
 figures, `GET /documents/{id}/figures/{sha256}` the PNG bytes; `/content` still serves
-the original, unchanged. Measured through the API: the column manual's German is 427
-blocks and 53 figures, the sequential manual's Russian 445 blocks and 65 figures over
-pages 517-538.
+the original, unchanged. Measured through the API: the column manual's German is 431
+content blocks and 53 figures, the sequential manual's Russian 431 content blocks and
+65 figures over pages 517-538.
+
+**A section title is served once, where the section starts.** The furniture pass has a
+third clause: the page's first printed line is a running head when the page before it
+in the same language section printed the identical line, so the first page of each
+consecutive run keeps its title and every page after it loses one. That dissolves a
+blocker the design doc had recorded as measured-and-refused — separating a running head
+from a repeated heading by the occupancy of its height is 0.77 against 0.63 with one
+document on each side — because both of its options were wrong: remove them all and the
+sequential manual loses its titles, keep them all and every page reprints one. 61 claims
+on the column manual over 20 titles, 184 on the sequential over 77, and **0 of the 245
+has no surviving content copy**, which is the invariant that replaces a list of 97
+strings in 39 languages. Two recorded claims turned out to be wrong and are corrected in
+[conversion.md](docs/design/conversion.md): the column manual **does** have a running
+head (its grey banner's chapter name), and sequential page 24's pinned "one heading and
+12 list items" was itself the defect — page 23 starts that section and page 24 only
+reprints its title.
 
 **A contents page reads as a list of entries.** The columns manual's `Оглавление` was
 one run-together paragraph of dot leaders; each printed line is now its own block,
