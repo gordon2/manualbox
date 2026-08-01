@@ -74,8 +74,13 @@ export function Reader({
   // Which page the reader is currently opened at. Seeded from startPage and then
   // owned here, because following a contents entry is the same act as following a
   // search hit and has to move the same marker; the prop only says where to begin.
-  // Re-seeded when the prop changes, so arriving from a second search hit while the
-  // reader is already open still moves.
+  //
+  // The effect keeps the two in step if the prop ever changes under a mounted
+  // reader. Today it cannot -- Home unmounts this screen on the way back to the
+  // results -- so without it nothing would break yet; it is here because a state
+  // seeded from a prop and never resynchronised is a bug waiting for the first
+  // caller that keeps the screen mounted, and that caller would see the marker
+  // silently ignore where it was told to go.
   const [openedPage, setOpenedPage] = useState<number | undefined>(startPage);
   useEffect(() => {
     setOpenedPage(startPage);
