@@ -38,10 +38,48 @@ export type Flow =
   | { kind: "table"; rows: TableCell[][]; columns: number; lang: string }
   | { kind: "figure"; figure: Figure };
 
+/**
+ * A piece of a page, placed the way the page places it.
+ *
+ * `flows` is a run of content read top to bottom, as before. `beside` is the part
+ * this type exists for: things the paper set next to each other, in logical reading
+ * order, so the first child is the one read first in this document's direction.
+ *
+ * `strip` distinguishes the two things "beside" turns out to mean on real paper, and
+ * it is a measured distinction rather than a tidy one — see [placeOnPage]. A strip is
+ * several drawings of one operation printed in a row; it stays in a row at any width,
+ * because a drawing has no measure to lose. Anything else is a printed column, and a
+ * column of prose has to stack when the viewport cannot hold two.
+ */
+export type Slot =
+  | { kind: "flows"; flows: Flow[] }
+  | {
+      kind: "beside";
+      strip: boolean;
+      /**
+       * The page's direction, carried rather than inferred.
+       *
+       * The columns below are already in logical order, so whatever lays them out has
+       * to be told which way that is. Reading it back off the content does not work and
+       * the case is real: a strip of drawings holds no text at all, so a right-to-left
+       * page's pictures would have come out left to right — ordered logically in the
+       * markup and then laid out against that order.
+       */
+      rtl: boolean;
+      columns: Column[];
+    };
+
+/** One of the things set beside another, with the share of the width the paper gave it. */
+export interface Column {
+  slots: Slot[];
+  /** The printed width of this column, for dividing the measure as the paper did. */
+  width: number;
+}
+
 /** One page of the original, and everything printed on it. */
 export interface ReaderPage {
   page: number;
-  flows: Flow[];
+  slots: Slot[];
 }
 
 /**
@@ -108,8 +146,234 @@ export function readingOrder(blocks: Block[], figures: Figure[]): ReaderPage[] {
   pages.sort((a, b) => a - b);
   return pages.map((page) => ({
     page,
-    flows: group(mergePage(blocksByPage.get(page) ?? [], figuresByPage.get(page) ?? [])),
+    slots: placeOnPage(blocksByPage.get(page) ?? [], figuresByPage.get(page) ?? []),
   }));
+}
+
+/**
+ * One page's content, arranged the way the page arranges it.
+ *
+ * # Why this exists
+ *
+ * The reader used to merge a page's blocks and figures into one column by vertical
+ * position alone, and on a two-column page that is a scramble. Measured on the
+ * sequential manual's Russian: 16 of its 22 pages are printed in two columns, and
+ * ordering their 65 figures and 431 blocks by `y0` produced 16 places where two or
+ * more pictures came out consecutively with the surrounding sentences pushed away
+ * from them. Page 533 is the clearest: three drawings in a row and then text, where
+ * the paper prints two drawings under one sentence in the left column and one under a
+ * different sentence in the right.
+ *
+ * # What the paper actually does, measured
+ *
+ * The two fixtures do two different things, and the same rule reproduces both:
+ *
+ *   - The **columns manual** prints a rail of drawings down one side with the prose
+ *     beside it. 49 of its 113 printed rows are one picture beside a run of text, and
+ *     that run is a *group* rather than a paragraph: 1 block 5 times, 2 to 4 blocks 31
+ *     times, 5 or 6 blocks 13 times, opening with a paragraph 32 times, a heading 14
+ *     and a list item 3. So "beside a paragraph" would have been the wrong unit — what
+ *     the drawing is beside is a step or a whole section.
+ *   - The **sequential manual** never puts a drawing beside prose. It puts the drawing
+ *     *under* the sentence, inside a column, and where an operation takes several
+ *     drawings it prints them in a row: 13 pairs of figures overlap vertically, with
+ *     no text between them in any of the 13. That row is what the old reader unrolled
+ *     into a vertical pile, and it is the complaint.
+ *
+ * So neither "always beside" nor "always below" is right, and neither needed to be
+ * chosen: both are recoverable from boxes the payload already carries.
+ *
+ * # The rule
+ *
+ * A recursive cut of the page. Split into horizontal bands separated by a gap no item
+ * crosses; inside a band, split at a vertical gap no item crosses; recurse. A band
+ * with no vertical gap is a run of content and is merged with the run before it, so
+ * that a list or a table still reaches [group] as one uninterrupted sequence.
+ *
+ * Two guards, both of them things that went wrong first:
+ *
+ *   - **A run of ruled-table cells is one atom.** Cut geometrically instead and page
+ *     57's troubleshooting table shatters into 25 separate cells, none of which
+ *     [tables] can then assemble — its cells' boxes do not line up with the ruled grid,
+ *     which conversion.md already measured at 23 of 38 cells agreeing.
+ *   - **Below the top level, a cut needs a picture on one side of it.** The page's own
+ *     column gutter is worth honouring; a narrower gap between two runs of prose is
+ *     not, and letting it through turned page 52 into six stacks of fragments. With the
+ *     guard the same page is two columns and nothing else.
+ */
+export function placeOnPage(blocks: Block[], figures: Figure[]): Slot[] {
+  return cut(atoms(blocks, figures), 0, isRTL(blocks.find((b) => b.lang)?.lang));
+}
+
+/**
+ * One placeable thing: a single block, a single figure, or a run of table cells that
+ * must stay together.
+ *
+ * `blocks` keeps the document order internal/doc read them in — the boxes place an
+ * atom, and are never allowed to reorder the blocks inside one, because [mergePage]
+ * and [group] both take that order as given.
+ *
+ * The box is the union, so a table is placed by where the whole grid sits rather than
+ * by any one of its cells.
+ */
+interface Atom {
+  blocks: Block[];
+  figures: Figure[];
+  /** Where this atom sat in document order, so a leaf can restore it. */
+  seq: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  /** True where the atom is only pictures: what a cut below the top level needs. */
+  picture: boolean;
+}
+
+/** A page's blocks and figures as atoms, with each run of ruled-table cells fused. */
+function atoms(blocks: Block[], figures: Figure[]): Atom[] {
+  const out: Atom[] = [];
+  let run: Block[] = [];
+  const flush = () => {
+    if (run.length > 0) out.push(atom(run, [], out.length));
+    run = [];
+  };
+  for (const block of blocks) {
+    if (block.kind === "table") {
+      run.push(block);
+      continue;
+    }
+    flush();
+    out.push(atom([block], [], out.length));
+  }
+  flush();
+  for (const figure of figures) out.push(atom([], [figure], out.length));
+  return out;
+}
+
+function atom(blocks: Block[], figures: Figure[], seq: number): Atom {
+  const boxes = [...blocks, ...figures];
+  return {
+    blocks,
+    figures,
+    seq,
+    x0: Math.min(...boxes.map((b) => b.x0)),
+    x1: Math.max(...boxes.map((b) => b.x1)),
+    y0: Math.min(...boxes.map((b) => b.y0)),
+    y1: Math.max(...boxes.map((b) => b.y1)),
+    picture: blocks.length === 0,
+  };
+}
+
+/**
+ * The narrowest gap that counts as a printed column gutter.
+ *
+ * Measured over both manuals: every empty vertical band with text on both sides is
+ * either 17 units or wider — a real gutter, on the columns manual's two-column safety
+ * list, its table page and its warranty page — or narrower than 4. Nothing lands in
+ * between, so this number is not carrying the decision; it is the middle of an empty
+ * range, recorded so that a document that does land there fails visibly rather than
+ * silently.
+ */
+const MIN_GUTTER = 12;
+
+/** How deep the cut goes. Three levels is columns, then a rail, then a strip. */
+const MAX_DEPTH = 3;
+
+/** Maximal runs of atoms with no horizontal gap between them: the page's rows. */
+function bands(atomList: Atom[]): Atom[][] {
+  const out: Atom[][] = [];
+  let current: Atom[] = [];
+  let bottom = -Infinity;
+  for (const a of [...atomList].sort((p, q) => p.y0 - q.y0)) {
+    if (current.length > 0 && a.y0 >= bottom) {
+      out.push(current);
+      current = [];
+      bottom = -Infinity;
+    }
+    current.push(a);
+    bottom = Math.max(bottom, a.y1);
+  }
+  if (current.length > 0) out.push(current);
+  return out;
+}
+
+/** The widest empty vertical band with content on both sides, or null. */
+function gutter(row: Atom[]): [number, number] | null {
+  if (row.length < 2) return null;
+  const edges = [...new Set(row.flatMap((a) => [a.x0, a.x1]))].sort((p, q) => p - q);
+  let best: [number, number] | null = null;
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const a = edges[i] as number;
+    const b = edges[i + 1] as number;
+    if (b - a < MIN_GUTTER) continue;
+    if (row.some((it) => it.x0 < b && it.x1 > a)) continue;
+    if (best === null || b - a > best[1] - best[0]) best = [a, b];
+  }
+  if (best === null) return null;
+  const [a, b] = best;
+  if (!row.some((it) => it.x1 <= a) || !row.some((it) => it.x0 >= b)) return null;
+  return best;
+}
+
+/** The page, or a part of it, as slots. */
+function cut(atomList: Atom[], depth: number, rtl: boolean): Slot[] {
+  const out: Slot[] = [];
+  let run: Atom[] = [];
+  const flush = () => {
+    if (run.length === 0) return;
+    out.push({ kind: "flows", flows: flowsOf(run) });
+    run = [];
+  };
+
+  for (const row of bands(atomList)) {
+    let g = depth < MAX_DEPTH ? gutter(row) : null;
+    if (g !== null && depth > 0) {
+      // Below the top level only a picture earns a cut; see the note on placeOnPage.
+      const left = row.filter((a) => a.x1 <= (g as [number, number])[0]);
+      const right = row.filter((a) => a.x0 >= (g as [number, number])[1]);
+      if (!left.every((a) => a.picture) && !right.every((a) => a.picture)) g = null;
+    }
+    if (g === null) {
+      // Merged with the row before it: a list split across two rows is still one list.
+      run.push(...row);
+      continue;
+    }
+    flush();
+    const [a, b] = g;
+    const sides = [row.filter((it) => it.x1 <= a), row.filter((it) => it.x0 >= b)];
+    // The document's own direction decides which side is read first, and the DOM order
+    // is that order, so `dir` on the container lays it out without a second rule.
+    if (rtl) sides.reverse();
+    const columns: Column[] = sides.map((side) => ({
+      slots: cut(side, depth + 1, rtl),
+      width: Math.max(...side.map((it) => it.x1)) - Math.min(...side.map((it) => it.x0)),
+    }));
+    out.push({
+      kind: "beside",
+      strip: row.every((it) => it.picture),
+      rtl,
+      columns,
+    });
+  }
+  flush();
+  return out;
+}
+
+/**
+ * A run of atoms as flows, through the same merge and grouping as before.
+ *
+ * Document order is restored first. Placing shuffles atoms by geometry, and handing
+ * [mergePage] its blocks in any other order would break the one thing it is allowed to
+ * assume — that blocks already read correctly and only the figures need placing.
+ */
+function flowsOf(atomList: Atom[]): Flow[] {
+  const ordered = [...atomList].sort((p, q) => p.seq - q.seq);
+  return group(
+    mergePage(
+      ordered.flatMap((a) => a.blocks),
+      ordered.flatMap((a) => a.figures),
+    ),
+  );
 }
 
 type Item = { block: Block } | { figure: Figure };

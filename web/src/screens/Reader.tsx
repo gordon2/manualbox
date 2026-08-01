@@ -3,7 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, subscribeToJobs } from "../api/client";
 import type { Block, Conversion, Doc, Figure, Gate } from "../api/types";
 import { Alert, Card } from "../ui";
-import { contentsTarget, dirOf, readingOrder, type Flow, type ReaderPage } from "./reader-flow";
+import {
+  contentsTarget,
+  dirOf,
+  readingOrder,
+  type Flow,
+  type ReaderPage,
+  type Slot,
+} from "./reader-flow";
 
 /** One of the languages this document was converted for. */
 export interface ReaderLanguage {
@@ -382,11 +389,91 @@ function PageView({
         <span aria-hidden className="h-px flex-1 bg-rule" />
       </div>
       <div className="mt-4 space-y-4">
-        {page.flows.map((flow, i) => (
-          <FlowView key={i} flow={flow} documentId={documentId} jump={jump} />
-        ))}
+        <SlotsView slots={page.slots} documentId={documentId} jump={jump} />
       </div>
     </section>
+  );
+}
+
+/**
+ * A page's content, stacked or set beside itself as the paper set it.
+ *
+ * # What "beside" costs, and what happens when it cannot be paid
+ *
+ * Two printed columns need roughly twice the measure of one, and below about 40
+ * characters a column of prose stops being readable. So a printed column stacks below
+ * `md` — in reading order, which is the DOM order [placeOnPage] already put it in, so
+ * the fallback is the same content read down the page and never a scramble. That is
+ * the deliberate answer to a narrow viewport: the picture goes back to sitting above
+ * or below its text, which is where the sequential manual prints it anyway.
+ *
+ * A strip of drawings has no breakpoint, because a drawing has no measure to lose: it
+ * keeps its row for as long as the row fits and wraps when it does not. Measured on
+ * page 533 in Chrome — at 1265 px the three strips are each one row, at 390 px each has
+ * wrapped to one drawing per line, and the page's own scrollWidth equals the viewport at
+ * both, so nothing is ever cut off sideways.
+ *
+ * # Direction
+ *
+ * `dir` is on the flex row rather than on each child, and the children are already in
+ * logical order, so a right-to-left document reads its first column on the right with
+ * no second rule and no physical property anywhere. Same reason every offset on this
+ * screen is `ms`/`me` rather than `ml`/`mr`.
+ *
+ * It comes off the slot rather than off the content under it. Reading it back from the
+ * first block found was the first version and it is wrong for the case that has no
+ * blocks at all: a strip of drawings would have defaulted to left-to-right and undone
+ * the logical ordering it was given.
+ */
+function SlotsView({
+  slots,
+  documentId,
+  jump,
+}: {
+  slots: Slot[];
+  documentId: string;
+  jump?: ContentsJump | undefined;
+}) {
+  return (
+    <>
+      {slots.map((slot, i) =>
+        slot.kind === "flows" ? (
+          slot.flows.map((flow, j) => (
+            <FlowView key={`${i}-${j}`} flow={flow} documentId={documentId} jump={jump} />
+          ))
+        ) : (
+          <div
+            key={i}
+            dir={slot.rtl ? "rtl" : "ltr"}
+            className={
+              slot.strip
+                ? "flex flex-wrap items-start gap-3"
+                : "flex flex-col gap-4 md:flex-row md:items-start md:gap-6"
+            }
+          >
+            {slot.columns.map((column, j) => (
+              <div
+                key={j}
+                // A printed column takes the paper's own proportion of the measure, so
+                // a rail of drawings beside a wider text column stays the narrower of
+                // the two; `basis-0` lets the ratio decide rather than the content.
+                //
+                // A strip does not, and that was worth a second look at page 530: three
+                // drawings of one step, grown to their printed shares, sat with gaps
+                // between them because a small drawing does not fill the share of the
+                // page its whitespace is part of. Sized to themselves they sit together,
+                // and their sizes are already in the paper's proportion to each other —
+                // both come from the same crop.
+                style={slot.strip ? undefined : { flexGrow: column.width, flexBasis: 0 }}
+                className="min-w-0 space-y-4"
+              >
+                <SlotsView slots={column.slots} documentId={documentId} jump={jump} />
+              </div>
+            ))}
+          </div>
+        ),
+      )}
+    </>
   );
 }
 
