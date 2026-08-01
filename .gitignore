@@ -25,6 +25,11 @@ config.local.yaml
 # headless browser is then pointed at to take a screenshot of an authenticated page.
 /web/.reader-check/
 /web/.search-check/
+# Where `vite build --config folio-browser-check.vite.ts` puts its bundle. Unlike
+# the two above this one is a whole page a browser opens directly, with a real
+# document's conversion JSON compiled into it — which is the other reason it is
+# never committed.
+/web/.folio-check*/
 *.tsbuildinfo
 
 # go
