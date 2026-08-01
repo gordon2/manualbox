@@ -103,6 +103,24 @@ func (s *Server) handleDocumentConversion(w http.ResponseWriter, r *http.Request
 	if r.URL.Query().Has("lang") {
 		body["lang"] = lang
 	}
+	// The printed page a contents entry names, mapped onto a PDF page. Served once
+	// for the document rather than resolved per entry, because it is one constant
+	// per document -- registry.FolioOffset carries the measurement -- and because
+	// the reader has to decide per entry whether the target is a page this
+	// language's conversion actually holds, which only it knows.
+	//
+	// Omitted entirely when the folios do not agree on one offset. It must not
+	// default to 0: the columns manual's real offset IS 0, and a reader that could
+	// not tell "no mapping" from "the mapping is identity" would either refuse a
+	// link that works or offer one that does not.
+	folio, err := s.deps.Registry.FolioOffset(r.Context(), documentID)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if folio != nil {
+		body["folioOffset"] = folio.Offset
+	}
 	if document.LastError != "" {
 		body["lastError"] = document.LastError
 	}

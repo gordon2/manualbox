@@ -80,6 +80,20 @@ type Querier interface {
 	DeleteUser(ctx context.Context, id string) error
 	// DeleteUserSessions logs a user out everywhere, used after a password change.
 	DeleteUserSessions(ctx context.Context, userID string) error
+	// How far each page's PDF number runs ahead of the number printed on the paper,
+	// as a histogram over the pages that print one at all.
+	//
+	// This is derived on read rather than stored, because doc_pages already holds the
+	// whole answer and a stored copy could only go stale against it: the folio is
+	// re-read on every probe, so a change to how it is read must move this number in
+	// the same breath. It is one small grouped scan per document over rows the probe
+	// already wrote, asked once when a conversion is served, not per block or per page.
+	//
+	// The caller decides which row to believe -- see registry.FolioOffset -- so the
+	// whole histogram comes back rather than just its first row. The CASTs are
+	// required: without them sqlc infers interface{} for both columns. "offset" is a
+	// SQL keyword, hence the name.
+	DocPageFolioOffsets(ctx context.Context, documentID string) ([]DocPageFolioOffsetsRow, error)
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) (Job, error)
 	// ExtendLease is the heartbeat for long-running work: translating an eighty-page
 	// manual can outlast any sensible lease, so a live worker renews it rather than
