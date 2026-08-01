@@ -535,12 +535,62 @@ coverage does not move — the dots are still in the block's text, only grouped
 differently. The reader drops them from the DOM and draws the leader with a rule,
 because a row of literal periods is noise to a screen reader.
 
-**The page number is not a link, and that is the honest half.** It is the number
-printed on the paper; jumping needs the printed page mapped onto a PDF page, which is
-what `Reconcile` already does for the language map and is not wired through to here.
-Shown as the paper says it, so a reader can find the page by hand. That mapping is the
-next step and it is also what the printed-index parser needs — see
-language-detection.md, where the same page defeats it for a different consumer.
+**The page number is a link, and the mapping under it is one constant per document.**
+`doc_pages.printed_folio` already held the answer, so nothing is stored and no
+migration was needed: `DocPageFolioOffsets` groups the document's pages by
+`page_no - printed_folio` and `registry.FolioOffset` takes the **mode**, for the same
+reason `columnPitch` takes the mode of its line gaps — a few readings that are not
+measurements of the thing at all destroy an average. One page of the columns manual
+is misread as folio 2735; that alone puts the mean 40 pages out.
+
+Measured over both manuals' stored pages:
+
+| manual | pages printing a folio | modal offset | pages agreeing |
+|---|---|---|---|
+| sequential, 560pp | 558 | **6** | **552** (98.9%) |
+| columns, 68pp | 67 | **0** | **65** (97.0%) |
+
+The runner-up covers exactly one page in each, so the margin is 552-to-1 and 65-to-1,
+and every deviation is a short line misread as a folio — two contents pages reading
+their own body numbers, two diagram plates reading a callout, a back cover reading
+2735. The folios do **not** restart per section: the sequential manual's run
+continuously across all 34.
+
+The mode is offered only if it holds **0.6** of the folio-bearing pages. That floor is
+chosen from the failure it exists to catch rather than from the successes: had the 34
+sections each begun again at 1, the best offset would have held 22 of 553 pages —
+**4.0%**. The case a bare plurality would get wrong is a document bound in two halves
+where the larger is near 50%, so the floor must be above a half; being above a half
+also makes the mode unique by construction, so no tie-break policy is needed. It costs
+a document that really has one offset but whose folios are read so badly that fewer
+than three in five agree — a long way from 6-in-558 and 2-in-67, and the right side to
+fail on, because a link to the wrong page is worse than no link.
+
+`folioOffset` is **absent** from the conversion response where there is no confident
+answer, and that is not fussiness: the columns manual's real offset IS 0, so a client
+reading a missing field as zero would turn every entry of an unmappable document into
+a link to the wrong page.
+
+Three things keep an entry as plain text, and only the third is interesting: no offset
+was served, the line carries no number, or **the target is not a page this language's
+conversion holds**. A range entry links to its first page — `Сухая уборка … 15 – 23`
+goes to 15.
+
+Verified in Chrome against the columns manual's own conversion: all **17** German
+entries render as links, clicking `Fehlerbehebung 57` scrolls to page 57 and marks it,
+and with `folioOffset` withheld all 17 fall back to grey plain text with the printed
+number still readable. Forcing offset 2 splits the same list **9 links to 8 plain**,
+which is the fallback doing its job in the middle of a list.
+
+One expectation this refuted: the columns manual prints five languages' contents
+pages, so a German entry was expected to be able to name a Russian page. It cannot —
+each language's contents page prints **its own** folios, which are its own pages, and
+all 17 German and all 17 Ukrainian entries resolve inside their own language. The
+containment check stays because it is what makes a misread folio and an out-of-range
+target safe, but it does not fire on this document.
+
+The printed-index parser still needs the same page for a different purpose — see
+language-detection.md, where its columns defeat it.
 
 **No translation, no search, no OCR.** Translation is M3. Search needs an FTS5 table
 that does not exist yet — SQLite has the extension compiled in and nothing uses it.

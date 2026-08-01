@@ -167,8 +167,25 @@ leader of 8+ plus a page reference, and it has a rare thing under it — a real 
 over both manuals every dot run is 3, 3, 3, 4 then 34 to 91. It is **not** a sixth
 `BlockKind`, because that reaches a CHECK on `doc_blocks` and widening it costs a
 rebuild of the table the FTS index is external-content over; the note carries the fact
-instead. The page number is not yet a link — that needs the printed page mapped onto a
-PDF page.
+instead.
+
+**And the page number is a link.** The printed folio maps onto a PDF page by one
+constant per document, derived from `doc_pages.printed_folio` rather than stored — no
+migration, one grouped scan per conversion response. It is the **mode** of
+`page_no - printed_folio`, the same estimator and the same reason as `columnPitch`'s
+line gaps: the sequential manual is **6 on 552 of its 558** folio-bearing pages and the
+columns manual **0 on 65 of 67**, with the runner-up covering exactly one page in each,
+and one back cover misread as folio 2735 would put a mean 40 pages out. The mode must
+hold **0.6** of those pages or no offset is served at all — had the sequential manual's
+34 sections each restarted at 1, the best offset would have held 22 of 553 pages, 4.0%.
+`Conversion.folioOffset` is **absent**, never 0, when there is no answer: the columns
+manual's real offset IS 0 and the two must not be confusable. An entry stays plain text
+when no offset was served, when the line has no number, or when the target is not a
+page this language's conversion holds; a range links to its first page. Verified in
+Chrome: 17 of 17 German entries link, `Fehlerbehebung 57` scrolls to page 57, and
+withholding the offset returns all 17 to plain text. The brief's expectation that a
+German entry could point at a Russian page is **refuted** — each language's contents
+page prints its own folios.
 
 **The blocks are indexed, and `GET /api/v1/search?q=` answers which manual says X.**
 FTS5 over `doc_blocks` with `content='doc_blocks'`, kept correct by three triggers

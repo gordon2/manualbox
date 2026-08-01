@@ -884,6 +884,19 @@ components:
         figures:
           type: array
           items: { $ref: "#/components/schemas/Figure" }
+        folioOffset:
+          type: integer
+          description: |
+            How far this document's PDF pages run ahead of the numbers printed on its
+            paper: the PDF page for a printed page number is `printed + folioOffset`.
+            One constant for the whole document, derived from the pages that print a
+            folio by taking the offset a clear majority of them agree on.
+
+            OMITTED when they agree on no such offset, which is a different answer
+            from zero and must not be read as it: a manual whose page 1 is its cover
+            really does have offset 0, and a client defaulting the missing field to 0
+            would turn every contents entry of an unmappable document into a link to
+            the wrong page.
         lastError: { type: string, description: Why the conversion failed, when `state` is `failed`. }
 
     SearchResults:
