@@ -257,6 +257,56 @@ func (d *DroppedRuns) Total() int { return d.Blank + d.Rotated + d.OffPage + d.S
 // only hide them. Every field here is something a reader can check against the
 // page.
 func DetectColumns(runs []TextRun, pageWidth, pageHeight float64) ColumnLayout {
+	return detectColumns(runs, pageWidth, pageHeight, layoutGates)
+}
+
+// columnGates are the two bounds that decide how forgiving the projection is: how
+// many runs may cross a band and leave it a gutter, and how many runs a region needs
+// before it is worth reporting.
+//
+// They are a parameter and not two constants because the same projection answers two
+// different questions. See [layoutGates] and [readingGates].
+type columnGates struct {
+	maxCrossings int
+	minRuns      int
+}
+
+// layoutGates answer "what are this page's text columns" — a published fact that
+// language attribution reads, so it tolerates a banner heading crossing a gutter and
+// insists a column carry real text. Both numbers are measured; see
+// [maxGutterCrossings] and [minColumnRuns].
+//
+// readingGates answer the narrower question "in what order are these runs read", and
+// both bounds go to their limit for a measured reason.
+//
+// Crossings goes to 0 because a *count* of crossings does not survive a sparse page.
+// maxGutterCrossings=4 is 2% of a dense page's runs and 24% of the sequential manual's
+// page 530, which carries 17; there, every x on the page is crossed by at most 4 runs,
+// so the projection reports the whole right-hand half as one gutter and the page as
+// one column. A band no run crosses at all cannot swallow text that way, and the
+// reason binary coverage was rejected for [DetectColumns] — one spanning heading welds
+// two columns for ever — is not a reason here, because welding two strips together is
+// what already happens on this path and the worst a missed corridor can do is leave it.
+//
+// Runs goes to 1 because [minColumnRuns] is what fails on exactly these pages: page
+// 530's right-hand column holds 6 runs and page 533's left-hand one holds 6, both
+// under 8, so neither is called a column and the page is read as a single strip
+// running across the gutter. A strip of one run is not a claim that the page has a
+// column there; it is a claim that the run is not on the same line as the text on the
+// other side of an empty corridor, which is true.
+var (
+	layoutGates  = columnGates{maxCrossings: maxGutterCrossings, minRuns: minColumnRuns}
+	readingGates = columnGates{maxCrossings: 0, minRuns: 1}
+)
+
+// readingStrips divides a region into the strips reading order runs down, for the
+// pages [DetectColumns] cannot call. It is the fallback in [readingGroups] and
+// nothing else may use it: these are not the page's columns.
+func readingStrips(runs []TextRun, pageWidth, pageHeight float64) []Column {
+	return detectColumns(runs, pageWidth, pageHeight, readingGates).Columns
+}
+
+func detectColumns(runs []TextRun, pageWidth, pageHeight float64, g columnGates) ColumnLayout {
 	var out ColumnLayout
 
 	kept := usableRuns(runs, pageWidth, pageHeight, &out.Dropped)
@@ -274,15 +324,15 @@ func DetectColumns(runs []TextRun, pageWidth, pageHeight float64) ColumnLayout {
 
 	crossings := project(kept, buckets)
 	minGutter := minGutterFraction * pageWidth
-	gutters := findGutters(crossings, minGutter)
+	gutters := findGutters(crossings, minGutter, g.maxCrossings)
 
 	inkMin, inkMax := extent(kept)
 	regions := between(gutters, inkMin, inkMax)
 
 	out.Columns, out.Spanning = assign(kept, regions, gutters,
-		minColumnWidthFraction*pageWidth, baselineToleranceFraction*medianHeight(kept))
+		minColumnWidthFraction*pageWidth, baselineToleranceFraction*medianHeight(kept), g.minRuns)
 	out.Gutters = keepInnerGutters(gutters, crossings, out.Columns)
-	out.Note = layoutNote(&out, minGutter)
+	out.Note = layoutNote(&out, minGutter, g)
 	return out
 }
 
@@ -365,11 +415,11 @@ type span struct{ lo, hi int }
 func (s span) width() int { return s.hi - s.lo + 1 }
 
 // findGutters returns the bands few enough runs cross, wide enough to believe.
-func findGutters(crossings []int, minWidth float64) []span {
+func findGutters(crossings []int, minWidth float64, maxCrossings int) []span {
 	var out []span
 	start := -1
 	for x := 0; x <= len(crossings); x++ {
-		low := x < len(crossings) && crossings[x] <= maxGutterCrossings
+		low := x < len(crossings) && crossings[x] <= maxCrossings
 		switch {
 		case low && start < 0:
 			start = x
@@ -417,7 +467,8 @@ func extent(runs []TextRun) (lo, hi float64) {
 // assign puts each run in a region and turns the regions that earn it into
 // columns. A run crossing a gutter belongs to no column and is counted instead:
 // a heading printed across two columns is evidence about neither.
-func assign(runs []TextRun, regions, gutters []span, minWidth, baselineTol float64) (cols []Column, spanning int) {
+func assign(runs []TextRun, regions, gutters []span, minWidth, baselineTol float64,
+	minRuns int) (cols []Column, spanning int) {
 	members := make([][]int, len(regions))
 
 	for i := range runs {
@@ -435,7 +486,7 @@ func assign(runs []TextRun, regions, gutters []span, minWidth, baselineTol float
 
 	for k := range regions {
 		mine := members[k]
-		if len(mine) < minColumnRuns {
+		if len(mine) < minRuns {
 			continue
 		}
 		lo, hi := math.Inf(1), math.Inf(-1)
@@ -598,11 +649,11 @@ func maxIn(crossings []int, s span) int {
 
 // layoutNote renders the reasoning in the terms a reader can check against the
 // page: how many columns, cut where, and what was set aside to see them.
-func layoutNote(l *ColumnLayout, minGutter float64) string {
+func layoutNote(l *ColumnLayout, minGutter float64, g columnGates) string {
 	var b strings.Builder
 	switch len(l.Columns) {
 	case 0:
-		fmt.Fprintf(&b, "no region holds the %d text runs a column needs", minColumnRuns)
+		fmt.Fprintf(&b, "no region holds the %d text runs a column needs", g.minRuns)
 	case 1:
 		fmt.Fprintf(&b, "one text column, x=%.0f-%.0f", l.Columns[0].Min, l.Columns[0].Max)
 	default:
@@ -612,7 +663,7 @@ func layoutNote(l *ColumnLayout, minGutter float64) string {
 		}
 		fmt.Fprintf(&b, "%d text columns at x=%s, cut at %d gutter(s) at least %.0f wide "+
 			"that at most %d runs cross",
-			len(l.Columns), strings.Join(parts, ", "), len(l.Gutters), minGutter, maxGutterCrossings)
+			len(l.Columns), strings.Join(parts, ", "), len(l.Gutters), minGutter, g.maxCrossings)
 	}
 	if l.Spanning > 0 {
 		fmt.Fprintf(&b, "; %d run(s) span a gutter and belong to no column", l.Spanning)

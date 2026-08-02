@@ -570,9 +570,15 @@ type readingGroup struct {
 // top the reading-order count, the invented-text count, the glued-word count and
 // every figure count are exactly what they were before either change.
 func readingGroups(prose, forLayout []TextRun, p *PageRuns, r *Region) []readingGroup {
-	layout := DetectColumns(forLayout, p.Width, p.Height)
-	if len(layout.Columns) < 2 {
-		// One column, or too little text to call one. Either way the region is a
+	cols := DetectColumns(forLayout, p.Width, p.Height).Columns
+	if len(cols) < 2 {
+		// Not two columns, which is not the same as not two strips. See
+		// [readingStrips] and [readingGates] for the pages that are the difference
+		// and for why the two questions cannot share one pair of bounds.
+		cols = readingStrips(forLayout, p.Width, p.Height)
+	}
+	if len(cols) < 2 {
+		// One strip, or too little text to call one. Either way the region is a
 		// single strip and its measure is what its own text reaches.
 		lo, hi := extent(prose)
 		if len(prose) == 0 {
@@ -580,8 +586,6 @@ func readingGroups(prose, forLayout []TextRun, p *PageRuns, r *Region) []reading
 		}
 		return []readingGroup{{runs: prose, measure: hi - lo, x0: r.X0, x1: r.X1}}
 	}
-
-	cols := layout.Columns
 	groups := make([]readingGroup, len(cols)+1)
 	groups[0].measure = func() float64 { lo, hi := extent(prose); return hi - lo }()
 	groups[0].x0, groups[0].x1, groups[0].banner = r.X0, r.X1, true
@@ -699,24 +703,36 @@ func cellHolding(run *TextRun, tables []RuledTable) (table, cell int) {
 	return -1, -1
 }
 
-// placeTables gives each table to the strip that holds it.
+// placeTables gives each table to the strip it mostly sits in.
 //
-// The strip is found by containment, the same rule [columnOf] applies to a run, and
-// for the same reason: a table reaching past a column belongs to none of them and is
-// read with the banner band. A region read as one strip holds every table in it,
-// which is why that strip's bounds are the region's box.
+// Overlap and not containment, and that is a correction rather than a preference. A
+// table's box is drawn by [PageTables] from the strokes on the page, while a strip's
+// bounds are where its *words* reach, and the two come from different inputs and do
+// not nest: the sequential manual's page 537 draws the base station's spec table
+// x=478-862 in a strip whose text reaches 845, and the column manual's page 57 draws
+// its two troubleshooting tables across strips found from four header runs, the cells
+// themselves having been taken out of the projection before it ran. Under containment
+// both fall through to the banner band, which reads first — so a reader is shown the
+// whole spec table and only then the page's own title. Overlap puts each one back
+// where the page prints it.
+//
+// The banner remains the fallback and remains right for what reaches it: a table that
+// overlaps no strip at all is above them, which is where a banner is.
 func placeTables(groups []readingGroup, celled []cellRuns) {
 	if len(celled) == 0 || len(groups) == 0 {
 		return
 	}
 	for i := range celled {
 		box := &celled[i].table.Box
-		k := 0
+		k, best := 0, 0.0
 		for j := range groups {
 			g := &groups[j]
-			if !g.banner && box.X0 >= g.x0-cellTextMargin && box.X1 <= g.x1+cellTextMargin {
-				k = j
-				break
+			if g.banner {
+				continue
+			}
+			over := math.Min(box.X1, g.x1+cellTextMargin) - math.Max(box.X0, g.x0-cellTextMargin)
+			if over > best {
+				k, best = j, over
 			}
 		}
 		groups[k].tables = append(groups[k].tables, celled[i])
