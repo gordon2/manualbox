@@ -56,10 +56,10 @@ which language and how much text, the columns inside it say in what order to rea
 **And reading order needs its own pair of bounds, because a page can have two columns
 and no second column.** Committed as `DetectColumns` alone, the paragraph above
 reproduces the failure it exists to avoid on every *sparse* page of either document.
-Measured on 8 of the sequential manual's 16 two-column Russian maintenance pages: page
-530 came back with its two section banners as one block, `"Мешок для сбора пыли
-Основная щетка"`, and its two columns' first step as one sentence ending `"…мешок для
-сбора 1. Надавите на"`.
+Measured on the sequential manual's Russian section: **20 blocks on 6 of its 22 pages**
+crossed the gutter, and page 530 came back with its two section banners as one block,
+`"Мешок для сбора пыли Основная щетка"`, and its two columns' first step as one
+sentence ending `"…мешок для сбора 1. Надавите на"`. It is 0 on those six pages now.
 
 The cause is not the projection. It is the two gates a *Column* has to pass, and both
 are right for what a Column is — a published fact that language attribution reads —
@@ -128,6 +128,21 @@ interval grid, which is a different defect recorded below. Its glued word was
 column manual's single new finding is the check's shape rather than a defect and is
 explained where it is pinned: page 58's two header cells are read left to right,
 level, because the table they head has no drawn top border, so they are prose.
+
+**Two shapes still weld across a gutter, and neither is two printed columns.** Both are
+on the sequential manual's Russian section and both are named here so they are not
+rediscovered as this defect:
+
+- **A label sitting in a gutter reads with the banner.** Page 521 is an exploded
+  diagram whose callouts land in the gaps between the three columns the detector does
+  find, so `columnOf` returns −1 and they join the banner band, where a shared baseline
+  still merges them: `"• Постоянно горит белым: уборка Боковая щетка"` is a left-column
+  bullet and a diagram label. Reading an unassigned run with the banner is deliberate —
+  losing it is worse — and giving those runs strips of their own is a further step this
+  change does not take.
+- **The unruled interval grid.** Page 528's `"Раз в 2 недели Раз в месяц Раз в 3–6
+  месяцев /"` is the class the reading-order check still reports on 18 pages, already
+  recorded here as invisible to the table detector.
 
 **A heading is found by weight and by length, not by size — and there is no size
 floor either.** Size alone is known to be wrong here, and the counter-example is

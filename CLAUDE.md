@@ -204,7 +204,7 @@ German entry could point at a Russian page is **refuted** — each language's co
 page prints its own folios.
 
 **A page can have two columns and no second column, and reading order now says so.**
-On 8 of the sequential manual's 16 two-column Russian pages a block crossed the gutter:
+**20 blocks on 6 of the sequential manual's 22 Russian pages** crossed the gutter, and
 page 530 read `"Мешок для сбора пыли Основная щетка"`, two section banners spliced. The
 cause is not the projection but the two gates a **`Column`** has to pass, which are
 right for a published fact language attribution reads and wrong for reading order —
@@ -223,7 +223,9 @@ band and was read before the page's title. Measured with every language converte
 `reading-order` findings **38 → 24** on the sequential manual and its glued-word count
 6 → 5, blocks 16,097 → 16,132 over 28 pages and 2,345 → 2,407 over 7, **no word gained
 or lost on any page**. The column manual's one new finding is the check's shape, not a
-defect, and is explained where it is pinned. See
+defect, and is explained where it is pinned. Two shapes still weld and neither is two
+printed columns — a diagram callout sitting in a gutter reads with the banner (page
+521), and the unruled interval grid is the old class (page 528). See
 [conversion.md](docs/design/conversion.md).
 
 **The blocks are indexed, and `GET /api/v1/search?q=` answers which manual says X.**
