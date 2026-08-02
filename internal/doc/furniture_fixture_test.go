@@ -289,11 +289,24 @@ func TestFurnitureOnTheColumnManualsGluedPages(t *testing.T) {
 	// 431 and 45 since clause 3: German's four chapter heads are printed on 16 of its
 	// 26 pages and the first page of each of the four runs keeps its own, so 12 move
 	// from content to furniture and the two totals move by 12 in opposite directions.
+	//
+	// 460 since a page with no second column is read as two strips. The furniture does
+	// not move at all — this is text that was always content and was welded into the
+	// wrong blocks. It is +29 on two pages: page 11's parts list arrived as two
+	// run-together blocks with the diagram's callouts spliced mid-sentence
+	// ("17 Staubbehälter für Grobschmutz und Feinstaub 7 18 Saugschlauch*…") and is
+	// now its own list, and page 57's troubleshooting table gets its own header rather
+	// than one welded from both columns'.
+	//
+	// Higher is better here and the failure message says so, because the number alone
+	// cannot: read the sequence, not the value.
 	content, furniture := len(conv.ContentBlocks()), len(conv.FurnitureBlocks())
-	if content != 431 || furniture != 45 {
-		t.Errorf("%d content and %d furniture blocks, was 431 and 45 (443 and 33 before "+
-			"the running-head clause, 427 before the contents page came apart, 432 "+
-			"before the furniture pass)", content, furniture)
+	if content != 460 || furniture != 45 {
+		t.Errorf("%d content and %d furniture blocks, was 460 and 45 — and MORE content "+
+			"here has meant better every time so far, since these are blocks that were "+
+			"welded rather than missing (431 and 45 before two columns were read as two, "+
+			"443 and 33 before the running-head clause, 427 before the contents page "+
+			"came apart, 432 before the furniture pass)", content, furniture)
 	}
 	if conv.Furniture.Tabs != 26 || conv.Furniture.Folios != 7 || conv.Furniture.Heads != 12 {
 		t.Errorf("claimed %d tab(s), %d folio(s) and %d head(s) in German, was 26, 7 and 12",
@@ -350,12 +363,15 @@ func TestFurnitureOnTheSequentialManualsPage24(t *testing.T) {
 		t.Errorf("claimed %d tab(s), %d folio(s) and %d head(s) over German's 16 pages, "+
 			"was 16, 16 and 5", conv.Furniture.Tabs, conv.Furniture.Folios, conv.Furniture.Heads)
 	}
-	// 481 blocks before the pass; 453 content and 32 furniture after it, and 448 and
-	// 37 since clause 3 moved German's five repeated section titles across.
-	if content, furniture := len(conv.ContentBlocks()), len(conv.FurnitureBlocks()); content != 448 ||
+	// 481 blocks before the pass; 453 content and 32 furniture after it, 448 and 37
+	// since clause 3 moved German's five repeated section titles across, and 449 since
+	// a page with no second column is read as two strips — one block on one page, this
+	// section being mostly single-column prose where the columns manual is not.
+	if content, furniture := len(conv.ContentBlocks()), len(conv.FurnitureBlocks()); content != 449 ||
 		furniture != 37 {
-		t.Errorf("%d content and %d furniture blocks, was 448 and 37 (453 and 32 before "+
-			"the running-head clause, 481 before the pass)", content, furniture)
+		t.Errorf("%d content and %d furniture blocks, was 449 and 37 (448 before two "+
+			"columns were read as two, 453 and 32 before the running-head clause, 481 "+
+			"before the pass)", content, furniture)
 	}
 
 	var kinds []string
