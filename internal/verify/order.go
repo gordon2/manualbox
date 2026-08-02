@@ -101,6 +101,17 @@ var defaultOrderGuards = orderGuards{
 // per cell. Measured: including table cells takes the column manual from 0 findings
 // to 207 and the sequential one from 686 to 3,158, and every added one is correct
 // row-major reading.
+//
+// Excluded from the comparison, though, is not the same as invisible, and reading them
+// as invisible is a blind spot this check had. Two prose blocks with a table between
+// them are not consecutive in reading order at all, so "the second does not start above
+// the first" says nothing about either. The measured case is the column manual's four
+// troubleshooting pages: each prints two side-by-side tables whose header rows sit above
+// a top border that is not drawn, so those headers are the page's only prose, and the
+// left table's header is followed — across twenty-six cells the check cannot see — by
+// the right table's header at the same y. That is the two columns read in the right
+// order, and it has the exact shape of interleaving once the cells are dropped. So a
+// table between two blocks now breaks the chain rather than closing over it.
 func checkOrder(blocks []doc.Block) []Finding {
 	return checkOrderWith(blocks, defaultOrderGuards)
 }
@@ -112,9 +123,6 @@ func checkOrderWith(blocks []doc.Block, g orderGuards) []Finding {
 	}
 	groups := make(map[key][]int, 16)
 	for i := range blocks {
-		if blocks[i].Kind == doc.BlockTable {
-			continue
-		}
 		k := key{blocks[i].Page, blocks[i].RegionX0}
 		groups[k] = append(groups[k], i)
 	}
@@ -134,23 +142,39 @@ func checkOrderWith(blocks []doc.Block, g orderGuards) []Finding {
 	for _, k := range keys {
 		idx := groups[k]
 		sort.Slice(idx, func(a, b int) bool { return blocks[idx[a]].Index < blocks[idx[b]].Index })
-		for j := 1; j < len(idx); j++ {
-			prev, cur := &blocks[idx[j-1]], &blocks[idx[j]]
-			if gapX(prev, cur) < g.minGap || cur.Y0 < prev.Y0-g.slack {
+		judged := 0
+		for j := range idx {
+			if blocks[idx[j]].Kind != doc.BlockTable {
+				judged++
+			}
+		}
+		var prev *doc.Block
+		for j := range idx {
+			cur := &blocks[idx[j]]
+			if cur.Kind == doc.BlockTable {
+				prev = nil
 				continue
 			}
-			if prev.Chars < g.minChars || cur.Chars < g.minChars {
+			last := prev
+			prev = cur
+			if last == nil {
+				continue
+			}
+			if gapX(last, cur) < g.minGap || cur.Y0 < last.Y0-g.slack {
+				continue
+			}
+			if last.Chars < g.minChars || cur.Chars < g.minChars {
 				continue
 			}
 			out = append(out, Finding{
 				Kind: KindReadingOrder, Page: cur.Page, RegionX0: cur.RegionX0, Index: cur.Index,
-				Got: cur.Y0, Want: prev.Y0, Count: 1, Total: len(idx),
-				Sample: excerpt(prev.Text + " → " + cur.Text),
+				Got: cur.Y0, Want: last.Y0, Count: 1, Total: judged,
+				Sample: excerpt(last.Text + " → " + cur.Text),
 				Detail: fmt.Sprintf("page %d region x=%.0f: block %d at x=%.0f-%.0f y=%.0f is "+
 					"read after block %d at x=%.0f-%.0f y=%.0f — a different column, no "+
 					"further up the page, which is what interleaving looks like",
 					cur.Page, cur.RegionX0, cur.Index, cur.X0, cur.X1, cur.Y0,
-					prev.Index, prev.X0, prev.X1, prev.Y0),
+					last.Index, last.X0, last.X1, last.Y0),
 			})
 		}
 	}
