@@ -53,6 +53,82 @@ That rule 3 is still right — a page of same-language columns is one *language*
 territory — is what makes this a seam rather than a contradiction: the region says
 which language and how much text, the columns inside it say in what order to read it.
 
+**And reading order needs its own pair of bounds, because a page can have two columns
+and no second column.** Committed as `DetectColumns` alone, the paragraph above
+reproduces the failure it exists to avoid on every *sparse* page of either document.
+Measured on 8 of the sequential manual's 16 two-column Russian maintenance pages: page
+530 came back with its two section banners as one block, `"Мешок для сбора пыли
+Основная щетка"`, and its two columns' first step as one sentence ending `"…мешок для
+сбора 1. Надавите на"`.
+
+The cause is not the projection. It is the two gates a *Column* has to pass, and both
+are right for what a Column is — a published fact that language attribution reads —
+and wrong for reading order:
+
+- `minColumnRuns = 8`. Page 530's right-hand column holds 6 runs and page 533's
+  left-hand one holds 6. Neither is called a column, so the page reports ONE, and
+  `readingGroups` falls back to a single strip across the whole page.
+- `maxGutterCrossings = 4`, which is a count and not a share. On a dense page that is
+  2% of its runs; page 530 has 17 usable runs in total, so *every* x on the page is
+  crossed by at most four and the projection reports the whole right-hand half as one
+  gutter. Page 531 loses its right column that way rather than to the run count.
+
+So `readingStrips` runs the same projection with both bounds at their limit — no run
+may cross a corridor, and one run is a strip — and `readingGroups` uses it only where
+`DetectColumns` has already declined to answer. `DetectColumns` itself does not
+change, so no `Column`, no region and no language attribution moves.
+
+**A threshold on the size of the gap was measured first, and refused.** The obvious
+line-level guard is "split a line where the gap between two of its runs is far larger
+than a word space". Taking the pages where `DetectColumns` finds two or more columns as
+ground truth — a gap between two runs of one column against a gap between runs of
+different columns — the two distributions overlap completely and no number separates
+them. Over the sequential manual, in multiples of the line's own font size:
+
+| | n | p50 | p90 | p99 | max |
+|---|---|---|---|---|---|
+| within one column | 2,436 | 0.0 | 1.6 | 17.1 | **22.1** |
+| across a gutter | 5,838 | 12.9 | 34.7 | 52.0 | 67.2 |
+
+The overlap is real on both ends and both ends are ordinary printing. A spec table sets
+`Model` and `RLL77SE` 216 units apart on one line of one column; a left column whose
+line runs the full measure ends 9 units before the right column's line begins, and on
+page 543 the two overlap by 8. There is no gap to put a number in, so none was chosen.
+
+**Right-to-left regions read their columns right to left.** The strips reached the
+Hebrew 189-200 and Arabic 205-216 pages and made visible something that had always been
+there: `readingGroups` ordered columns left to right whatever language they were in.
+Page 216 prints its disposal warning in a right column and its numbered removal guide
+in a left one, so an Arabic reader was handed step 1 before the paragraph introducing
+it. The direction comes from the region's language, the same source `lineIsRightToLeft`
+uses. 16 pages reorder and not one block is added, removed or rewritten.
+
+**A table is placed in the strip it mostly sits in, not the one that contains it.** A
+table's box is drawn by `PageTables` from the strokes; a strip's bounds are where its
+words reach. They come from different inputs and do not nest — the sequential manual's
+page 537 draws the base station's spec table x=478-862 in a strip whose text reaches
+845 — so under containment the table belonged to no strip and fell to the banner band,
+which is read first. The reader was shown the whole spec table and then the page's own
+title.
+
+What all of this cost and bought, measured over both documents with every language
+converted, and with no word gained or lost on any page:
+
+| | column manual | sequential manual |
+|---|---|---|
+| blocks | 2,345 → 2,407 over 7 pages | 16,097 → 16,132 over 28 pages |
+| `reading-order` findings | 0 → 1 | **38 → 24** |
+| `join-glued-words` | none either way | **6 → 5** |
+| figures | 59, unchanged | 134, unchanged |
+
+The sequential manual's 14 lost findings are one whole class — every two-column
+disposal and product-overview page — and what is left is the routine-maintenance
+interval grid, which is a different defect recorded below. Its glued word was
+`סוללות|מדריך` on Hebrew page 200, two columns' words meeting inside a block. The
+column manual's single new finding is the check's shape rather than a defect and is
+explained where it is pinned: page 58's two header cells are read left to right,
+level, because the table they head has no drawn top border, so they are prose.
+
 **A heading is found by weight and by length, not by size — and there is no size
 floor either.** Size alone is known to be wrong here, and the counter-example is
 measured: on the sequential manual, 17pt text is 11.4% of the document at 70

@@ -203,6 +203,29 @@ withholding the offset returns all 17 to plain text. The brief's expectation tha
 German entry could point at a Russian page is **refuted** — each language's contents
 page prints its own folios.
 
+**A page can have two columns and no second column, and reading order now says so.**
+On 8 of the sequential manual's 16 two-column Russian pages a block crossed the gutter:
+page 530 read `"Мешок для сбора пыли Основная щетка"`, two section banners spliced. The
+cause is not the projection but the two gates a **`Column`** has to pass, which are
+right for a published fact language attribution reads and wrong for reading order —
+page 530's right column holds **6 runs** against `minColumnRuns = 8`, and at 17 usable
+runs no x of that page is crossed by more than the **4** `maxGutterCrossings` allows, so
+the whole right-hand half reads as one gutter. `readingStrips` is the same projection
+with both bounds at their limit, used only where `DetectColumns` has already declined;
+`DetectColumns` itself does not move, so no region and no language attribution does.
+
+A **threshold on the gap was measured first and refused**: over the pages the detector
+does split, within-column gaps reach 22.1 times the line's font size and across-gutter
+gaps start at 0.0, and there is no gap to put a number in. Two things came out of this
+sideways — a right-to-left region's columns were being read left to right on 16 Hebrew
+and Arabic pages, and a table whose drawn box overhangs its own words fell to the banner
+band and was read before the page's title. Measured with every language converted:
+`reading-order` findings **38 → 24** on the sequential manual and its glued-word count
+6 → 5, blocks 16,097 → 16,132 over 28 pages and 2,345 → 2,407 over 7, **no word gained
+or lost on any page**. The column manual's one new finding is the check's shape, not a
+defect, and is explained where it is pinned. See
+[conversion.md](docs/design/conversion.md).
+
 **The blocks are indexed, and `GET /api/v1/search?q=` answers which manual says X.**
 FTS5 over `doc_blocks` with `content='doc_blocks'`, kept correct by three triggers
 because the third path that changes that table — `documents ON DELETE CASCADE` —
