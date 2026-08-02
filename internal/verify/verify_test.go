@@ -463,6 +463,39 @@ func TestReadingOrderIgnoresTableCellsAndFurniture(t *testing.T) {
 	}
 }
 
+// TestReadingOrderDoesNotReadAcrossATable is the column manual's page 57. Its two
+// side-by-side troubleshooting tables print a header row above a top border the
+// document does not draw, so those headers are the page's only prose — and the left
+// table's header is followed, across every cell of that table, by the right table's
+// header at the same y. Dropping the cells from the comparison must not make those
+// two consecutive: they are not, and the page is read correctly.
+func TestReadingOrderDoesNotReadAcrossATable(t *testing.T) {
+	blocks := []doc.Block{
+		block(57, 0, 36, 238, 67, "Aufgetretene Störungen und Fehlfunktionen"),
+	}
+	for i := 0; i < 12; i++ {
+		y := 107 + float64(i)*40
+		blocks = append(blocks, doc.Block{Page: 57, Index: len(blocks), Kind: doc.BlockTable,
+			Text: "Zelle", Chars: 5, X0: 36, X1: 164, Y0: y, Y1: y + 30})
+	}
+	blocks = append(blocks, block(57, len(blocks), 457, 659, 67,
+		"Aufgetretene Störungen und Fehlfunktionen"))
+
+	rep := verify.Inspect(verify.Input{Blocks: blocks})
+	if got := rep.Count(verify.KindReadingOrder); got != 0 {
+		t.Fatalf("the check read across a table it cannot see: %+v", rep.Findings)
+	}
+
+	// Without the table between them the same two blocks ARE consecutive, and the
+	// check must still fire — otherwise this is silence and not a repair.
+	bare := []doc.Block{blocks[0], blocks[len(blocks)-1]}
+	bare[1].Index = 1
+	if got := verify.Inspect(verify.Input{Blocks: bare}).Count(verify.KindReadingOrder); got != 1 {
+		t.Errorf("two level blocks in different columns with nothing between them "+
+			"reported %d findings, want 1", got)
+	}
+}
+
 // --- the report itself
 
 func TestReportSaysWhatItCouldNotCheck(t *testing.T) {
