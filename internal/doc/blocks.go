@@ -607,6 +607,20 @@ func readingGroups(prose, forLayout []TextRun, p *PageRuns, r *Region) []reading
 		groups[k+1].runs = append(groups[k+1].runs, *run)
 	}
 
+	// A right-to-left region's columns are read right to left, and the banner stays
+	// first because it is above them rather than beside them. Nothing exercised this
+	// until the strips above reached the Hebrew and Arabic disposal pages: page 216
+	// prints its guide in a left column and its warning in a right one, and read left
+	// first an Arabic reader is handed step 1 before the paragraph that introduces it.
+	// The direction comes from the REGION's language, the same source and the same
+	// reason as [lineIsRightToLeft]'s.
+	if IsRightToLeftLanguage(r.Lang) {
+		cols := groups[1:]
+		for i, j := 0, len(cols)-1; i < j; i, j = i+1, j-1 {
+			cols[i], cols[j] = cols[j], cols[i]
+		}
+	}
+
 	out := make([]readingGroup, 0, len(groups))
 	for i := range groups {
 		if len(groups[i].runs) > 0 || groups[i].banner || len(groups) == 1 {
