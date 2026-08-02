@@ -146,10 +146,31 @@ func TestCheckTheColumnManual(t *testing.T) {
 	// line pitch that page's paragraph rule measures, and two run-together blocks
 	// resolved into ten discrete printed instructions. That is the same second-order
 	// effect the tab had when it lifted the column manual's level-1 headings by 29.
-	if len(conv.Blocks) != 2345 || len(conv.Figures) != 59 {
+	//
+	// 2,407 since reading order got its own strips for the pages the column detector
+	// declines to call two-column. +62 over seven pages and no others, every one of
+	// them a page that was welding two columns onto one line:
+	//
+	//	page 11  +27  the parts list. Its 39 numbered items were arriving as two
+	//	              run-together blocks of 7 and 19 lines, each with the diagram's
+	//	              callout numbers spliced into the middle of the words —
+	//	              `"17 Staubbehälter für Grobschmutz und Feinstaub 7 18 Saugschlauch*"`.
+	//	              They are now 39 list items and the callouts are their own blocks.
+	//	page 12  +25  the same page in the other four languages' overview
+	//	pages 57-61
+	//	         +10  two per troubleshooting page. Each prints two side-by-side
+	//	              tables whose header row sits above a top border the document
+	//	              does not draw, so the headers read as prose, and the two tables'
+	//	              headers were one block: `"Aufgetretene Störungen/ Grund / Abhilfe
+	//	              Aufgetretene Störungen/ Grund / Abhilfe Fehlfunktionen
+	//	              Fehlfunktionen"`. Each is now its own table's header.
+	//
+	// No word is gained or lost on any page of the document — checked as a multiset
+	// per page — so this is grouping and order, not text.
+	if len(conv.Blocks) != 2407 || len(conv.Figures) != 59 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 2345 and 59 (2336 before the running-head clause, 2256 before the "+
-			"contents pages came apart)", len(conv.Blocks), len(conv.Figures))
+			"was 2407 and 59 (2345 before the columns of a one-column page came apart, "+
+			"2336 before the running-head clause)", len(conv.Blocks), len(conv.Figures))
 	}
 	if got := len(conv.FurnitureBlocks()); got != 172 {
 		t.Errorf("%d furniture block(s), was 172 (111 before the running-head clause)", got)
@@ -227,8 +248,19 @@ func TestCheckTheColumnManual(t *testing.T) {
 
 	// Reading order is clean, including on the parts pages whose callouts scatter
 	// across the measure and on the ten table pages.
-	if got := rep.Count(verify.KindReadingOrder); got != 0 {
-		t.Errorf("reading order reported %d finding(s) on a manual read correctly", got)
+	//
+	// One finding, and it is the check's shape rather than a defect, which is why it
+	// is pinned with its explanation instead of being tuned away. Page 58 prints its
+	// right-hand troubleshooting table's header row — `Usterki / Wadliwe działanie`
+	// and `Przyczyna / Środki zaradcze` — above a top border the document does not
+	// draw, so the two cells are prose rather than [doc.BlockTable] and are read left
+	// to right, level, which is exactly what interleaving looks like. It is the same
+	// row-major reading [checkOrder] excludes table cells for; these two are simply
+	// not inside the table. Before the columns of a one-column page came apart they
+	// were ONE block, welded across the gutter, and the check could not see them at
+	// all: zero here used to be worth less than one is now.
+	if got := rep.Count(verify.KindReadingOrder); got != 1 {
+		t.Errorf("reading order reported %d finding(s) on a manual read correctly, was 1", got)
 	}
 }
 
@@ -279,14 +311,27 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	//	        printed. That change is in readingGroups and it is what lets the line
 	//	        below cost nothing: with it, the running-head clause moves no block
 	//	        total and no finding count at all.
+	//	16,132  +35 over 28 pages, when reading order got its own strips for the pages
+	//	        the column detector declines to call two-column. This one moves BOTH
+	//	        ways and both directions are the same repair. 25 pages gain, the
+	//	        two-column maintenance and disposal pages of one language section
+	//	        after another, where a banner and a step were welded across the gutter
+	//	        — page 530 read `"Мешок для сбора пыли Основная щетка"`, two section
+	//	        titles spliced. 3 pages LOSE blocks and that is the same fix seen from
+	//	        the other side: page 216's Arabic warning was arriving as five
+	//	        fragments because each of its lines was cut where the left column's
+	//	        step began, and it is now one seven-line paragraph (−7). Page 53's
+	//	        French spec page is the same shape (−4), page 537's Russian one (−1).
+	//	        No word is gained or lost on any page of the document, checked as a
+	//	        multiset per page.
 	//
 	// The furniture count moved 1,105 -> 1,289 on the same commit, and the total did
 	// not, because a running head was already a block of its own on every page it was
 	// claimed from. That is the shape to expect: a clause 3 that moved the total would
 	// be splitting or merging content, which is not what it is for.
-	if len(conv.Blocks) != 16097 || len(conv.Figures) != 134 {
+	if len(conv.Blocks) != 16132 || len(conv.Figures) != 134 {
 		t.Errorf("the conversion under test moved: %d blocks and %d figures, "+
-			"was 16097 and 134 — read the sequence above before deciding which way is "+
+			"was 16132 and 134 — read the sequence above before deciding which way is "+
 			"better, because 16055 has been both the honest total and a regression that "+
 			"cost six pages their lists", len(conv.Blocks), len(conv.Figures))
 	}
@@ -381,9 +426,16 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// such a run is already in logical order, and reversing it splits it at any space
 	// whose neighbours are not both strongly left-to-right. Only a run that reverses
 	// gets that repair now, and the standard reads `IEC 60825-1:2014/ EN 60825- 1:2014/`.
-	if got := rep.Count(verify.KindJoinGlued); got != 6 {
-		t.Errorf("glued words: %d, was 6 (7 while page 204's laser standard was "+
-			"repaired twice over, 3 before right-to-left lines were read in order)", got)
+	//
+	// 5 since the columns of a one-column page came apart, and the one that left is
+	// the one this comment names first: `סוללות|מדריך` on Hebrew page 200 was two
+	// columns' words meeting inside a block, and the two columns are now two blocks.
+	// The finding was correct and its cause is gone; the remaining 5 are the Arabic
+	// and Thai shaping pairs, which are a different thing.
+	if got := rep.Count(verify.KindJoinGlued); got != 5 {
+		t.Errorf("glued words: %d, was 5 (6 before Hebrew page 200's two columns came "+
+			"apart, 7 while page 204's laser standard was repaired twice over, 3 before "+
+			"right-to-left lines were read in order)", got)
 	}
 
 	// 2 blank bands where there were 6 before the clip was read. Merging candidate
@@ -440,12 +492,26 @@ func TestCheckTheSequentialManual(t *testing.T) {
 	// inside one block. What changed is that a list marker leads its line in logical
 	// order, so page 216's line came apart into the per-column blocks the check can
 	// see between.
-	if got := rep.Count(verify.KindReadingOrder); got != 38 {
-		t.Errorf("reading order: %d finding(s), was 38 (36 before right-to-left lines "+
-			"were read in order, 37 before the furniture pass)", got)
+	//
+	// 24 since reading order got its own strips for the pages the column detector
+	// declines to call two-column, and this is the number that says the change did
+	// what it claims. The 14 that left are the second class above, whole: every
+	// finding on a two-column disposal or product-overview page, including the two on
+	// Arabic page 216 that this comment says "was always there" and its Hebrew twin on
+	// page 200 which it says still had it, invisible. Both are read column by column
+	// now, and the right-to-left ones right column first.
+	//
+	// What remains is the first class and nothing else: 24 findings over 18 pages, the
+	// routine-maintenance grid of one language section after another, still invisible
+	// to the table detector and still read in columns. Nothing here is new.
+	if got := rep.Count(verify.KindReadingOrder); got != 24 {
+		t.Errorf("reading order: %d finding(s), was 24 (38 before the columns of a "+
+			"one-column page came apart, 36 before right-to-left lines were read in "+
+			"order, 37 before the furniture pass)", got)
 	}
-	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 24 {
-		t.Errorf("reading-order findings cover %d pages, was 26 — a class this "+
+	if got := rep.PagesFlagged(verify.KindReadingOrder); got < 16 {
+		t.Errorf("reading-order findings cover %d pages, was 18 (26 while the "+
+			"two-column disposal pages were in this class too) — a class this "+
 			"concentrated on one page per section is what makes it explainable", got)
 	}
 }
