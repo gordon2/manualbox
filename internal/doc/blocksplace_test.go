@@ -51,7 +51,7 @@ func TestATableWiderThanItsWordsStaysInItsStrip(t *testing.T) {
 	basis := strings.Index(blockTexts(got), "Basisstation")
 	feld0 := strings.Index(blockTexts(got), "Feld 0")
 	feldb0 := strings.Index(blockTexts(got), "Feldb 0")
-	if !(robot < feld0 && feld0 < basis && basis < feldb0) {
+	if robot >= feld0 || feld0 >= basis || basis >= feldb0 {
 		t.Errorf("the two tables are not each under their own heading: %s", blockTexts(got))
 	}
 }

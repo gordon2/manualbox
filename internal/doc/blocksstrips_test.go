@@ -31,23 +31,23 @@ func sparsePage(no int) *doc.PageRuns { return blockPage(no, sparseLines(0)...) 
 // sparseLines returns the page's lines, shifted down the page by dy.
 func sparseLines(dy float64) []line {
 	out := []line{
-		line{y: 20, x: 65, w: 130, size: 15, weight: doc.WeightSemibold, bold: true,
+		{y: 20, x: 65, w: 130, size: 15, weight: doc.WeightSemibold, bold: true,
 			text: "Mешок для сбора"},
-		line{y: 45, x: 65, w: 365, size: 14, text: "1. Снимите крышку отсека для пыли"},
-		line{y: 60, x: 65, w: 30, size: 14, text: "пыли."},
-		line{y: 200, x: 65, w: 355, size: 14, text: "Примечание. Потяните ручку вверх"},
-		line{y: 215, x: 66, w: 260, size: 14, text: "2. Очистите пыль и грязь с фильтра"},
-		line{y: 350, x: 65, w: 370, size: 14, text: "3. Установите новый мешок для сбора"},
-		line{y: 365, x: 65, w: 135, size: 14, text: "отсека для пыли на место."},
-		line{y: 385, x: 65, w: 300, size: 14, text: "4. Закройте крышку отсека для пыли."},
-		line{y: 400, x: 65, w: 180, size: 14, text: "и проверьте фиксацию."},
+		{y: 45, x: 65, w: 365, size: 14, text: "1. Снимите крышку отсека для пыли"},
+		{y: 60, x: 65, w: 30, size: 14, text: "пыли."},
+		{y: 200, x: 65, w: 355, size: 14, text: "Примечание. Потяните ручку вверх"},
+		{y: 215, x: 66, w: 260, size: 14, text: "2. Очистите пыль и грязь с фильтра"},
+		{y: 350, x: 65, w: 370, size: 14, text: "3. Установите новый мешок для сбора"},
+		{y: 365, x: 65, w: 135, size: 14, text: "отсека для пыли на место."},
+		{y: 385, x: 65, w: 300, size: 14, text: "4. Закройте крышку отсека для пыли."},
+		{y: 400, x: 65, w: 180, size: 14, text: "и проверьте фиксацию."},
 
-		line{y: 20, x: 504, w: 90, size: 15, weight: doc.WeightSemibold, bold: true,
+		{y: 20, x: 504, w: 90, size: 15, weight: doc.WeightSemibold, bold: true,
 			text: "Основная щетка"},
-		line{y: 46, x: 497, w: 370, size: 14, text: "1. Надавите на зажимы защиты щетки"},
-		line{y: 61, x: 497, w: 130, size: 14, text: "достать щетку из робота."},
-		line{y: 300, x: 496, w: 348, size: 14, text: "2. Снимите крышки щетки с обоих"},
-		line{y: 315, x: 496, w: 340, size: 14, text: "рисунке. Для удаления запутавшихся"},
+		{y: 46, x: 497, w: 370, size: 14, text: "1. Надавите на зажимы защиты щетки"},
+		{y: 61, x: 497, w: 130, size: 14, text: "достать щетку из робота."},
+		{y: 300, x: 496, w: 348, size: 14, text: "2. Снимите крышки щетки с обоих"},
+		{y: 315, x: 496, w: 340, size: 14, text: "рисунке. Для удаления запутавшихся"},
 	}
 	for i := range out {
 		out[i].y += dy
