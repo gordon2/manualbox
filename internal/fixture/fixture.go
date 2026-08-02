@@ -41,18 +41,127 @@ type Section struct {
 	Note           string `json:"note,omitempty"`
 }
 
+// ColumnFact is one text column of a page.
+type ColumnFact struct {
+	X0   int `json:"x0"`
+	X1   int `json:"x1"`
+	Runs int `json:"runs"`
+	// Lang is the column's language, or empty where the signal declined. An
+	// empty entry records that nothing was established, not that nothing is
+	// there.
+	Lang string `json:"lang"`
+	// Note explains an entry that needs it — in particular a column deliberately
+	// left unestablished because the signal got it wrong.
+	Note string `json:"note,omitempty"`
+}
+
+// PageFact is what is known about a single page.
+//
+// Sections cannot describe every manual. A document whose languages sit in
+// parallel columns has several on one page and no contiguous span for any of
+// them, so the unit has to be the page and its columns. See
+// docs/design/layouts.md.
+type PageFact struct {
+	Page    int `json:"page"`
+	Columns int `json:"columns"`
+	// Spanning counts runs crossing a gutter — headings and footers set across
+	// the full measure, which belong to no single column.
+	Spanning int          `json:"spanning"`
+	Cols     []ColumnFact `json:"cols,omitempty"`
+
+	// Verified is how this entry came to be, and it is load-bearing rather than
+	// documentation. "image" means a human compared the page against its render;
+	// those entries are ground truth and may be asserted against. "detector"
+	// means the code under test produced it, so asserting against it would be
+	// circular — it records the current reading, not established truth.
+	Verified string `json:"verified"`
+}
+
+// HumanVerified reports whether this page was checked against its render.
+func (p PageFact) HumanVerified() bool { return p.Verified == "image" }
+
 // Manifest describes a fixture document and what the pipeline should find in it.
+//
+// Sections and PageFacts are alternatives, not both: a sectioned manual records
+// Sections, a column manual records PageFacts. Neither is required, because what
+// a document can be held to depends on what has actually been measured about it.
 type Manifest struct {
-	Name                   string    `json:"name"`
-	URL                    string    `json:"url"`
-	SHA256                 string    `json:"sha256"`
-	Bytes                  int64     `json:"bytes"`
-	Pages                  int       `json:"pages"`
-	HasTextLayer           bool      `json:"has_text_layer"`
-	MedianCharsPerPage     int       `json:"median_chars_per_page"`
-	ContentStartsOnPDFPage int       `json:"content_starts_on_pdf_page"`
-	IndexPages             []int     `json:"index_pages"`
-	Sections               []Section `json:"sections"`
+	Name                   string `json:"name"`
+	URL                    string `json:"url"`
+	SHA256                 string `json:"sha256"`
+	Bytes                  int64  `json:"bytes"`
+	Pages                  int    `json:"pages"`
+	HasTextLayer           bool   `json:"has_text_layer"`
+	MedianCharsPerPage     int    `json:"median_chars_per_page"`
+	ContentStartsOnPDFPage int    `json:"content_starts_on_pdf_page"`
+	IndexPages             []int  `json:"index_pages"`
+
+	// Layout names the arrangement, and LayoutNote records that it may vary
+	// within the one document — which it does in the measured column fixture.
+	Layout     string `json:"layout,omitempty"`
+	LayoutNote string `json:"layout_note,omitempty"`
+	// Languages is every language present, however it is arranged.
+	Languages []string `json:"languages,omitempty"`
+	// KnownLimitations records what this fixture cannot settle, so a reader does
+	// not mistake its silence for coverage.
+	KnownLimitations []string `json:"known_limitations,omitempty"`
+
+	Sections  []Section  `json:"sections,omitempty"`
+	PageFacts []PageFact `json:"page_facts,omitempty"`
+
+	// PageBox is the page dimensions poppler's XML reports, and TextRuns how many
+	// positioned runs the whole document yields. Both are what a coordinate-space
+	// change would show up in first, and neither can be derived from the others.
+	//
+	// They are held to different standards on purpose. The box is exactly 1.5
+	// times the PDF's own page size and so is a property of the output format —
+	// assert it exactly. The run count depends on how a version of poppler
+	// segments a line into runs, which may legitimately shift — assert it with a
+	// tolerance.
+	PageBox  *PageBox `json:"page_box,omitempty"`
+	TextRuns int      `json:"text_runs,omitempty"`
+}
+
+// PageBox is a document's page dimensions in poppler's XML coordinate space.
+type PageBox struct {
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+// PageFact returns the ground truth for a page.
+func (m *Manifest) PageFact(page int) (PageFact, bool) {
+	for i := range m.PageFacts {
+		if m.PageFacts[i].Page == page {
+			return m.PageFacts[i], true
+		}
+	}
+	return PageFact{}, false
+}
+
+// VerifiedPages returns only the pages a human checked against the render.
+// Those are the ones a detector may legitimately be held to.
+func (m *Manifest) VerifiedPages() []PageFact {
+	var out []PageFact
+	for i := range m.PageFacts {
+		if m.PageFacts[i].HumanVerified() {
+			out = append(out, m.PageFacts[i])
+		}
+	}
+	return out
+}
+
+// EstablishedColumns counts the columns whose language is known, and the total.
+// The gap between them is the honest limit of what this fixture can prove.
+func (m *Manifest) EstablishedColumns() (known, total int) {
+	for i := range m.PageFacts {
+		for _, c := range m.PageFacts[i].Cols {
+			total++
+			if c.Lang != "" {
+				known++
+			}
+		}
+	}
+	return known, total
 }
 
 // Section returns the section for a language code.

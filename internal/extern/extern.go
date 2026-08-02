@@ -88,6 +88,47 @@ var (
 		VersionArgs: []string{"-v"},
 		Install:     popplerInstall,
 	}
+	// PDFToHTML is listed separately from pdftotext because it answers a question
+	// pdftotext cannot: where on the page the text is. Only its XML output carries
+	// coordinates, and those are what a column is — on a manual whose languages run
+	// in parallel columns a language IS a column, and no per-page reading of such a
+	// document can be right. See docs/design/regions.md.
+	//
+	// Its output also carries font size, family and weight, which separate a heading
+	// from a paragraph and are what this tool was first added for. Measured on the
+	// fixture's English section: body text is 11pt regular at 58% of characters,
+	// while 17pt *regular* is safety body copy at another 15% — so a
+	// "larger than body means heading" rule promotes prose. Weight is the
+	// discriminator, and pdftotext does not report it. That use is still ahead.
+	//
+	// Optional, deliberately. A document with no positioned text still probes and
+	// still gets a per-page language map; what is lost is the column resolution, and
+	// the probe says so rather than failing.
+	PDFToHTML = Tool{
+		Name:        "pdftohtml",
+		Purpose:     "read where text sits on the page, which is how parallel language columns are found",
+		VersionArgs: []string{"-v"},
+		Install:     popplerInstall,
+	}
+	// PDFToCairo is listed separately again, and for the same kind of reason
+	// PDFToHTML is: it reports something no other poppler tool reports at all.
+	// A manual's tables are found from the lines the page draws, and those lines
+	// are vector graphics rather than text. Measured on the parallel-columns
+	// fixture's page 57, which is visibly ruled: `pdftohtml -xml` emits exactly
+	// four kinds of element — pdf, page, fontspec and text — and not one path,
+	// so the rules are not merely hard to find there, they are absent.
+	// `pdftocairo -svg` reports them exactly, in the PDF's own points, which is
+	// the space pdftohtml uses divided by 1.5. See docs/design/conversion.md.
+	//
+	// Optional like the rest. A document whose tables cannot be read still
+	// converts to blocks; what is lost is the cell structure, and the caller says
+	// so rather than failing the document.
+	PDFToCairo = Tool{
+		Name:        "pdftocairo",
+		Purpose:     "read the ruled lines a page draws, which is how tables are found",
+		VersionArgs: []string{"-v"},
+		Install:     popplerInstall,
+	}
 	Tesseract = Tool{
 		Name:        "tesseract",
 		Purpose:     "OCR scanned manuals and phone photos",
@@ -108,7 +149,7 @@ var popplerInstall = map[string]string{
 
 // All is every tool manualbox may use, in doctor-report order.
 func All() []Tool {
-	return []Tool{PDFToText, PDFToPPM, PDFImages, PDFInfo, Tesseract}
+	return []Tool{PDFToText, PDFToHTML, PDFToCairo, PDFToPPM, PDFImages, PDFInfo, Tesseract}
 }
 
 // ErrNotFound is returned by [Require] when a tool is not installed.

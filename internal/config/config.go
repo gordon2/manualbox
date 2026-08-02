@@ -28,6 +28,7 @@ const EnvPrefix = "MANUALBOX_"
 type Config struct {
 	Server    Server    `yaml:"server"`
 	Content   Content   `yaml:"content"`
+	Ingest    Ingest    `yaml:"ingest" envPrefix:"INGEST_"`
 	Providers Providers `yaml:"providers"`
 	Jobs      Jobs      `yaml:"jobs"`
 	// LOG_ prefix: bare MANUALBOX_LEVEL and MANUALBOX_FORMAT would be ambiguous
@@ -68,6 +69,19 @@ type Content struct {
 	// OCRLanguages are the tesseract language codes to load. Empty means derive
 	// them from Languages.
 	OCRLanguages []string `yaml:"ocr_languages" env:"OCR_LANGUAGES" envSeparator:","`
+}
+
+// Ingest bounds what the document pipeline will do without being asked.
+type Ingest struct {
+	// MaxPagesAuto is the largest document that may be processed automatically
+	// after probing. Above it, the document is stored and probed — both free —
+	// and the user is asked before anything is converted or sent to a provider.
+	//
+	// The default is deliberately low. A real appliance manual runs to 560 pages
+	// in 34 languages, of which a household reads perhaps 16; converting the whole
+	// thing costs two orders of magnitude more than converting the part that
+	// matters. A large upload must never silently become a bill.
+	MaxPagesAuto int `yaml:"max_pages_auto" env:"MAX_PAGES_AUTO"`
 }
 
 // Providers configures the pluggable adapters. Every slot may be empty; an
@@ -133,6 +147,9 @@ func Default() Config {
 		},
 		Content: Content{
 			Languages: []string{"en"},
+		},
+		Ingest: Ingest{
+			MaxPagesAuto: 64,
 		},
 		Providers: Providers{
 			// Local and free by default.
@@ -235,6 +252,10 @@ func (c Config) Validate() error {
 		if _, err := language.Parse(tag); err != nil {
 			errs = append(errs, fmt.Errorf("content.languages: %q is not a valid BCP-47 language tag", tag))
 		}
+	}
+
+	if c.Ingest.MaxPagesAuto < 1 {
+		errs = append(errs, errors.New("ingest.max_pages_auto must be at least 1"))
 	}
 
 	if c.Jobs.Workers < 1 {

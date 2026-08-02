@@ -141,3 +141,37 @@ func TestEveryKnownToolHasHelpfulMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestPDFToHTMLIsKnown(t *testing.T) {
+	// pdftohtml is listed separately from pdftotext because it answers a question
+	// pdftotext cannot: only its XML output carries font size and weight, and
+	// weight is what separates a heading from a paragraph. Measured on a real
+	// manual, 17pt *regular* text is safety body copy, so size alone misclassifies
+	// 15% of the characters on those pages as headings.
+	//
+	// It must be in All(), because that is what doctor and the instance endpoint
+	// enumerate — a tool the pipeline needs but never reports is one the user
+	// cannot be told to install.
+	var found bool
+	for _, tool := range All() {
+		if tool.Name == "pdftohtml" {
+			found = true
+			if tool.Purpose == "" {
+				t.Error("pdftohtml has no purpose, so doctor cannot explain why it matters")
+			}
+			if (Status{Tool: tool}).InstallHint() == "" {
+				t.Error("pdftohtml has no install hint for this platform")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("pdftohtml is not in All(), so doctor will never mention it")
+	}
+
+	// It ships in poppler-utils alongside pdftotext, so if one is present the
+	// other should be too. A split would mean the Docker image needs changing.
+	if Available(PDFToText) && !Available(PDFToHTML) {
+		t.Error("pdftotext is installed but pdftohtml is not — they are packaged together, " +
+			"so this means the deployment needs a separate package")
+	}
+}

@@ -7,9 +7,12 @@
 
 Self-hosted. Free. MIT. Single binary, SQLite, no external services required, and **no API key needed** to get real value out of it.
 
-> ⚠️ Early development. The server runs, you can create an account and sign in, and background
-> jobs report live progress — but **you cannot add devices or manuals yet**. That is M1, the next
-> milestone. See the [Roadmap](#roadmap).
+> ⚠️ Early development. You can create an account, add devices, and upload a manual — manualbox
+> reads it locally and tells you what it contains, in which languages, before anything is
+> converted or sent anywhere. Approve it and the pages you read are converted to blocks, and
+> `GET /api/v1/search?q=` finds the sentence you need across every manual in the house.
+> **It stops there for now:** the reader screen, the search screen and export are still to
+> come. See the [Roadmap](#roadmap).
 
 ## Try it
 
@@ -75,7 +78,7 @@ Then it gets out of the way: notifications where you already look, and a calenda
 | | |
 |---|---|
 | **M0** ✅ | Skeleton: config, SQLite + migrations, blob store, job queue, auth, API, frontend shell, Docker, CI |
-| **M1** | Registry, document pipeline (convert → language-segment → index), reader, full-text search, **export** — see [ingest design](docs/design/ingest.md) |
+| **M1** | Registry ✅, document probe and language map ✅, conversion ✅, full-text search ✅, then the reader and **export** — see [ingest](docs/design/ingest.md), [conversion](docs/design/conversion.md) and [search](docs/design/search.md) |
 | **M2** | Maintenance: schedules, battery charge cycles, service log, notifications, ICS calendar feed |
 | **M3** | Translation: per-block, glossary, translation memory, side-by-side, post-editing |
 | **M4** | Extraction: maintenance plans with citations, printable per-device cheat sheets, error-code lookup |
@@ -101,8 +104,10 @@ Optional external binaries, used when present and degraded gracefully when not (
 | `tesseract` | OCR for scans and photos | `brew install tesseract tesseract-lang` |
 
 Design decisions, with the measurements behind them, are in `docs/design/`:
-[ingest](docs/design/ingest.md) · [providers](docs/design/providers.md) ·
-[privacy](docs/design/privacy.md) · [keys](docs/design/keys.md).
+[ingest](docs/design/ingest.md) · [layouts](docs/design/layouts.md) ·
+[language detection](docs/design/language-detection.md) ·
+[providers](docs/design/providers.md) · [privacy](docs/design/privacy.md) ·
+[keys](docs/design/keys.md).
 
 Conventions and the things that have already caused bugs here:
 [CONTRIBUTING.md](CONTRIBUTING.md).

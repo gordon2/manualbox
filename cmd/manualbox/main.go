@@ -24,8 +24,10 @@ import (
 	"github.com/gordon2/manualbox/internal/config"
 	"github.com/gordon2/manualbox/internal/db"
 	"github.com/gordon2/manualbox/internal/extern"
+	"github.com/gordon2/manualbox/internal/ingest"
 	"github.com/gordon2/manualbox/internal/jobs"
 	"github.com/gordon2/manualbox/internal/logging"
+	"github.com/gordon2/manualbox/internal/registry"
 	"github.com/gordon2/manualbox/internal/store"
 )
 
@@ -68,6 +70,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdServe(ctx, rest, stdout, stderr)
 	case "doctor":
 		return cmdDoctor(ctx, rest, stdout)
+	case "verify":
+		return cmdVerify(ctx, rest, stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "manualbox %s (%s)\n", version, commit)
 		return nil
@@ -89,6 +93,7 @@ Usage:
 Commands:
   serve      Run the web server and background workers
   doctor     Report configuration and which optional tools are available
+  verify     Convert a PDF and report what is wrong with the conversion
   version    Print the version
   help       Show this help
 
@@ -97,6 +102,10 @@ Flags (serve, doctor):
 
 Flags (doctor):
   -redact          Replace your home directory with ~, for pasting into a bug report
+
+Flags (verify):
+  -limit <n>       How many findings of each kind to print (default 20)
+  -all             Print every finding
 
 Configuration comes from defaults, then the config file, then MANUALBOX_*
 environment variables. Run "manualbox doctor" to see what was resolved.
@@ -197,19 +206,31 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	queue := jobs.NewQueue(database, log)
 	defer queue.Broker().Close()
 
+	registryService := registry.New(database, registry.Options{Logger: log})
+	ingestService := ingest.New(ingest.Deps{
+		Config:   cfg,
+		Registry: registryService,
+		Store:    blobs,
+		Jobs:     queue,
+		Logger:   log,
+	})
+
 	pool := jobs.NewPool(queue, cfg.Jobs, log)
-	// M1 registers the real conversion, OCR, translation, and extraction
-	// handlers here. Until then the pool runs with none, and a job of an unknown
-	// kind fails with a clear message rather than hanging.
+	// The document pipeline's handlers. Conversion, OCR, translation, and
+	// extraction register here as they land; a job of an unknown kind fails with a
+	// clear message rather than hanging.
+	ingestService.Register(pool)
 
 	server := api.New(api.Deps{
-		Config:  cfg,
-		DB:      database,
-		Store:   blobs,
-		Auth:    authService,
-		Jobs:    queue,
-		Logger:  log,
-		Version: version,
+		Config:   cfg,
+		DB:       database,
+		Store:    blobs,
+		Auth:     authService,
+		Jobs:     queue,
+		Registry: registryService,
+		Ingest:   ingestService,
+		Logger:   log,
+		Version:  version,
 	})
 
 	httpServer := &http.Server{

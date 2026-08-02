@@ -11,6 +11,121 @@ type Blob struct {
 	CreatedAt int64
 }
 
+type Device struct {
+	ID          string
+	Name        string
+	Brand       string
+	Model       string
+	Category    string
+	LocationID  *string
+	Notes       string
+	PurchasedAt *int64
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+type DocBlock struct {
+	DocumentID string
+	Page       int64
+	RegionX0   int64
+	Idx        int64
+	Kind       string
+	Level      int64
+	Text       string
+	Lang       string
+	X0         float64
+	X1         float64
+	Y0         float64
+	Y1         float64
+	Lines      int64
+	Chars      int64
+	Note       string
+	CreatedAt  int64
+}
+
+type DocBlocksFt struct {
+	Text string
+}
+
+type DocFigure struct {
+	DocumentID   string
+	Page         int64
+	Idx          int64
+	X0           float64
+	Y0           float64
+	X1           float64
+	Y1           float64
+	Ink          int64
+	TextFraction float64
+	Dpi          int64
+	PixelWidth   int64
+	PixelHeight  int64
+	BlobSha256   string
+	CreatedAt    int64
+}
+
+type DocLang struct {
+	DocumentID  string
+	Source      string
+	PdfStart    int64
+	PdfEnd      int64
+	Code        string
+	Lang        string
+	Title       string
+	PrintedPage *int64
+	Confidence  float64
+	Conflict    int64
+	Note        string
+	CreatedAt   int64
+}
+
+type DocPage struct {
+	DocumentID   string
+	PageNo       int64
+	Chars        int64
+	Script       string
+	PageTag      string
+	PrintedFolio *int64
+	Lang         string
+	LangSource   string
+}
+
+type DocRegion struct {
+	DocumentID string
+	Source     string
+	Page       int64
+	X0         int64
+	X1         int64
+	Code       string
+	Lang       string
+	Chars      int64
+	Runs       int64
+	Conflict   int64
+	Note       string
+	CreatedAt  int64
+}
+
+type Document struct {
+	ID                 string
+	DeviceID           string
+	BlobSha256         string
+	Filename           string
+	MediaType          string
+	Kind               string
+	State              string
+	LastError          string
+	PageCount          *int64
+	Encrypted          *int64
+	Tagged             *int64
+	HasTextLayer       *int64
+	MedianCharsPerPage *int64
+	ContentStartPage   *int64
+	ContentEndPage     *int64
+	CreatedAt          int64
+	UpdatedAt          int64
+	ProbedAt           *int64
+}
+
 type Job struct {
 	ID           string
 	Kind         string
@@ -33,6 +148,15 @@ type Job struct {
 	UpdatedAt    int64
 	StartedAt    *int64
 	FinishedAt   *int64
+}
+
+type Location struct {
+	ID        string
+	Name      string
+	ParentID  *string
+	Notes     string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type Session struct {

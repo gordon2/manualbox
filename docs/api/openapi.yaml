@@ -35,8 +35,74 @@ tags:
   - name: setup
   - name: auth
   - name: jobs
+  - name: documents
+  - name: search
 
 paths:
+  /search:
+    get:
+      tags: [search]
+      summary: Which manual says X, and where
+      description: |
+        Full-text search over every converted manual in the household. A hit names
+        the document, the device, the page and the language, and carries enough text
+        to recognise — "page 47 of something" does not solve the problem this
+        endpoint exists for.
+
+        A GET with `?q=`, so a search is a URL: linkable, bookmarkable, and in the
+        browser's history where a user expects it.
+
+        **`q` is text, never a query language.** SQLite FTS5 has an expression syntax
+        — bare `AND`, `OR`, `NOT`, `NEAR`, colons, prefix stars — and passing a
+        user's words to it would make an ordinary query a syntax error and silently
+        reinterpret another. Each word is quoted as a phrase and the phrases are
+        ANDed, so two words mean a block containing both.
+
+        **Two modes, and the response says which one answered.** The index is a
+        trigram index, chosen because the corpus is not English: Chinese, Japanese
+        and Thai do not put spaces between words, and a word-boundary tokeniser
+        finds nothing at all inside them. Its cost is that no token shorter than
+        three characters exists in it, so a query where any word is shorter than
+        that is answered by scanning instead — `mode` is then `substring`, and
+        `bm25` and `score` are 0 on every hit because there is no index term to
+        weigh. See `internal/db/migrations/00006_block_search.sql` for the
+        measurements.
+
+        A query matching nothing returns `indexed`, which is how many blocks exist
+        to search at all: "no manual says that" and "nothing has been converted yet"
+        are otherwise the same empty list.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: What to look for, as typed. Whitespace-only is refused rather than answered.
+          schema: { type: string, examples: [Saugkraft] }
+        - name: documentId
+          in: query
+          required: false
+          description: |
+            Narrow to one manual, which is what a reader already inside a document
+            asks. Omitted, the search spans every document, because a household
+            looking for the descaling interval does not know which manual to open.
+
+            An unknown id is a search of nothing rather than a 404: this parameter
+            scopes a search, and answering 404 would turn it into a way to test
+            whether an id exists.
+          schema: { type: string, examples: [doc_01JQ8ZK3M4N5P6R7S8T9V0W1X2] }
+        - name: limit
+          in: query
+          required: false
+          description: 1 to 100. Defaults to 25.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        "200":
+          description: The hits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResults" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
   /health:
     get:
       tags: [system]
@@ -294,6 +360,147 @@ paths:
           description: Already finished (`not_cancellable`)
           $ref: "#/components/responses/Error"
 
+  /documents/{documentID}/gate:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string, examples: [doc_01JQ8ZK3M4N5P6R7S8T9V0W1X2] }
+    get:
+      tags: [documents]
+      summary: The pre-flight question, before anything is spent
+      description: |
+        What manualbox is holding, what it would process, and what that would
+        cost. Built entirely from stored probe results, so it survives a restart,
+        costs nothing to render, and never re-reads the document.
+
+        The rest of the document and device surface is not written up here yet;
+        this path is documented because the gate is the screen a user decides on
+        and its shape is what the SPA reads.
+      responses:
+        "200":
+          description: The gate
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Gate" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /documents/{documentID}/approve:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [documents]
+      summary: Authorise the conversion the gate described
+      description: |
+        The moment the user agrees to spend, and the opposite of `decline`. The
+        document moves to `converting` and a `doc.convert` job is queued; progress
+        arrives on the existing job event stream.
+
+        **There is no request body, and there must not be one.** The scope
+        converted is the household's configured reading languages, which is what the
+        gate showed the user. Accepting a language list here would let the thing
+        approved differ from the thing shown, which is the one promise the funnel
+        makes.
+
+        Refused with `invalid` when there is nothing honest to convert: the document
+        has not been read yet, it is password-protected, it has no text layer and so
+        needs OCR, or none of its languages are ones this household reads. A refusal
+        does not move the document.
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [document]
+                properties:
+                  document: { type: object, description: The document, now in `converting`. }
+                  jobId: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /documents/{documentID}/conversion:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [documents]
+      summary: The readable blocks and the pictures a conversion produced
+      description: |
+        Deliberately not served from `/content`, which is the stored original byte
+        for byte and stays that way — that path is the "own your data" promise at
+        its most literal. Overloading it would mean either content negotiation,
+        which is invisible in a URL so the derived view could not be linked, or a
+        query parameter that silently changes the response from bytes to JSON.
+
+        Figures come back as their own list rather than as blocks of kind `figure`,
+        because a language-neutral picture has no region and so no natural key. A
+        reader merges the two by page and vertical position. Each figure's bytes are
+        at `/documents/{documentID}/figures/{sha256}`.
+      parameters:
+        - name: lang
+          in: query
+          required: false
+          description: |
+            One language, as a BCP-47 tag. Returns that language's blocks together
+            with its own pictures **and every picture belonging to no language** — a
+            reader must not lose a diagram because the diagram has no language of
+            its own.
+
+            Omitting the parameter returns everything stored, which is already only
+            what the household's scope charged for. Passing it empty is a third,
+            real question: the content nothing could name, which no other language's
+            answer contains.
+          schema: { type: string, examples: [de] }
+      responses:
+        "200":
+          description: The conversion
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Conversion" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /documents/{documentID}/figures/{sha256}:
+    parameters:
+      - name: documentID
+        in: path
+        required: true
+        schema: { type: string }
+      - name: sha256
+        in: path
+        required: true
+        description: The figure's digest, as `Figure.sha256` reports it.
+        schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+    get:
+      tags: [documents]
+      summary: One rendered figure's PNG
+      description: |
+        Addressed by digest because the content is the name: the ETag is exact and
+        the bytes are immutable for ever.
+
+        The digest is checked against this document's own figures rather than handed
+        to the blob store directly. The store holds every original anyone has
+        uploaded, so a route that opened any digest a caller named would serve
+        another household's manual to whoever could guess a hash.
+      responses:
+        "200":
+          description: The PNG
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -366,7 +573,7 @@ components:
         kind:
           type: string
           description: What the job does.
-          examples: [convert, ocr, translate, extract]
+          examples: [doc.probe, doc.convert]
         state: { $ref: "#/components/schemas/JobState" }
         priority: { type: integer, description: Higher runs first. }
         progress: { type: number, minimum: 0, maximum: 1 }
@@ -439,6 +646,334 @@ components:
         externalTools:
           type: object
           additionalProperties: { $ref: "#/components/schemas/ExternalTool" }
+
+    LanguageRun:
+      type: object
+      description: |
+        One language as a stored run of pages: what a signal concluded about a
+        contiguous stretch of the document, collapsed to one entry per language.
+      required: [source, code, lang, name, start, end, pages, confidence, conflict]
+      properties:
+        source:
+          type: string
+          enum: ["", page-tag, index, script, repertoire, detector, reconciled]
+          description: Which signal named it. Empty where nothing could.
+        code:
+          type: string
+          description: The label the document itself prints, which need not be a valid tag.
+          examples: [DE, UA, KAZ]
+        lang: { type: string, description: "`code` normalised to BCP-47, empty when it could not be." }
+        name: { type: string, description: English display name., examples: [German] }
+        title: { type: string, description: The section title from the manual's own contents table. }
+        start: { type: integer, description: First 1-based PDF page. 0 means the language could not be placed. }
+        end: { type: integer }
+        pages: { type: integer }
+        printedPage: { type: integer, description: The start page the printed index claims, often 1-2 off. }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        conflict: { type: boolean, description: The signals disagreed. Shown, never silently resolved. }
+        note: { type: string }
+
+    GateLanguage:
+      description: |
+        One of a document's languages as the gate reports it: the stored run, plus
+        what only the region map can say about size.
+
+        Characters lead and pages are context. A language occupying one of three
+        parallel columns on 26 of 68 pages is not 26 pages of reading, and
+        `sharesPages` is what says so. A language the per-page signals never named
+        has no run behind it, and then `title`, `printedPage` and `confidence` are
+        absent or zero because regions store none of them.
+      allOf:
+        - $ref: "#/components/schemas/LanguageRun"
+        - type: object
+          required: [chars, share, sharesPages]
+          properties:
+            chars:
+              type: integer
+              description: Runes, not bytes — the same amount of Cyrillic or CJK writing runs about a third more bytes.
+              examples: [47641]
+            share:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: "`chars` as a fraction of the document's named text."
+            sharesPages:
+              type: boolean
+              description: |
+                This language does not have its pages to itself: somewhere it
+                occupies a box on a page another language also occupies.
+
+    CostEstimate:
+      type: object
+      description: |
+        What the scope would cost. `chars` is measured and always present;
+        `available` stays false while there is no honest token or money figure to
+        give, and `reason` says why.
+      required: [available, chars]
+      properties:
+        available: { type: boolean }
+        chars: { type: integer, description: Characters in scope. The same number as `Gate.scopeChars`. }
+        reason: { type: string }
+
+    Gate:
+      type: object
+      description: |
+        The pre-flight answer for one document.
+
+        The language map is read from the stored regions where there are regions,
+        and from the per-page runs otherwise. On a parallel-columns manual a page
+        holds three languages, so no per-page answer about it can be right; on a
+        sequential manual the two sources agree.
+      required:
+        [documentId, deviceId, kind, state, probed, pages, encrypted, hasTextLayer,
+         medianChars, chars, household, inScope, other, scopePages, scopeFraction,
+         scopeChars, scopeCharFraction, conflicts, unlabelledPages, requiresApproval,
+         maxPagesAuto, cost, summary]
+      properties:
+        documentId: { type: string }
+        deviceId: { type: string }
+        filename: { type: string }
+        kind: { type: string, enum: [manual, receipt, warranty, photo, other] }
+        state: { type: string, enum: [uploaded, probing, awaiting_scope, declined, converting, ready, failed] }
+        probed: { type: boolean }
+        pages: { type: integer }
+        encrypted: { type: boolean }
+        hasTextLayer: { type: boolean, description: False means this is a scan and reading it needs OCR. }
+        medianChars: { type: integer }
+        chars:
+          type: integer
+          description: |
+            The document's named text: the characters of every language something
+            could name, and the denominator of every `share`. Text nothing could
+            name is excluded, so a failed signal cannot silently shrink a share.
+        household:
+          type: array
+          items: { type: string }
+          description: The configured reading languages, echoed back so the UI can explain scope.
+        inScope:
+          type: array
+          items: { $ref: "#/components/schemas/GateLanguage" }
+        other:
+          type: array
+          items: { $ref: "#/components/schemas/GateLanguage" }
+          description: |
+            Present but not read by this household. Listed, never discarded: the
+            original is kept whole, so importing one later is a button rather than
+            a re-upload.
+        scopePages:
+          type: integer
+          description: |
+            Distinct pages carrying an in-scope language, not a sum over
+            languages — on a columns manual a sum reports 133 pages of a 68-page
+            document.
+        scopeFraction: { type: number, description: "`scopePages` over `pages`." }
+        scopeChars: { type: integer }
+        scopeCharFraction:
+          type: number
+          description: |
+            `scopeChars` over `chars`. The honest measure of how much of a
+            document a household reads: on the measured columns manual German is
+            38% by pages and 20% by characters.
+        conflicts:
+          type: integer
+          description: |
+            How many runs the signals disagreed about — the document's own contents
+            table against its pages. A region's disagreement (a column's alphabet
+            against the page's printed tab) is a different thing and reaches the
+            user through `conflict` on the language itself.
+        unlabelledPages:
+          type: integer
+          description: |
+            Content pages carrying text that no signal could name. Front matter and
+            a back cover are excluded: they legitimately belong to no section.
+        requiresApproval: { type: boolean }
+        maxPagesAuto: { type: integer }
+        cost: { $ref: "#/components/schemas/CostEstimate" }
+        summary: { type: string, description: One line, characters-led, for a person to read. }
+
+    Block:
+      type: object
+      description: |
+        One piece of readable content, in document order, with the original's page
+        number kept so a reader can say "page 47" and mean what the paper means.
+
+        Keyed naturally on the document, the page, the region's left edge and the
+        index within that region, so re-converting converges rather than inserting a
+        parallel set — and so extraction has stable block IDs to cite.
+      required: [page, regionX0, index, kind, text, x0, x1, y0, y1, lines, chars]
+      properties:
+        page: { type: integer, description: 1-based PDF page. }
+        regionX0:
+          type: integer
+          description: |
+            The left edge of the language region this block was read from, rounded
+            because it is part of the key. The block's own box is not rounded,
+            because nothing keys on it.
+        index: { type: integer, description: Position within the region, from 0. }
+        kind:
+          type: string
+          enum: [heading, paragraph, list-item, table, figure]
+          description: |
+            `figure` is declared and never produced, deliberately: a
+            language-neutral picture has no region, so a figure block would either
+            invent a key or collide with a real block's. Pictures come back as their
+            own list.
+        level: { type: integer, description: Heading level, 1 for the most prominent. 0 for anything else. }
+        text: { type: string }
+        lang: { type: string, description: The region's language, empty where none was established. }
+        name: { type: string, description: "`lang` for a person to read: German, not de." }
+        x0: { type: number }
+        x1: { type: number }
+        y0: { type: number }
+        y1: { type: number }
+        lines: { type: integer }
+        chars: { type: integer, description: Runes, not bytes. }
+        note: { type: string, description: Why the block was read the way it was, for inspecting a misreading. }
+
+    Figure:
+      type: object
+      description: |
+        One illustration, rendered to PNG.
+
+        There is no language field, and that is the contract rather than an omission:
+        a picture belonging to no language belongs to every language, so a reader
+        scoped to German selects German's own pictures plus every neutral one instead
+        of selecting pictures by language.
+
+        The pictures in a manual are not the images in the file. `pdfimages` yields
+        zero illustrations across all 628 pages of both measured fixtures — every one
+        of them is vector — so a figure is found from what the page draws and its
+        bytes come from rendering the crop.
+      required: [page, index, x0, y0, x1, y1, ink, textFraction, dpi, pixelWidth, pixelHeight, sha256]
+      properties:
+        page: { type: integer }
+        index: { type: integer, description: Position in the page's reading order, from 0. Not a document-wide figure number. }
+        x0: { type: number }
+        y0: { type: number }
+        x1: { type: number }
+        y1: { type: number }
+        ink: { type: integer, description: How many drawn shapes it holds — the shape guard's evidence, kept rather than reduced to the verdict. }
+        textFraction: { type: number, description: How much of its area is covered by text — the text guard's evidence, which is what separates a table from a grid of framed illustrations. }
+        dpi: { type: integer }
+        pixelWidth: { type: integer, description: Read back out of the PNG rather than computed. }
+        pixelHeight: { type: integer }
+        sha256:
+          type: string
+          description: |
+            The blob store's name for the PNG, which is also the PNG's digest. Fetch
+            the bytes at `/documents/{documentID}/figures/{sha256}`.
+
+    Conversion:
+      type: object
+      description: |
+        A document's converted content: the ordered blocks and the pictures.
+      required: [documentId, state, blocks, figures]
+      properties:
+        documentId: { type: string }
+        state:
+          type: string
+          enum: [uploaded, probing, awaiting_scope, declined, converting, ready, failed]
+          description: |
+            Present because no count can distinguish "converted and empty" from "not
+            converted". A document that has not been through the gate has no blocks,
+            and that is not the claim that it has no content.
+        lang: { type: string, description: Echoed back only when the request filtered to one language. }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/Block" }
+        figures:
+          type: array
+          items: { $ref: "#/components/schemas/Figure" }
+        folioOffset:
+          type: integer
+          description: |
+            How far this document's PDF pages run ahead of the numbers printed on its
+            paper: the PDF page for a printed page number is `printed + folioOffset`.
+            One constant for the whole document, derived from the pages that print a
+            folio by taking the offset a clear majority of them agree on.
+
+            OMITTED when they agree on no such offset, which is a different answer
+            from zero and must not be read as it: a manual whose page 1 is its cover
+            really does have offset 0, and a client defaulting the missing field to 0
+            would turn every contents entry of an unmappable document into a link to
+            the wrong page.
+        lastError: { type: string, description: Why the conversion failed, when `state` is `failed`. }
+
+    SearchResults:
+      type: object
+      description: The hits, plus what was actually asked and how it was answered.
+      required: [query, mode, limit, truncated, hits]
+      properties:
+        query: { type: string, description: The text as typed, echoed so a client need not keep its own copy in step. }
+        mode:
+          type: string
+          enum: [index, substring]
+          description: |
+            Which path answered. `index` is the FTS5 trigram index with bm25 ranking.
+            `substring` is the scan that covers a query the index cannot represent —
+            one where some word is shorter than three characters — and it does not
+            rank.
+        limit: { type: integer, description: The limit applied, after clamping to 100. }
+        truncated:
+          type: boolean
+          description: |
+            The limit cut the list off, which is the difference between "these are
+            the hits" and "these are the first hits".
+        hits:
+          type: array
+          items: { $ref: "#/components/schemas/SearchHit" }
+        indexed:
+          type: integer
+          description: |
+            How many blocks exist to search. Present **only** when nothing matched,
+            because that is when "no manual says that" and "nothing has been
+            converted yet" are otherwise indistinguishable.
+
+    SearchHit:
+      type: object
+      description: |
+        One match. `page`, `regionX0` and `index` are the block's natural key — the
+        same citation `Block` carries — so a hit can be deep-linked to the exact
+        paragraph and still points there after a re-conversion.
+      required: [documentId, deviceId, deviceName, state, page, regionX0, index, kind, snippet, chars, bm25, score]
+      properties:
+        documentId: { type: string }
+        filename: { type: string, description: What the uploaded file was called. Half of "which manual". }
+        deviceId: { type: string }
+        deviceName: { type: string, description: The other half. A household recognises the device, not the id. }
+        state:
+          type: string
+          enum: [uploaded, probing, awaiting_scope, declined, converting, ready, failed]
+          description: The document's pipeline state, so a hit from a manual that is mid-re-conversion is visible as such.
+        page: { type: integer, description: 1-based PDF page, the number the paper means. }
+        regionX0: { type: integer }
+        index: { type: integer }
+        kind:
+          type: string
+          enum: [heading, paragraph, list-item, table, figure]
+        level: { type: integer }
+        lang: { type: string }
+        name: { type: string, description: "`lang` for a person to read: Japanese, not ja." }
+        snippet:
+          type: string
+          description: |
+            About 64 characters of the block around the match — enough to recognise.
+            `chars` is the whole block's length, so a client can tell a snippet from
+            a complete block and fetch the rest from
+            `/documents/{documentID}/conversion`.
+        chars: { type: integer, description: The block's full length in runes, not bytes. }
+        bm25:
+          type: number
+          description: |
+            FTS5's own relevance, negative and lower-is-better. 0 in `substring`
+            mode, where there is no index term to weigh.
+        score:
+          type: number
+          description: |
+            What the results are ordered by: `bm25` minus 1.0 for a heading. The
+            heading bonus is a judgement — a heading names a section and so answers
+            "where does it say this" better than a passing mention — and both numbers
+            are reported so it can be argued with rather than merely trusted.
 
 security:
   - sessionCookie: []

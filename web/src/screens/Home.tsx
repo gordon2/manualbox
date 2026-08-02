@@ -1,13 +1,50 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, subscribeToJobs } from "../api/client";
-import type { Instance, Job, JobState, User } from "../api/types";
-import { Button, Card, Wordmark } from "../ui";
+import type { Device, Doc, Instance, Job, JobState, SearchHit, User } from "../api/types";
+import { Alert, Button, Card, Wordmark } from "../ui";
+import { DeviceDetail } from "./DeviceDetail";
+import { Devices } from "./Devices";
+import { Reader, readerLanguages, type ReaderLanguage } from "./Reader";
+import { SearchBox, SearchHits } from "./Search";
+
+/**
+ * What the reader is showing, and what it goes back to.
+ *
+ * `backTo` is carried rather than derived, because the reader is now reached two ways:
+ * from a device, and from a search hit that may belong to a device that is not open.
+ * A back link reading "← Wet and dry vacuum" that returned to a list of search results
+ * would be a lie about where it goes.
+ */
+interface Reading {
+  doc: Doc;
+  languages: ReaderLanguage[];
+  backTo: string;
+  startLang?: string | undefined;
+  startPage?: number | undefined;
+}
 
 export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => void }) {
   const [instance, setInstance] = useState<Instance | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [streamLive, setStreamLive] = useState(false);
+  // Navigation is a single piece of state rather than a router: there are two
+  // screens, and a dependency to move between them would not earn its place yet.
+  const [openDevice, setOpenDevice] = useState<Device | null>(null);
+  // The reader is the third, and it is deliberately held here rather than inside
+  // DeviceDetail: it takes the whole page, including the space the activity list
+  // occupies, and a screen cannot hide its own parent's sections. Closing it falls
+  // back to the device that is still open underneath.
+  const [reading, setReading] = useState<Reading | null>(null);
+  // A submitted query, which is the fourth screen. It sits above the device list
+  // rather than replacing it in the same slot, because search spans the household:
+  // "which manual says X" is asked by someone who does not know which device to open,
+  // so it cannot live inside one.
+  const [query, setQuery] = useState("");
+  // Following a hit needs the document and its languages, neither of which is in the
+  // hit, so it is two requests and can fail while the user waits.
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   const reloadJobs = useCallback(async () => {
     try {
@@ -41,6 +78,42 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
     };
   }, [reloadJobs]);
 
+  /**
+   * Take a hit to the page it names.
+   *
+   * A hit carries the ids but not the document itself, and the reader needs the
+   * document for its title and page count and the gate for the languages it may ask
+   * for — the same list DeviceDetail hands it. Both are fetched here rather than
+   * joined into the search response, which docs/design/search.md keeps deliberately
+   * flat.
+   */
+  async function openHit(hit: SearchHit) {
+    setOpening(hit.documentId);
+    setOpenError(null);
+    try {
+      const [{ documents }, gate] = await Promise.all([
+        api.documents(hit.deviceId),
+        api.documentGate(hit.documentId),
+      ]);
+      const doc = documents.find((candidate) => candidate.id === hit.documentId);
+      if (!doc) {
+        setOpenError("That manual is no longer there. Search again to see what is.");
+        return;
+      }
+      setReading({
+        doc,
+        languages: readerLanguages(gate),
+        backTo: `Results for “${query}”`,
+        startLang: hit.lang,
+        startPage: hit.page,
+      });
+    } catch (cause) {
+      setOpenError(cause instanceof ApiError ? cause.message : "Could not open that manual.");
+    } finally {
+      setOpening(null);
+    }
+  }
+
   async function signOut() {
     try {
       await api.logout();
@@ -66,41 +139,65 @@ export function Home({ user, onSignedOut }: { user: User; onSignedOut: () => voi
       </header>
 
       <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
-        <section>
-          <h1 className="font-display text-2xl text-ink">Milestone 0</h1>
-          <p className="mt-2 max-w-prose text-[15px] leading-relaxed text-ink-soft">
-            Authentication, the database, the blob store, and the background job queue are working.
-            Adding devices and manuals arrives with the next milestone — this page exists to prove
-            the stack end to end, including live job progress over a server-sent event stream.
-          </p>
-        </section>
+        {reading ? (
+          <Reader
+            doc={reading.doc}
+            backTo={reading.backTo}
+            languages={reading.languages}
+            startLang={reading.startLang}
+            startPage={reading.startPage}
+            onBack={() => setReading(null)}
+          />
+        ) : (
+          <>
+            <section className="space-y-3">
+              <SearchBox query={query} onSearch={setQuery} />
+              {openError ? <Alert>{openError}</Alert> : null}
+              {query ? <SearchHits query={query} onOpen={openHit} opening={opening} /> : null}
+            </section>
 
-        {instance ? <Capabilities instance={instance} /> : null}
-
-        <section>
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-lg text-ink">Activity</h2>
-            <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-              <span
-                aria-hidden
-                className={`inline-block size-1.5 rounded-full ${streamLive ? "bg-accent" : "bg-ink-faint"}`}
+            {/* A query takes over the page. The library is still one click away — the
+                box empties — and leaving the device list under 25 hits would bury it
+                and the activity list both. */}
+            {query ? null : openDevice ? (
+              <DeviceDetail
+                device={openDevice}
+                onBack={() => setOpenDevice(null)}
+                onRead={(doc, languages) => setReading({ doc, languages, backTo: openDevice.name })}
               />
-              {streamLive ? "live" : "reconnecting"}
-            </span>
-          </div>
+            ) : (
+              <>
+                <Devices onOpen={setOpenDevice} />
+                {instance ? <Capabilities instance={instance} /> : null}
+              </>
+            )}
 
-          {jobs.length === 0 ? (
-            <Card className="mt-3 px-4 py-8 text-center text-sm text-ink-faint">
-              No background jobs yet.
-            </Card>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {jobs.map((job) => (
-                <JobRow key={job.id} job={job} onChanged={reloadJobs} />
-              ))}
-            </ul>
-          )}
-        </section>
+            <section className={query ? "hidden" : undefined}>
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-display text-lg text-ink">Activity</h2>
+                <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+                  <span
+                    aria-hidden
+                    className={`inline-block size-1.5 rounded-full ${streamLive ? "bg-accent" : "bg-ink-faint"}`}
+                  />
+                  {streamLive ? "live" : "reconnecting"}
+                </span>
+              </div>
+
+              {jobs.length === 0 ? (
+                <Card className="mt-3 px-4 py-8 text-center text-sm text-ink-faint">
+                  No background jobs yet.
+                </Card>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {jobs.map((job) => (
+                    <JobRow key={job.id} job={job} onChanged={reloadJobs} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
       </main>
     </div>
   );

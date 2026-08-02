@@ -129,6 +129,25 @@ func (p *Pool) Run(ctx context.Context) error {
 	return nil
 }
 
+// RunOnce claims and runs a single job, reporting whether there was one to run.
+//
+// It exists so a caller can drive the queue deterministically instead of starting
+// workers and waiting for them, which is what makes pipeline tests assert on a
+// finished job rather than on a timeout. It goes through the same claim, lease and
+// completion path as a real worker, so what it exercises is the real thing —
+// including that a handler is idempotent when the job is run again.
+func (p *Pool) RunOnce(ctx context.Context) (bool, error) {
+	job, err := p.claim(ctx, "run-once")
+	if err != nil {
+		return false, err
+	}
+	if job == nil {
+		return false, nil
+	}
+	p.execute(ctx, p.log, job)
+	return true, nil
+}
+
 // worker claims and runs jobs until ctx is cancelled.
 func (p *Pool) worker(ctx context.Context, name string) {
 	log := p.log.With("worker", name)

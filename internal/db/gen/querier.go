@@ -23,21 +23,77 @@ type Querier interface {
 	// hard still burns an attempt and a poison job cannot be retried forever.
 	ClaimNextJob(ctx context.Context, arg ClaimNextJobParams) (Job, error)
 	CompleteJob(ctx context.Context, arg CompleteJobParams) error
+	CountDevices(ctx context.Context) (int64, error)
+	CountDocLangConflicts(ctx context.Context, arg CountDocLangConflictsParams) (int64, error)
+	// How many pages the document holds in each resolved language. The CAST is
+	// required: without it sqlc infers interface{} for the aggregate.
+	CountDocPagesByLang(ctx context.Context, documentID string) ([]CountDocPagesByLangRow, error)
+	CountDocPagesWithText(ctx context.Context, documentID string) (int64, error)
+	CountDocuments(ctx context.Context) (int64, error)
+	// Used to decide whether a blob is still referenced before deleting it, since
+	// two devices can legitimately share one uploaded file.
+	CountDocumentsForBlob(ctx context.Context, blobSha256 string) (int64, error)
 	CountJobsByState(ctx context.Context) ([]CountJobsByStateRow, error)
+	CountLocations(ctx context.Context) (int64, error)
+	// How many blocks are indexed at all, so a caller can tell "nothing matched" from
+	// "nothing has been converted yet". Wrapped in CAST(... AS INTEGER) for the reason
+	// every other aggregate in these files is: without it sqlc cannot infer an
+	// aggregate's type in SQLite and emits interface{}.
+	CountSearchableBlocks(ctx context.Context) (int64, error)
 	// CountUsers backs the first-run check: zero users means setup has not happened.
 	CountUsers(ctx context.Context) (int64, error)
+	CreateDevice(ctx context.Context, arg CreateDeviceParams) (Device, error)
+	// Uploading the same bytes against the same device twice is the same document,
+	// enforced by documents_device_blob_idx. DO NOTHING plus a follow-up lookup makes
+	// the upload handler idempotent without the caller having to check first.
+	CreateDocument(ctx context.Context, arg CreateDocumentParams) (int64, error)
+	CreateLocation(ctx context.Context, arg CreateLocationParams) (Location, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteBlob(ctx context.Context, sha256 string) error
+	DeleteDevice(ctx context.Context, id string) error
+	// Replacing a document's blocks wholesale is how a re-conversion stays honest,
+	// and it is required rather than merely tidy: a region that converted to 12
+	// blocks and now converts to 9 would otherwise keep rows at idx 9, 10 and 11,
+	// which a reader renders as three paragraphs of the previous run's text.
+	DeleteDocBlocks(ctx context.Context, documentID string) error
+	DeleteDocFigures(ctx context.Context, documentID string) error
+	DeleteDocLangs(ctx context.Context, documentID string) error
+	// Replacing one signal's view wholesale is how a re-probe stays honest: a run
+	// that no longer exists must disappear rather than linger from the previous
+	// attempt. Scoped to one source so the other signals' rows survive.
+	DeleteDocLangsBySource(ctx context.Context, arg DeleteDocLangsBySourceParams) error
+	DeleteDocPages(ctx context.Context, documentID string) error
+	// Replacing a document's regions wholesale is how a re-probe stays honest, and it
+	// is required rather than merely tidy: a region whose attribution changed is a new
+	// row under this key, so without the delete the superseded one lingers and the
+	// page reports itself twice.
+	DeleteDocRegions(ctx context.Context, documentID string) error
+	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) (int64, error)
 	// DeleteFinishedJobsBefore keeps the activity history from growing without bound.
 	DeleteFinishedJobsBefore(ctx context.Context, finishedAt *int64) (int64, error)
+	DeleteLocation(ctx context.Context, id string) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionByToken(ctx context.Context, tokenHash []byte) error
 	DeleteSetting(ctx context.Context, key string) error
 	DeleteUser(ctx context.Context, id string) error
 	// DeleteUserSessions logs a user out everywhere, used after a password change.
 	DeleteUserSessions(ctx context.Context, userID string) error
+	// How far each page's PDF number runs ahead of the number printed on the paper,
+	// as a histogram over the pages that print one at all.
+	//
+	// This is derived on read rather than stored, because doc_pages already holds the
+	// whole answer and a stored copy could only go stale against it: the folio is
+	// re-read on every probe, so a change to how it is read must move this number in
+	// the same breath. It is one small grouped scan per document over rows the probe
+	// already wrote, asked once when a conversion is served, not per block or per page.
+	//
+	// The caller decides which row to believe -- see registry.FolioOffset -- so the
+	// whole histogram comes back rather than just its first row. The CASTs are
+	// required: without them sqlc infers interface{} for both columns. "offset" is a
+	// SQL keyword, hence the name.
+	DocPageFolioOffsets(ctx context.Context, documentID string) ([]DocPageFolioOffsetsRow, error)
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) (Job, error)
 	// ExtendLease is the heartbeat for long-running work: translating an eighty-page
 	// manual can outlast any sensible lease, so a live worker renews it rather than
@@ -46,7 +102,12 @@ type Querier interface {
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
 	FailJob(ctx context.Context, arg FailJobParams) error
 	GetBlob(ctx context.Context, sha256 string) (Blob, error)
+	GetDevice(ctx context.Context, id string) (Device, error)
+	GetDocPage(ctx context.Context, arg GetDocPageParams) (DocPage, error)
+	GetDocument(ctx context.Context, id string) (Document, error)
+	GetDocumentByDeviceAndBlob(ctx context.Context, arg GetDocumentByDeviceAndBlobParams) (Document, error)
 	GetJob(ctx context.Context, id string) (Job, error)
+	GetLocation(ctx context.Context, id string) (Location, error)
 	// GetPendingJobByDedupeKey finds the job currently holding a dedupe key, so a
 	// rejected duplicate insert can return the existing job instead of an error.
 	GetPendingJobByDedupeKey(ctx context.Context, dedupeKey *string) (Job, error)
@@ -60,11 +121,42 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, emailFolded string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	ListActiveJobs(ctx context.Context) ([]Job, error)
+	ListDevices(ctx context.Context) ([]Device, error)
+	// Filtering by location is a separate query rather than a nullable parameter on
+	// ListDevices. CONTRIBUTING.md: an "IS NULL OR =" filter defeats sqlc's type
+	// inference and reads worse than two explicit queries.
+	ListDevicesByLocation(ctx context.Context, locationID *string) ([]Device, error)
+	// Reading order across the whole document: down the pages, then left to right
+	// across each, then in order within a region. A whole-page region sorts first on
+	// its page because its region_x0 is 0.
+	ListDocBlocks(ctx context.Context, documentID string) ([]DocBlock, error)
+	// The funnel's own query: one household's language, and nothing else. A German
+	// reader of the columns manual gets the German column of each page rather than
+	// the page, which conversion.md measures as a fifth of the work.
+	//
+	// Blocks whose language was never established have lang = '' and are therefore
+	// NOT returned by any language's query. That is deliberate rather than an
+	// oversight: passing '' asks for exactly those, which is how the unnamed content
+	// of a document stays reachable instead of becoming invisible.
+	ListDocBlocksByLang(ctx context.Context, arg ListDocBlocksByLangParams) ([]DocBlock, error)
+	ListDocBlocksForPage(ctx context.Context, arg ListDocBlocksForPageParams) ([]DocBlock, error)
+	ListDocFigures(ctx context.Context, documentID string) ([]DocFigure, error)
+	ListDocFiguresForPage(ctx context.Context, arg ListDocFiguresForPageParams) ([]DocFigure, error)
+	ListDocLangs(ctx context.Context, documentID string) ([]DocLang, error)
+	ListDocLangsBySource(ctx context.Context, arg ListDocLangsBySourceParams) ([]DocLang, error)
+	ListDocPages(ctx context.Context, documentID string) ([]DocPage, error)
+	// Reading order: down the page, then left to right across it. A whole-page region
+	// sorts first on its page because it begins at x0 = 0.
+	ListDocRegions(ctx context.Context, documentID string) ([]DocRegion, error)
+	ListDocRegionsForPage(ctx context.Context, arg ListDocRegionsForPageParams) ([]DocRegion, error)
+	ListDocumentsByState(ctx context.Context, state string) ([]Document, error)
+	ListDocumentsForDevice(ctx context.Context, deviceID string) ([]Document, error)
 	// Two separate queries rather than one with an optional filter: sqlc cannot infer
 	// the type of a nullable parameter in an "IS NULL OR =" clause and degrades the
 	// parameter to interface{}, pushing a type assertion onto the caller.
 	ListJobs(ctx context.Context, limit int64) ([]Job, error)
 	ListJobsByState(ctx context.Context, arg ListJobsByStateParams) ([]Job, error)
+	ListLocations(ctx context.Context) ([]Location, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -72,6 +164,10 @@ type Querier interface {
 	// makes the queue crash-safe: a killed process loses no work, it is simply
 	// picked up again once the lease lapses.
 	ReclaimExpiredLeases(ctx context.Context, arg ReclaimExpiredLeasesParams) (int64, error)
+	// Records everything stages 0 and 1 discovered, in one statement. Writing the
+	// probe result and the new state together keeps a crash from leaving a document
+	// that claims to be probed but has no page count.
+	RecordDocumentProbe(ctx context.Context, arg RecordDocumentProbeParams) error
 	RecordJobUsage(ctx context.Context, arg RecordJobUsageParams) error
 	// ReleaseJob returns a job to the queue without counting the attempt, used when a
 	// worker is shutting down rather than failing. Without the decrement, every
@@ -80,18 +176,206 @@ type Querier interface {
 	ReleaseJob(ctx context.Context, arg ReleaseJobParams) error
 	// RetryJob returns a failed attempt to the queue with a backoff delay.
 	RetryJob(ctx context.Context, arg RetryJobParams) error
+	// Queries over doc_blocks_fts: which manual says X, and where. See
+	// 00006_block_search.sql for the index's reasoning and the measurement behind the
+	// tokeniser, and docs/design/search.md for the contract.
+	//
+	// THIS FILE MUST STAY PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
+	// mixes up character and byte offsets when it cuts statements out of a file, so
+	// one non-ASCII character anywhere above corrupts every statement after it --
+	// silently in the dangerous case: `make sqlc` exits 0, the Go compiles, the
+	// linter passes, and the statement fails at PREPARE time inside a request. The
+	// full measurement is in the header of docregions.sql; TestQueryFilesAreASCII is
+	// the cause-side guard and TestSearchQueriesExecute the symptom-side one.
+	//
+	// TWO THINGS SQLC CANNOT PARSE, BOTH LEARNED HERE AND BOTH LOAD-BEARING.
+	//
+	// 1. `WHERE doc_blocks_fts MATCH ?` -- the documented FTS5 form, where the left
+	//    side is the table's own hidden column -- fails generation with `column
+	//    "doc_blocks_fts" does not exist`, because sqlc models the virtual table as
+	//    its declared columns only. `doc_blocks_fts.text MATCH ?` generates and is
+	//    the same query: text is the only indexed column, so a column-scoped match
+	//    over it covers the whole index. Verified against a real database rather than
+	//    assumed, in TestSearchQueriesExecute.
+	//
+	// 2. `AS rank` fails generation with `mismatched input 'rank'`, so the ordering
+	//    column is named `score`. That is a happy accident: `rank` is also FTS5's own
+	//    magic column, and a result column of that name reads as if it were that.
+	//
+	// Columns are listed explicitly rather than with SELECT *, so that adding a
+	// column later cannot silently change every caller's row shape.
+	//
+	// WHY EVERY QUERY JOINS documents AND devices. A hit has to say WHICH manual, not
+	// merely that something matched: README's first problem is that the paper pile is
+	// unsearchable, and "page 47 of something" does not solve it. The filename and the
+	// device's name are what a household recognises, and they cost one join each
+	// against a primary key.
+	//
+	// WHY THE HEADING BONUS IS 1.0. bm25 is negative and lower is better, so the
+	// bonus is subtracted. Measured on both real manuals: within one query bm25 spans
+	// about -9 to -2, and adjacent hits differ by 0.05 to 0.5, so 1.0 moves a heading
+	// past hits of comparable quality without overturning a decisively better one. On
+	// "Filter" in the column manual it lifts the maintenance heading "Ausblasfilter
+	// austauschen" over the parts-list fragments ("1. Filter", "13. Filter") that
+	// bm25's short-document bias otherwise puts first; on "Saugkraft" the
+	// troubleshooting cell "Saugkraft ist zu gering" at -8.5 stays first, which is
+	// right. Both numbers are returned, so the judgement can be argued with rather
+	// than merely trusted.
+	SearchBlocks(ctx context.Context, arg SearchBlocksParams) ([]SearchBlocksRow, error)
+	// The same question narrowed to one manual, which is what a reader already inside
+	// a document asks. A separate statement rather than an optional parameter, because
+	// sqlc has no optional parameters and `b.document_id = ? OR ? = ''` would put the
+	// widest query in the household on the sentinel path.
+	SearchBlocksInDocument(ctx context.Context, arg SearchBlocksInDocumentParams) ([]SearchBlocksInDocumentRow, error)
+	// THE HOLE THE TOKENISER LEAVES, AND WHAT FILLS IT.
+	//
+	// A trigram index holds no token shorter than three characters, so a query of one
+	// or two characters matches nothing at all -- not "fewer results", none. That is
+	// tolerable in German and Russian, where a two-letter query is not a word anyone
+	// searches for, and it is not tolerable in Chinese or Japanese, where two
+	// characters is an ordinary word: measured on the sequential manual, the two
+	// characters for "power" occur in 27 stored blocks and those for "product" in 24,
+	// and the index finds 0 of each.
+	//
+	// So a query the index cannot represent is answered by scanning instead. Measured
+	// over the 3,122 blocks of both real manuals: 1.9 ms for a two-character Japanese
+	// query, against 0.2 ms for the same question through the index. A household's
+	// whole library is a small multiple of that corpus, so the scan stays inside a
+	// request rather than becoming a job.
+	//
+	// instr rather than LIKE, because `%` and `_` in a user's query are LIKE wildcards
+	// and a search box must not have a pattern language. lower() on both sides is
+	// SQLite's own, which folds ASCII and nothing else -- exact for the CJK queries
+	// this path exists for, and case-sensitive for a two-letter Cyrillic one, which is
+	// the honest limit of a scan that must not build an index to fix.
+	//
+	// There is no bm25 here because there is no index term to weigh, so score is 0 on
+	// every row and the order is the heading rule followed by reading order. A caller
+	// tells the two paths apart by the mode the API reports, not by inferring it from
+	// the numbers.
+	SearchBlocksSubstring(ctx context.Context, arg SearchBlocksSubstringParams) ([]SearchBlocksSubstringRow, error)
+	SearchBlocksSubstringInDocument(ctx context.Context, arg SearchBlocksSubstringInDocumentParams) ([]SearchBlocksSubstringInDocumentRow, error)
+	SetDocumentState(ctx context.Context, arg SetDocumentStateParams) error
 	SetSetting(ctx context.Context, arg SetSettingParams) error
+	// What a conversion cost and covered, for the pipeline to report without reading
+	// every block back. Every aggregate is wrapped in CAST(... AS INTEGER): without
+	// it sqlc cannot infer an aggregate's type in SQLite and emits interface{},
+	// pushing a type assertion onto every caller.
+	SummarizeDocBlocks(ctx context.Context, documentID string) ([]SummarizeDocBlocksRow, error)
+	// The language map as shown to the user: one row per language in the reconciled
+	// view, with its page total and whether any of its runs are disputed.
+	//
+	// A run with pdf_start = 0 named a language it could not place, so it covers no
+	// pages at all. Counting its span reported a language the printed index merely
+	// mentioned as a one-page section.
+	SummarizeDocLangs(ctx context.Context, arg SummarizeDocLangsParams) ([]SummarizeDocLangsRow, error)
+	// The region map as shown to the user: one row per language label, with the
+	// characters and runs it holds, how many pages it appears on, and whether any of
+	// its regions are disputed.
+	//
+	// Characters rather than pages is the point, because a page holding three
+	// languages is not a unit of size; pages are still what a reader is shown, so both
+	// are reported. Every aggregate is wrapped in CAST(... AS INTEGER): without it
+	// sqlc cannot infer the type and emits interface{}, pushing a type assertion onto
+	// every caller.
+	SummarizeDocRegions(ctx context.Context, documentID string) ([]SummarizeDocRegionsRow, error)
 	// The CAST is load-bearing: without it sqlc cannot infer the type of an
 	// aggregate in SQLite and generates interface{}, pushing a type assertion onto
 	// every caller. Wrap aggregates in CAST(... AS INTEGER) throughout.
 	TotalBlobBytes(ctx context.Context) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	TouchUserLogin(ctx context.Context, arg TouchUserLoginParams) error
+	UpdateDevice(ctx context.Context, arg UpdateDeviceParams) (Device, error)
 	UpdateJobProgress(ctx context.Context, arg UpdateJobProgressParams) error
+	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (Location, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	// Blobs are content-addressed, so re-adding identical bytes is a no-op rather
 	// than a conflict. That is what makes uploading the same manual twice cheap.
 	UpsertBlob(ctx context.Context, arg UpsertBlobParams) error
+	// Queries over doc_blocks and doc_figures: what a conversion produced. See
+	// 00005_doc_blocks.sql for the schema's reasoning and docs/design/conversion.md
+	// for the contract.
+	//
+	// THIS FILE MUST STAY PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
+	// (pinned in tools/go.mod) mixes up character and byte offsets when it cuts
+	// statements out of a file, so one non-ASCII character anywhere above corrupts
+	// every statement after it -- silently, in the dangerous case: `make sqlc` exits
+	// 0, the Go compiles, the linter passes, and the statement fails at PREPARE time
+	// inside a background job against a user's database. The full measurement is in
+	// the header of docregions.sql; TestQueryFilesAreASCII is the cause-side guard
+	// and TestDocBlockQueriesExecute the symptom-side one.
+	//
+	// Columns are listed explicitly rather than with SELECT *, so that adding a
+	// column later cannot silently change every caller's row shape.
+	// Upsert on the natural key (document_id, page, region_x0, idx), because a
+	// conversion job may run twice and must converge on the same rows rather than
+	// duplicating them.
+	//
+	// Every non-key column is updated, kind and lang included. Nothing about a
+	// block's classification is in the key, so a paragraph that a better heading rule
+	// promotes to a heading is the same block updated in place -- see the note above
+	// the primary key in 00005_doc_blocks.sql.
+	//
+	// This is belt and braces beside the delete SaveConversion does first, and it
+	// cannot be the whole story: a re-conversion that produces FEWER blocks in a
+	// region would otherwise leave the tail of the previous run behind at higher
+	// indices, where it reads as content.
+	UpsertDocBlock(ctx context.Context, arg UpsertDocBlockParams) error
+	// Upsert on (document_id, page, idx). A figure has no region and no language in
+	// its key, because conversion.md settles that a picture belonging to no language
+	// belongs to every language.
+	UpsertDocFigure(ctx context.Context, arg UpsertDocFigureParams) error
+	UpsertDocLang(ctx context.Context, arg UpsertDocLangParams) error
+	// Upsert on the natural key, because a probe job may run twice and must converge
+	// on the same rows rather than duplicating them.
+	UpsertDocPage(ctx context.Context, arg UpsertDocPageParams) error
+	// Queries over doc_regions: one language's territory on a page. See
+	// 00004_doc_regions.sql for the schema's reasoning and docs/design/regions.md for
+	// the contract.
+	//
+	// TWO RULES FOR THIS FILE, BOTH LEARNED THE HARD WAY WHILE WRITING IT.
+	//
+	// 1. KEEP THIS FILE PURE ASCII. No em-dashes, no curly quotes. sqlc v1.31.1
+	//    (pinned in tools/go.mod) mixes up character and byte offsets when it cuts
+	//    statements out of a file, so a single non-ASCII character anywhere earlier
+	//    corrupts every statement after it. What is measured is the rule, not the
+	//    internals: the damage equals the extra bytes those characters occupy, one
+	//    character of SQL lost per extra byte.
+	//
+	//    Two shapes were observed, and the quiet one is the dangerous one. With
+	//    em-dashes in a comment above, "ORDER BY first_page, code" generated as
+	//    "ORDER BY first_page, co" for one and "ORDER BY first_pa" for four -- clean
+	//    Go, broken SQL. With em-dashes placed differently, sqlc instead garbled a
+	//    statement badly enough to fail its own parser, printing tokens like
+	//    "SELdocument_id" and exiting noisily. Which of the two you get depends on
+	//    where the character sits, so neither a clean run nor a loud failure tells
+	//    you the file is safe. Only ASCII does.
+	//
+	//    The direction of sqlc's own mismatch is deliberately not asserted here. It
+	//    was not read out of sqlc's source, and the two published guesses point
+	//    opposite ways -- byte offsets applied to characters would overshoot a
+	//    statement's end rather than cut it short, which is not what happens. The
+	//    rule above is what was measured and is what protects this file.
+	//
+	//    This is the worst failure shape available: `make sqlc` exits 0, the generated
+	//    Go compiles, the linter is happy, and the statement fails at PREPARE time
+	//    inside a background job against a user's database. All ten pre-existing query
+	//    files happen to be pure ASCII, which is the only reason this had not bitten
+	//    anyone yet. That was checked rather than assumed: 0 non-ASCII bytes across
+	//    every one of them. TestDocRegionQueriesExecute in internal/db is the guard;
+	//    it runs every statement below against a real migrated database, so a mangled
+	//    one cannot reach a user.
+	//
+	// 2. Columns are listed explicitly rather than with SELECT *, so that adding a
+	//    column to doc_regions later cannot silently change every caller's row shape.
+	// Upsert on the natural key (document_id, source, page, x0), because a probe job
+	// may run twice and must converge on the same rows rather than duplicating them.
+	//
+	// This is belt and braces beside the delete that SaveProbe does first, and it
+	// cannot be the whole story: source is part of the key and a region's source can
+	// change between probes, so an upsert alone would leave the superseded row behind
+	// at the same x0. The note at the foot of 00004_doc_regions.sql explains why.
+	UpsertDocRegion(ctx context.Context, arg UpsertDocRegionParams) error
 }
 
 var _ Querier = (*Queries)(nil)

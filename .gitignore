@@ -20,6 +20,16 @@ config.local.yaml
 /web/node_modules/
 /web/dist/
 /web/.vite/
+# Where `vite build --ssr reader-check.tsx` and `search-check.tsx` put their
+# bundles. Both render a screen to HTML on the command line, which is what a
+# headless browser is then pointed at to take a screenshot of an authenticated page.
+/web/.reader-check/
+/web/.search-check/
+# Where `vite build --config folio-browser-check.vite.ts` puts its bundle. Unlike
+# the two above this one is a whole page a browser opens directly, with a real
+# document's conversion JSON compiled into it — which is the other reason it is
+# never committed.
+/web/.folio-check*/
 *.tsbuildinfo
 
 # go
@@ -37,6 +47,11 @@ coverage.html
 # scratch
 /tmp/
 /scratch/
+
+# Agent worktrees. Root-anchored for the same reason as /manualbox above: these
+# are checkouts of this repository, and `git add -A` will otherwise stage one as
+# an embedded repository.
+/.claude/worktrees/
 
 # Vite builds the SPA into internal/frontend/dist/app so it can be go:embed-ed.
 # It writes into the app/ subdirectory rather than dist/ itself because Vite's
